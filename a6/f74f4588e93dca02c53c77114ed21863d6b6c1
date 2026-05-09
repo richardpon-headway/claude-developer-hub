@@ -1,0 +1,78 @@
+backend/app/services/iterm_supervisor.py
+  s_ba9084d0a1d9fb::t_acad81446e15cb 1-16
+CODE_OF_CONDUCT.md
+  s_ba9084d0a1d9fb::t_c972f6f5c0fdfa 1-16
+frontend/src/test-setup.ts
+  s_ba9084d0a1d9fb::t_99f7d22121c322 1-7
+frontend/tsconfig.app.json
+  s_ba9084d0a1d9fb::t_029b4951305ce4 1-21
+frontend/index.html
+  s_ba9084d0a1d9fb::t_30632dde602521 1-12
+SECURITY.md
+  s_ba9084d0a1d9fb::t_65e7139b5f3986 1-45
+.github/PULL_REQUEST_TEMPLATE.md
+  s_ba9084d0a1d9fb::t_891a2f9ffd1450 1-18
+frontend/package.json
+  s_ba9084d0a1d9fb::t_e5097b83941b93 1-35
+backend/tests/test_health.py
+  s_ba9084d0a1d9fb::t_c1c754d9a3446d 1-10
+frontend/src/routes/__root.tsx
+  s_ba9084d0a1d9fb::t_db5408ea679456 1-13
+backend/app/sse.py
+  s_ba9084d0a1d9fb::t_be5490d37b4adb 1-5
+mise.toml
+  s_ba9084d0a1d9fb::t_1ea5a142453c15 1-5
+CONTRIBUTING.md
+  s_ba9084d0a1d9fb::t_00a165b2430649 1-46
+backend/app/db.py
+  s_ba9084d0a1d9fb::t_b34feef8acc269 1-15
+frontend/vite.config.ts
+  s_ba9084d0a1d9fb::t_32013fc4392365 1-24
+backend/app/main.py
+  s_ba9084d0a1d9fb::t_24778c396fee9a 1-48
+README.md
+  s_ba9084d0a1d9fb::t_55bf286f8a9920 1-141
+frontend/tsconfig.json
+  s_ba9084d0a1d9fb::t_41c91d54f36afe 1-7
+LICENSE
+  s_ba9084d0a1d9fb::t_3981214b518141 1-21
+.github/ISSUE_TEMPLATE/bug_report.md
+  s_ba9084d0a1d9fb::t_eb997fc11e9907 1-32
+frontend/src/routes/index.tsx
+  s_ba9084d0a1d9fb::t_84b026ef25fc58 1-16
+frontend/src/styles.css
+  s_ba9084d0a1d9fb::t_7c2b797ae039e9 1-11
+backend/pyproject.toml
+  s_ba9084d0a1d9fb::t_9a9c8457a416ea 1-43
+.gitignore
+  s_ba9084d0a1d9fb::t_3dad44a89cf19f 1-39
+frontend/tsconfig.node.json
+  s_ba9084d0a1d9fb::t_36376c66b1c04e 1-18
+frontend/src/main.tsx
+  s_ba9084d0a1d9fb::t_ddd771a530b8bd 1-25
+Makefile
+  s_ba9084d0a1d9fb::t_15208f21faf002 1-27
+.github/ISSUE_TEMPLATE/feature_request.md
+  s_ba9084d0a1d9fb::t_873b2ca7007899 1-20
+frontend/.gitignore
+  s_ba9084d0a1d9fb::t_f19f01807e2098 1-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "a6f74f4588e93dca02c53c77114ed21863d6b6c1",
+  "prompts": {},
+  "sessions": {
+    "s_ba9084d0a1d9fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b443a2b0-cc0c-40f9-94f4-67759cd30cb4",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
