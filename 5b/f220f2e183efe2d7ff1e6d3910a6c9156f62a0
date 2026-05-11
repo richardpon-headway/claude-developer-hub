@@ -1,0 +1,29 @@
+backend/tests/test_iterm_send.py
+  s_ba9084d0a1d9fb::t_4cffd517aaa3b0 1-349
+backend/app/services/iterm_send.py
+  s_ba9084d0a1d9fb::t_275daeb5a1d661 1-129
+backend/app/routes/worktrees.py
+  s_ba9084d0a1d9fb::t_3f7c5044c89211 17-21,24
+  s_ba9084d0a1d9fb::t_8d242a090904bb 108-174
+backend/app/services/iterm_spawn.py
+  s_ba9084d0a1d9fb::t_e7f9379d94bbbb 82-97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "5bf220f2e183efe2d7ff1e6d3910a6c9156f62a0",
+  "prompts": {},
+  "sessions": {
+    "s_ba9084d0a1d9fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b443a2b0-cc0c-40f9-94f4-67759cd30cb4",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
