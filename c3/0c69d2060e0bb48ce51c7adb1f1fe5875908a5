@@ -1,0 +1,57 @@
+backend/app/routes/worktrees.py
+  s_ba9084d0a1d9fb::t_fb6ce3d09bfac9 1-32,34-51
+  s_ba9084d0a1d9fb::t_547f7b304d8411 33
+backend/app/main.py
+  s_ba9084d0a1d9fb::t_3d3ff2c35a3e18 37
+  s_ba9084d0a1d9fb::t_d3c5793026d7d5 16
+  s_ba9084d0a1d9fb::t_5d9b18ca932096 4-5
+backend/app/services/worktree.py
+  s_ba9084d0a1d9fb::t_51fc41316b87fe 302,310,331
+  s_ba9084d0a1d9fb::t_2486fb155a4d46 63-65
+  s_ba9084d0a1d9fb::t_8a202ae79930f7 24
+  s_ba9084d0a1d9fb::t_0ca15ce7035bc3 95-97
+  s_ba9084d0a1d9fb::t_995886d9fab069 291
+  s_ba9084d0a1d9fb::t_1918e2823ec602 1-23,25-62,66-76,82-94,98-120,122,125-215,221-224,228-233,238-289,292,295,306-309,311-330,332,334
+  s_ba9084d0a1d9fb::t_04443cdecd4c06 290,293-294,296-301,303-305,333,335-337
+  s_ba9084d0a1d9fb::t_8792cf1f8af33e 121,123-124
+  s_ba9084d0a1d9fb::t_67db0973a4e67a 216-220
+  s_ba9084d0a1d9fb::t_829ced2b589ca5 225-227,234-237
+  s_ba9084d0a1d9fb::t_f2a0b866880c1d 77-81
+backend/app/db.py
+  s_ba9084d0a1d9fb::t_7e8e0c1a53971a 30,42-52
+  s_ba9084d0a1d9fb::t_7120193961336c 76-77
+  s_ba9084d0a1d9fb::t_5405dcc02946d8 192-194
+  s_ba9084d0a1d9fb::t_39fb177d8f34a1 213,219-220
+  s_ba9084d0a1d9fb::t_d5ffbcbf37b31a 69
+backend/app/models/worktree.py
+  s_ba9084d0a1d9fb::t_ed371a734ef019 1-78
+backend/tests/test_worktrees.py
+  s_ba9084d0a1d9fb::t_684915caa00935 146,149,152
+  s_ba9084d0a1d9fb::t_0d8fd84325cb01 186,189
+  s_ba9084d0a1d9fb::t_ceefb0b311004d 44-46,54
+  s_ba9084d0a1d9fb::t_f3324f9594a0c4 165
+  s_ba9084d0a1d9fb::t_92e97fd1dcee2a 205-207
+  s_ba9084d0a1d9fb::t_ab4bf58c6b78f4 143,147-148,151
+  s_ba9084d0a1d9fb::t_01b815008d78b9 188,190
+  s_ba9084d0a1d9fb::t_b470e23d8b1146 1-43,47-53,55-142,144-145,150,153-162,164,167-185,187,191-204,208-214
+  s_ba9084d0a1d9fb::t_6cebb17085d384 163,166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "c30c69d2060e0bb48ce51c7adb1f1fe5875908a5",
+  "prompts": {},
+  "sessions": {
+    "s_ba9084d0a1d9fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b443a2b0-cc0c-40f9-94f4-67759cd30cb4",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
