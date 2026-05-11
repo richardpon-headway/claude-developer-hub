@@ -44,6 +44,23 @@ def test_path_expands_tilde() -> None:
     assert str(r.path).endswith("/somewhere")
 
 
+def test_path_strips_whitespace() -> None:
+    r = RepoConfig(name="x", path="  /tmp/foo  ")  # type: ignore[arg-type]
+    assert str(r.path) == "/tmp/foo"
+    # Including embedded newlines (the actual bug we hit via a wrapped printf).
+    r2 = RepoConfig(name="x", path="/tmp/foo\n  ")  # type: ignore[arg-type]
+    assert str(r2.path) == "/tmp/foo"
+
+
+def test_empty_or_whitespace_only_path_rejected() -> None:
+    with pytest.raises(Exception):
+        RepoConfig(name="x", path="")  # type: ignore[arg-type]
+    with pytest.raises(Exception):
+        RepoConfig(name="x", path="   ")  # type: ignore[arg-type]
+    with pytest.raises(Exception):
+        RepoConfig(name="x", path="\n\t ")  # type: ignore[arg-type]
+
+
 def test_extra_keys_rejected() -> None:
     with pytest.raises(Exception):
         RepoConfig(name="x", path=Path("/tmp"), unknown_field="huh")  # type: ignore[call-arg]

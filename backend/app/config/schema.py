@@ -17,7 +17,10 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 def _expand_home(v: Any) -> Any:
     if isinstance(v, str):
-        return Path(v).expanduser()
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("path must not be empty or whitespace-only")
+        return Path(stripped).expanduser()
     return v
 
 
