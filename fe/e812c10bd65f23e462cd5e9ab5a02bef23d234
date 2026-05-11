@@ -1,0 +1,11 @@
+backend/uv.lock
+  ai_agent 1-772
+frontend/pnpm-lock.yaml
+  ai_agent 1-2707
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "fee812c10bd65f23e462cd5e9ab5a02bef23d234",
+  "prompts": {}
+}
