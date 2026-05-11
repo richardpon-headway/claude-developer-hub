@@ -1,0 +1,40 @@
+frontend/src/routes/index.tsx
+  s_ba9084d0a1d9fb::t_b5b154293fabe1 1,3-8,15-24,27-59
+frontend/src/api/types.ts
+  s_ba9084d0a1d9fb::t_635d68d0d34f68 1-48
+frontend/src/components/Dialog.tsx
+  s_ba9084d0a1d9fb::t_259378c5a1b5fa 1-46
+frontend/src/api/client.ts
+  s_ba9084d0a1d9fb::t_2a99fc599380ee 1-45
+frontend/src/components/AddRepoModal.test.tsx
+  s_ba9084d0a1d9fb::t_8bc8905465274e 1-109
+frontend/src/api/repos.ts
+  s_ba9084d0a1d9fb::t_dc7a73835dd26c 1-19
+frontend/src/components/AddRepoModal.tsx
+  s_ba9084d0a1d9fb::t_0126d45b73a34f 1
+  s_ba9084d0a1d9fb::t_a94cf6d3cb63ca 2-42,54-139
+  s_ba9084d0a1d9fb::t_20d0ee6879ee40 43-53
+frontend/src/components/RepoList.tsx
+  s_ba9084d0a1d9fb::t_a8afd5c243b5c1 1-37
+frontend/src/components/Button.tsx
+  s_ba9084d0a1d9fb::t_5660f1660bc64d 1-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "0eba23779bc8758bbe973f4b70385249ffc74c06",
+  "prompts": {},
+  "sessions": {
+    "s_ba9084d0a1d9fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b443a2b0-cc0c-40f9-94f4-67759cd30cb4",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
