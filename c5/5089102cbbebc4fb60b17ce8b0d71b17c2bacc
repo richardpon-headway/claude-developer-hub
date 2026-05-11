@@ -1,0 +1,26 @@
+backend/app/services/iterm_spawn.py
+  s_ba9084d0a1d9fb::t_7df59100f2d84b 51-56
+backend/tests/test_iterm.py
+  s_ba9084d0a1d9fb::t_5c070965ec557a 326-327
+  s_ba9084d0a1d9fb::t_ce07bc2ddde704 104-107
+  s_ba9084d0a1d9fb::t_f3184fd6cca4ce 287-289
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "c55089102cbbebc4fb60b17ce8b0d71b17c2bacc",
+  "prompts": {},
+  "sessions": {
+    "s_ba9084d0a1d9fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b443a2b0-cc0c-40f9-94f4-67759cd30cb4",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
