@@ -1,8 +1,8 @@
 """FastAPI entrypoint.
 
 The lifespan hook applies any pending SQLite migrations and launches the
-long-lived iTerm2 supervisor task. Both are stubs in Slice A; Slices D and F
-fill them in.
+long-lived iTerm2 supervisor task. The migration runner is real as of
+Slice D; the supervisor is still a stub pending Slice F.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 
 from app.db import apply_migrations
-from app.routes import repos
+from app.routes import repos, worktrees
 from app.services.iterm_supervisor import iterm_supervisor
 
 
@@ -34,6 +34,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="Claude Developer Hub", lifespan=lifespan)
 
 app.include_router(repos.router)
+app.include_router(worktrees.router)
 
 
 @app.get("/api/health")
