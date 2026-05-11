@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import shutil
 import sqlite3
@@ -37,6 +38,18 @@ log = logging.getLogger(__name__)
 
 DB_PATH = Path.home() / "Library" / "Application Support" / "cdh" / "cdh.db"
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
+
+
+def get_db_path() -> Path:
+    """Return the DB path to use right now.
+
+    Looks up CDH_DB_PATH at call time so tests can override via
+    ``monkeypatch.setenv``. Production reads ``DB_PATH``.
+    """
+    env_override = os.environ.get("CDH_DB_PATH")
+    if env_override:
+        return Path(env_override).expanduser()
+    return DB_PATH
 
 # Backups kept at 7. New backup created only when none exists or the most
 # recent is older than this threshold.
@@ -53,13 +66,15 @@ _PRAGMAS = (
 )
 
 
-def open_db(db_path: Path = DB_PATH) -> sqlite3.Connection:
+def open_db(db_path: Path | None = None) -> sqlite3.Connection:
     """Open a SQLite connection with the project PRAGMAs applied.
 
     Caller is responsible for closing the connection. PRAGMAs are
     session-scoped (foreign_keys, busy_timeout); WAL/synchronous persist
     in the database file once set.
     """
+    if db_path is None:
+        db_path = get_db_path()
     conn = sqlite3.connect(db_path)
     for pragma in _PRAGMAS:
         conn.execute(pragma)
@@ -174,7 +189,9 @@ def _reconcile_orphaned_setting_up(conn: sqlite3.Connection) -> int:
     return cur.rowcount
 
 
-def apply_migrations_sync(db_path: Path = DB_PATH) -> None:
+def apply_migrations_sync(db_path: Path | None = None) -> None:
+    if db_path is None:
+        db_path = get_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
     _backup_if_stale(db_path)
 
@@ -193,10 +210,12 @@ def apply_migrations_sync(db_path: Path = DB_PATH) -> None:
         conn.close()
 
 
-async def apply_migrations(db_path: Path = DB_PATH) -> None:
+async def apply_migrations(db_path: Path | None = None) -> None:
     """Async-friendly wrapper around ``apply_migrations_sync``.
 
     The lifespan hook calls this. sqlite3 is sync, so we offload to a
     thread to keep the event loop responsive while the DB opens/migrates.
     """
+    if db_path is None:
+        db_path = get_db_path()
     await asyncio.to_thread(apply_migrations_sync, db_path)
