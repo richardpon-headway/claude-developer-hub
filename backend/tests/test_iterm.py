@@ -101,9 +101,10 @@ def test_spawn_worktree_window_calls_iterm_api(
     import iterm2
 
     fake_window = _build_fake_window()
-    fake_app = MagicMock()
-    fake_app.async_create_window_with_default_profile = AsyncMock(return_value=fake_window)
-    monkeypatch.setattr(iterm2, "async_get_app", AsyncMock(return_value=fake_app))
+    # Real API: iterm2.Window.async_create(connection, profile=...) → Window
+    monkeypatch.setattr(
+        iterm2.Window, "async_create", AsyncMock(return_value=fake_window)
+    )
 
     frame = ITermWindow(width=800, height=600, x=10, y=20)
     fake_conn = MagicMock()
@@ -281,11 +282,11 @@ def test_spawn_endpoint_happy_path(
     fake_window = _build_fake_window(
         window_id="W42", claude_session_id="C42", shell_session_id="SH42"
     )
-    fake_app = MagicMock()
-    fake_app.async_create_window_with_default_profile = AsyncMock(return_value=fake_window)
     import iterm2
 
-    monkeypatch.setattr(iterm2, "async_get_app", AsyncMock(return_value=fake_app))
+    monkeypatch.setattr(
+        iterm2.Window, "async_create", AsyncMock(return_value=fake_window)
+    )
 
     with TestClient(app) as client:
         client.app.state.iterm = SimpleNamespace(connection=MagicMock())
@@ -322,8 +323,8 @@ def test_spawn_endpoint_502_on_iterm_error(
     import iterm2
 
     monkeypatch.setattr(
-        iterm2,
-        "async_get_app",
+        iterm2.Window,
+        "async_create",
         AsyncMock(side_effect=RuntimeError("simulated rpc failure")),
     )
 

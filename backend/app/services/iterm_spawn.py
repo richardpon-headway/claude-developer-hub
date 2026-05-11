@@ -48,11 +48,12 @@ async def spawn_worktree_window(
     """
     import iterm2
 
-    app = await iterm2.async_get_app(connection)
-    if app is None:
-        raise RuntimeError("iTerm2 reports no app; is the Python API enabled?")
-
-    window = await app.async_create_window_with_default_profile()
+    # Window.async_create is the supported constructor (the App object
+    # doesn't expose window creation directly). Using the default profile
+    # by passing profile=None.
+    window = await iterm2.Window.async_create(connection)
+    if window is None:
+        raise RuntimeError("iTerm2 returned no window — session ended immediately?")
     await window.async_set_frame(
         iterm2.Frame(
             origin=iterm2.Point(frame.x, frame.y),
