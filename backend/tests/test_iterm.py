@@ -287,17 +287,22 @@ def test_spawn_endpoint_happy_path(
     monkeypatch.setattr(
         iterm2.Window, "async_create", AsyncMock(return_value=fake_window)
     )
+    # Stub the discovery so this test doesn't wait the full 30s for a
+    # jsonl that won't appear; that's exercised in test_sidecar.py.
+    import app.routes.worktrees as wt_route
+
+    monkeypatch.setattr(wt_route, "discover_session_id", AsyncMock(return_value=None))
 
     with TestClient(app) as client:
         client.app.state.iterm = SimpleNamespace(connection=MagicMock())
         r = client.post(f"/api/worktree/{repo}/{name}/spawn-iterm")
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body == {
-        "window_id": "W42",
-        "claude_session_id": "C42",
-        "shell_session_id": "SH42",
-    }
+    assert body["window_id"] == "W42"
+    assert body["claude_session_id"] == "C42"
+    assert body["shell_session_id"] == "SH42"
+    assert body["claude_session_uuid"] is None
+    assert body["sidecar_path"] is None
 
     # iterm_session rows persisted
     conn = sqlite3.connect(_isolate["db_path"])

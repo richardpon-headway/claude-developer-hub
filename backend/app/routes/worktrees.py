@@ -6,6 +6,8 @@ page needs them.
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -25,6 +27,13 @@ from app.services.iterm_spawn import (
     spawn_worktree_window,
     upsert_iterm_sessions_sync,
 )
+from app.services.sidecar import (
+    build_sidecar,
+    discover_session_id,
+    write_sidecar_sync,
+)
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["worktrees"])
 
@@ -67,6 +76,13 @@ class SpawnItermResponse(BaseModel):
     window_id: str
     claude_session_id: str
     shell_session_id: str
+    # The Claude Code session UUID, discovered by polling
+    # ~/.claude/projects/<encoded-cwd>/*.jsonl after spawn (plan §7).
+    # null if discovery timed out within ~30s.
+    claude_session_uuid: str | None = None
+    # Path to the sidecar file written for the token-monitor (only if
+    # session UUID was discovered).
+    sidecar_path: str | None = None
 
 
 @router.post("/worktree/{repo}/{name}/spawn-iterm", response_model=SpawnItermResponse)
@@ -91,6 +107,12 @@ async def spawn_iterm(repo: str, name: str, request: Request) -> SpawnItermRespo
         )
 
     frame = load_config().iterm2.default_window
+
+    # Capture an mtime floor BEFORE we send `claude\n` to iTerm2 so the
+    # discovery poll only matches the new jsonl, not any leftover from a
+    # prior Claude session in the same cwd.
+    mtime_floor = time.time()
+
     try:
         result: SpawnResult = await spawn_worktree_window(iterm.connection, worktree_path, frame)
     except Exception as e:
@@ -98,12 +120,43 @@ async def spawn_iterm(repo: str, name: str, request: Request) -> SpawnItermRespo
             status.HTTP_502_BAD_GATEWAY, f"iTerm2 spawn failed: {e}"
         ) from e
 
-    await asyncio.to_thread(upsert_iterm_sessions_sync, repo, name, result)
+    # Discover the Claude session UUID + write the token-monitor sidecar.
+    # Non-fatal: timeout (or any error) just logs and leaves the UUID
+    # null; everything else still succeeds.
+    claude_uuid: str | None = None
+    sidecar_path: Path | None = None
+    try:
+        claude_uuid = await discover_session_id(worktree_path, mtime_floor)
+    except Exception as e:
+        log.warning("session_id discovery failed: %s", e)
+    if claude_uuid is None:
+        log.warning(
+            "session_id discovery timed out for %s/%s — sidecar not written",
+            repo, name,
+        )
+    else:
+        try:
+            sidecar = build_sidecar(
+                session_id=claude_uuid,
+                worktree=f"{repo}_{name}",
+                ticket=row.ticket,
+                pr_number=row.pr_number,
+                pr_repo=row.pr_repo,
+            )
+            sidecar_path = await asyncio.to_thread(write_sidecar_sync, claude_uuid, sidecar)
+        except Exception as e:
+            log.warning("sidecar write failed for %s: %s", claude_uuid, e)
+
+    await asyncio.to_thread(
+        upsert_iterm_sessions_sync, repo, name, result, claude_uuid
+    )
 
     return SpawnItermResponse(
         window_id=result.window_id,
         claude_session_id=result.claude_session_id,
         shell_session_id=result.shell_session_id,
+        claude_session_uuid=claude_uuid,
+        sidecar_path=str(sidecar_path) if sidecar_path else None,
     )
 
 
