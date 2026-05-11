@@ -48,11 +48,12 @@ async def spawn_worktree_window(
     """
     import iterm2
 
-    app = await iterm2.async_get_app(connection)
-    if app is None:
-        raise RuntimeError("iTerm2 reports no app; is the Python API enabled?")
-
-    window = await app.async_create_window_with_default_profile()
+    # Window.async_create is the supported constructor (the App object
+    # doesn't expose window creation directly). Using the default profile
+    # by passing profile=None.
+    window = await iterm2.Window.async_create(connection)
+    if window is None:
+        raise RuntimeError("iTerm2 returned no window — session ended immediately?")
     await window.async_set_frame(
         iterm2.Frame(
             origin=iterm2.Point(frame.x, frame.y),
@@ -77,6 +78,22 @@ async def spawn_worktree_window(
         claude_session_id=claude_session.session_id,
         shell_session_id=shell_session.session_id,
     )
+
+
+def get_claude_session_id_sync(repo: str, worktree_name: str) -> str | None:
+    """Look up the persisted iTerm2 session_id for the Claude tab of a
+    worktree. Returns None if no spawn-iterm has happened (or if rows
+    were invalidated by an iTerm2 restart)."""
+    conn = open_db()
+    try:
+        row = conn.execute(
+            "SELECT iterm_session_id FROM iterm_session "
+            "WHERE repo = ? AND worktree_name = ? AND role = 'claude'",
+            (repo, worktree_name),
+        ).fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
 
 
 def upsert_iterm_sessions_sync(
