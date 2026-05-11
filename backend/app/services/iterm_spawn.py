@@ -97,29 +97,39 @@ def get_claude_session_id_sync(repo: str, worktree_name: str) -> str | None:
 
 
 def upsert_iterm_sessions_sync(
-    repo: str, worktree_name: str, result: SpawnResult
+    repo: str,
+    worktree_name: str,
+    result: SpawnResult,
+    claude_session_uuid: str | None = None,
 ) -> None:
     """Replace any prior iterm_session rows for this worktree with the
     pair from a fresh spawn. INSERT-OR-REPLACE keyed on
     (repo, worktree_name, role) guarantees we don't accumulate stale
     rows if the user spawns a window twice.
+
+    ``claude_session_uuid`` is the Claude Code session UUID discovered
+    by polling ``~/.claude/projects/<encoded-cwd>/*.jsonl`` after spawn
+    (Slice H). It applies only to the ``claude`` role row; the shell
+    row's ``claude_session_uuid`` is always NULL.
     """
     spawned_at = now_iso()
     conn = open_db()
     try:
         conn.executemany(
             "INSERT INTO iterm_session "
-            "(repo, worktree_name, role, iterm_window_id, iterm_session_id, spawned_at) "
-            "VALUES (?, ?, ?, ?, ?, ?) "
+            "(repo, worktree_name, role, iterm_window_id, iterm_session_id, "
+            " claude_session_uuid, spawned_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(repo, worktree_name, role) DO UPDATE SET "
             "  iterm_window_id = excluded.iterm_window_id, "
             "  iterm_session_id = excluded.iterm_session_id, "
+            "  claude_session_uuid = excluded.claude_session_uuid, "
             "  spawned_at = excluded.spawned_at",
             [
                 (repo, worktree_name, "claude", result.window_id,
-                 result.claude_session_id, spawned_at),
+                 result.claude_session_id, claude_session_uuid, spawned_at),
                 (repo, worktree_name, "shell", result.window_id,
-                 result.shell_session_id, spawned_at),
+                 result.shell_session_id, None, spawned_at),
             ],
         )
         conn.commit()
