@@ -1,0 +1,27 @@
+backend/app/migrations/001_initial.sql
+  s_ba9084d0a1d9fb::t_52a6429275e12f 1-48
+backend/tests/test_db.py
+  s_ba9084d0a1d9fb::t_2b0ce3805d804c 1-103,108,113-114,116,118,121-217
+  s_ba9084d0a1d9fb::t_df53d3df3d5e30 104-107,109-112,115,117,119-120
+backend/app/db.py
+  s_ba9084d0a1d9fb::t_baeb3010e02129 1,3-24,28-33,36-37,39-194,196-197,199-202
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "86932767ef1dbb1e85c914c70ba18bd422b51bdf",
+  "prompts": {},
+  "sessions": {
+    "s_ba9084d0a1d9fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b443a2b0-cc0c-40f9-94f4-67759cd30cb4",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
