@@ -1,0 +1,24 @@
+backend/app/config/schema.py
+  s_ba9084d0a1d9fb::t_ffcee525b243d8 20-23
+backend/tests/test_config.py
+  s_ba9084d0a1d9fb::t_eb9e372e8c2296 47-63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "5e0438fb27fd1a17accf244684ae490c8fc1c70a",
+  "prompts": {},
+  "sessions": {
+    "s_ba9084d0a1d9fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b443a2b0-cc0c-40f9-94f4-67759cd30cb4",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
