@@ -9,7 +9,7 @@ install:
 	cd frontend && pnpm install
 
 run:
-	@echo "starting backend (:47823) + vite dev (:5173 with /api proxy)"
+	@echo "starting backend (:47823) + vite dev (:5174 with /api proxy)"
 	@(cd backend && uv run python -m app.main 2>&1 | sed 's/^/[backend] /') & \
 	 (cd frontend && pnpm dev 2>&1 | sed 's/^/[vite]    /') & \
 	 wait

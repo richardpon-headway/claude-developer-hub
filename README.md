@@ -49,13 +49,19 @@ make run
 `make run` starts:
 
 - the FastAPI backend on `http://127.0.0.1:47823`
-- the Vite dev server on `http://127.0.0.1:5173` (proxies `/api` → `:47823`)
+- the Vite dev server on `http://127.0.0.1:5174` (proxies `/api` → `:47823`)
 
 Database migrations run automatically on backend startup. There is no
 separate `make migrate` step.
 
-Open `http://localhost:5173/` (dev) or `http://localhost:47823/` (after
+Open `http://localhost:5174/` (dev) or `http://localhost:47823/` (after
 `make build-ui`).
+
+> CDH's Vite intentionally binds `5174`, not Vite's default `5173`, so it
+> can run side-by-side with other Vite projects (e.g. claude-token-monitor,
+> which uses `5173` / backend `47821`). `strictPort: true` makes CDH fail
+> loudly if `5174` is also occupied rather than silently shifting to
+> another port.
 
 ## Configuration
 
