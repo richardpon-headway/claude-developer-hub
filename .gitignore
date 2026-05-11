@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+frontend/dist/
+.vite/
+*.log
+
+# Backend build output (built UI copied here)
+backend/app/static/
+
+# SQLite + local state (CDH writes runtime data outside the repo, but
+# guard against accidental drops here)
+*.db
+*.db-wal
+*.db-shm
+
+# macOS
+.DS_Store
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
