@@ -1,0 +1,26 @@
+README.md
+  s_ba9084d0a1d9fb::t_8dbddb249eedb4 52,57,60-64
+Makefile
+  s_ba9084d0a1d9fb::t_6e5c6889d567a1 12
+frontend/vite.config.ts
+  s_ba9084d0a1d9fb::t_d179e6dbd08edb 9-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "233ced1ba770677053e18ebeec58c275f2bce59a",
+  "prompts": {},
+  "sessions": {
+    "s_ba9084d0a1d9fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b443a2b0-cc0c-40f9-94f4-67759cd30cb4",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
