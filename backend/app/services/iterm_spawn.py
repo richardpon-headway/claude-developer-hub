@@ -79,6 +79,22 @@ async def spawn_worktree_window(
     )
 
 
+def get_claude_session_id_sync(repo: str, worktree_name: str) -> str | None:
+    """Look up the persisted iTerm2 session_id for the Claude tab of a
+    worktree. Returns None if no spawn-iterm has happened (or if rows
+    were invalidated by an iTerm2 restart)."""
+    conn = open_db()
+    try:
+        row = conn.execute(
+            "SELECT iterm_session_id FROM iterm_session "
+            "WHERE repo = ? AND worktree_name = ? AND role = 'claude'",
+            (repo, worktree_name),
+        ).fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
 def upsert_iterm_sessions_sync(
     repo: str, worktree_name: str, result: SpawnResult
 ) -> None:
