@@ -13,6 +13,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 
 from app.db import apply_migrations
+from app.routes import repos
 from app.services.iterm_supervisor import iterm_supervisor
 
 
@@ -31,6 +32,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Claude Developer Hub", lifespan=lifespan)
+
+app.include_router(repos.router)
 
 
 @app.get("/api/health")
