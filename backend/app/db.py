@@ -31,7 +31,7 @@ import os
 import re
 import shutil
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -82,7 +82,7 @@ def open_db(db_path: Path | None = None) -> sqlite3.Connection:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _ensure_migration_table(conn: sqlite3.Connection) -> None:
@@ -119,14 +119,14 @@ def _backup_if_stale(db_path: Path) -> Path | None:
     parent = db_path.parent
     backup_prefix = f"{db_path.name}.bak."
     existing = sorted(parent.glob(f"{backup_prefix}*"), key=lambda p: p.stat().st_mtime)
-    now = datetime.now(timezone.utc).timestamp()
+    now = datetime.now(UTC).timestamp()
 
     if existing:
         newest_mtime = existing[-1].stat().st_mtime
         if (now - newest_mtime) < BACKUP_STALE_AFTER_SECONDS:
             return None
 
-    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
     backup = parent / f"{backup_prefix}{stamp}"
     shutil.copy2(db_path, backup)
     log.info("backed up %s -> %s", db_path, backup)

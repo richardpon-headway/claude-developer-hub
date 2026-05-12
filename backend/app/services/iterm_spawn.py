@@ -35,7 +35,7 @@ class SpawnResult:
 
 
 async def spawn_worktree_window(
-    connection: "iterm2.Connection",
+    connection: iterm2.Connection,
     worktree_path: Path,
     frame: ITermWindow,
 ) -> SpawnResult:

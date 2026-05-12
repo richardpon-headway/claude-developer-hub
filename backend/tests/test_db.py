@@ -30,7 +30,10 @@ def test_apply_creates_db_and_records_migrations(db_path: Path) -> None:
         assert "001_initial.sql" in names
 
         # Tables from 001_initial.sql exist
-        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
         assert {"worktree", "iterm_session", "iterm_lifecycle", "_migration"} <= tables
     finally:
         conn.close()

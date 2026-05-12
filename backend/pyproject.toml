@@ -37,6 +37,23 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "ASYNC"]
+ignore = [
+    # Sync pathlib in async fns — sub-ms on local filesystem; not worth
+    # introducing aiofiles/anyio.path for a single-user local app.
+    "ASYNC240",
+    # `timeout` param: intentional so tests can override; the function
+    # uses a manual deadline loop instead of asyncio.timeout.
+    "ASYNC109",
+    # `while True: await sleep(N)`: intentional fallback wait pattern in
+    # the iTerm2 supervisor (we want cancellation, not Event-driven wakeup).
+    "ASYNC110",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests legitimately assert that "any exception is raised" when probing
+# Pydantic validation errors that surface as ValidationError but also
+# get wrapped in pytest.raises occasionally.
+"tests/**" = ["B017"]
 
 [tool.mypy]
 python_version = "3.13"

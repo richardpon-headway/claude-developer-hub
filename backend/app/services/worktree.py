@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 import collections
-import sqlite3
 from pathlib import Path
 
 from app.config.loader import load_config
@@ -69,7 +68,7 @@ def list_worktrees_sync(db_path: Path | None = None) -> list[WorktreeRow]:
             "SELECT repo, name, path, branch, ticket, pr_number, pr_repo, "
             "created_at, status FROM worktree ORDER BY repo, name"
         )
-        return [WorktreeRow(**dict(zip(_COLS, row))) for row in cur.fetchall()]
+        return [WorktreeRow(**dict(zip(_COLS, row, strict=True))) for row in cur.fetchall()]
     finally:
         conn.close()
 
@@ -87,7 +86,7 @@ def get_worktree_sync(
             (repo, name),
         )
         row = cur.fetchone()
-        return WorktreeRow(**dict(zip(_COLS, row))) if row else None
+        return WorktreeRow(**dict(zip(_COLS, row, strict=True))) if row else None
     finally:
         conn.close()
 
@@ -253,7 +252,9 @@ async def _create_worktree_async(
                 repo.name, short_name,
                 f"branch '{branch}' not found locally or on origin",
             )
-            await asyncio.to_thread(update_worktree_status_sync, repo.name, short_name, "failed", db_path)
+            await asyncio.to_thread(
+                update_worktree_status_sync, repo.name, short_name, "failed", db_path
+            )
             return
 
     # Step 3: worktree add
@@ -263,7 +264,9 @@ async def _create_worktree_async(
         cwd=repo_path,
     )
     if rc != 0:
-        await asyncio.to_thread(update_worktree_status_sync, repo.name, short_name, "failed", db_path)
+        await asyncio.to_thread(
+            update_worktree_status_sync, repo.name, short_name, "failed", db_path
+        )
         return
 
     # Step 4: setup_steps (config-driven; no hardcoded mise/make/pnpm)
@@ -280,11 +283,15 @@ async def _create_worktree_async(
                 repo.name, short_name,
                 f"setup step {i} failed (exit {rc})",
             )
-            await asyncio.to_thread(update_worktree_status_sync, repo.name, short_name, "failed", db_path)
+            await asyncio.to_thread(
+                update_worktree_status_sync, repo.name, short_name, "failed", db_path
+            )
             return
 
     # All good
-    await asyncio.to_thread(update_worktree_status_sync, repo.name, short_name, "ready", db_path)
+    await asyncio.to_thread(
+        update_worktree_status_sync, repo.name, short_name, "ready", db_path
+    )
 
 
 async def create_worktree(
@@ -310,7 +317,8 @@ async def create_worktree(
     existing = await asyncio.to_thread(get_worktree_sync, repo_name, short_name, db_path)
     if existing is not None:
         raise WorktreeCreationError(
-            f"a worktree already exists for repo={repo_name} name={short_name} (status={existing.status})"
+            f"a worktree already exists for repo={repo_name} "
+            f"name={short_name} (status={existing.status})"
         )
 
     target = _resolve_target_path(repo, short_name)
