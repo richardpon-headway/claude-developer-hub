@@ -59,16 +59,38 @@ def reset_log(repo: str, name: str) -> None:
 # --- DB access (sync; wrap callers with asyncio.to_thread) ----------------
 
 
+_LIST_SELECT = (
+    "SELECT w.repo, w.name, w.path, w.branch, w.ticket, w.pr_number, w.pr_repo, "
+    "       w.created_at, w.status, "
+    "       (SELECT 1 FROM iterm_session s "
+    "        WHERE s.repo = w.repo AND s.worktree_name = w.name "
+    "          AND s.role = 'claude' LIMIT 1) IS NOT NULL "
+    "FROM worktree w"
+)
+
+
+def _row_to_model(row: tuple) -> WorktreeRow:
+    return WorktreeRow(
+        repo=row[0],
+        name=row[1],
+        path=row[2],
+        branch=row[3],
+        ticket=row[4],
+        pr_number=row[5],
+        pr_repo=row[6],
+        created_at=row[7],
+        status=row[8],
+        has_claude_session=bool(row[9]),
+    )
+
+
 def list_worktrees_sync(db_path: Path | None = None) -> list[WorktreeRow]:
     if db_path is None:
         db_path = get_db_path()
     conn = open_db(db_path)
     try:
-        cur = conn.execute(
-            "SELECT repo, name, path, branch, ticket, pr_number, pr_repo, "
-            "created_at, status FROM worktree ORDER BY repo, name"
-        )
-        return [WorktreeRow(**dict(zip(_COLS, row, strict=True))) for row in cur.fetchall()]
+        cur = conn.execute(f"{_LIST_SELECT} ORDER BY w.repo, w.name")
+        return [_row_to_model(row) for row in cur.fetchall()]
     finally:
         conn.close()
 
@@ -81,12 +103,11 @@ def get_worktree_sync(
     conn = open_db(db_path)
     try:
         cur = conn.execute(
-            "SELECT repo, name, path, branch, ticket, pr_number, pr_repo, "
-            "created_at, status FROM worktree WHERE repo = ? AND name = ?",
+            f"{_LIST_SELECT} WHERE w.repo = ? AND w.name = ?",
             (repo, name),
         )
         row = cur.fetchone()
-        return WorktreeRow(**dict(zip(_COLS, row, strict=True))) if row else None
+        return _row_to_model(row) if row else None
     finally:
         conn.close()
 
@@ -130,19 +151,6 @@ def update_worktree_status_sync(
         conn.commit()
     finally:
         conn.close()
-
-
-_COLS = (
-    "repo",
-    "name",
-    "path",
-    "branch",
-    "ticket",
-    "pr_number",
-    "pr_repo",
-    "created_at",
-    "status",
-)
 
 
 # --- subprocess helper ----------------------------------------------------
