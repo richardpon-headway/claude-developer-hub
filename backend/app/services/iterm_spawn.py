@@ -73,6 +73,23 @@ async def spawn_worktree_window(
     shell_session = tab2.current_session
     await shell_session.async_send_text(f"cd {worktree_path}\n")
 
+    # Make sure the new window is frontmost. Without this, the spawn happens
+    # in iTerm2's z-order but iTerm2 itself stays behind whatever app had
+    # focus (typically the browser the user just clicked from), so the
+    # window appears "behind other windows" until the user cmd-tabs.
+    # Select the Claude tab first so it's the one that gets focus.
+    await tab1.async_select()
+    try:
+        app = await iterm2.async_get_app(connection)
+        if app is not None:
+            await app.async_activate(raise_all_windows=False)
+    except Exception as e:
+        log.warning("iTerm2 app activate failed (non-fatal): %s", e)
+    try:
+        await window.async_activate()
+    except Exception as e:
+        log.warning("iTerm2 window activate failed (non-fatal): %s", e)
+
     return SpawnResult(
         window_id=window.window_id,
         claude_session_id=claude_session.session_id,
