@@ -1,0 +1,30 @@
+frontend/src/routes/workspace.$repo.$name.tsx
+  s_ba9084d0a1d9fb::t_8305c608f4b034 2,4-6,12-19,31-33,39-58,68-69,74-75,79,81,83-84,87,91,94-156,162,171-214
+  s_ba9084d0a1d9fb::t_59fcfd7d76966f 9,20,22-30
+frontend/src/api/types.ts
+  s_ba9084d0a1d9fb::t_bab58a6dc5c59c 85-96
+frontend/src/routes/workspace.test.tsx
+  s_ba9084d0a1d9fb::t_e95939d5c943fc 2-8,22-23,26,28-32,34-53,58-71,73-76,78-91,93-98,100-109,111-122,124-143,145-153,155-157,159-162
+  s_ba9084d0a1d9fb::t_81f96b06bebcdb 1,9-21,24-25,27,33,54-57,72,77,92,99,110,123,144,154,158
+frontend/src/api/worktrees.ts
+  s_ba9084d0a1d9fb::t_b2a59dd434bac7 1-8,18-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "661aa1ac0e2326a2e8967475715a42eb9e41347f",
+  "prompts": {},
+  "sessions": {
+    "s_ba9084d0a1d9fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b443a2b0-cc0c-40f9-94f4-67759cd30cb4",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
