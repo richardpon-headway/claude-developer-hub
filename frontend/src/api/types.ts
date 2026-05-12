@@ -9,6 +9,7 @@ export interface SetupStep {
 
 export interface JiraConfig {
   tool: "acli" | "jira-cli" | "none";
+  base_url: string | null;
   list_jql: string | null;
 }
 
@@ -20,7 +21,6 @@ export interface RepoConfig {
   worktree_path_template: string;
   setup_steps: SetupStep[];
   ticket_pattern: string | null;
-  jira: JiraConfig;
 }
 
 export type OnboardState = "pending" | "saved" | "error";
@@ -118,4 +118,8 @@ export interface SkippedWorktree {
 export interface DiscoverResponse {
   imported: ImportedWorktree[];
   skipped: SkippedWorktree[];
+}
+
+export interface PrUrlResponse {
+  url: string;
 }

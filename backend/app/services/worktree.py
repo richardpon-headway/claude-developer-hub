@@ -153,6 +153,27 @@ def update_worktree_status_sync(
         conn.close()
 
 
+def update_worktree_pr_sync(
+    repo: str,
+    name: str,
+    pr_number: int,
+    pr_repo: str,
+    db_path: Path | None = None,
+) -> None:
+    if db_path is None:
+        db_path = get_db_path()
+    conn = open_db(db_path)
+    try:
+        conn.execute(
+            "UPDATE worktree SET pr_number = ?, pr_repo = ? "
+            "WHERE repo = ? AND name = ?",
+            (pr_number, pr_repo, repo, name),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 # --- subprocess helper ----------------------------------------------------
 
 
