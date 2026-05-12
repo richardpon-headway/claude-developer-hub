@@ -116,6 +116,25 @@ URL routing:
 Visiting a URL is pure rendering. Spawning iTerm2, launching Cursor, or
 creating a worktree from a PR all require explicit button clicks.
 
+## Importing existing worktrees
+
+CDH normally only tracks worktrees it created itself. If you have a
+backlog of worktrees on disk from another tool (vanilla `git worktree
+add`, `lazyworktree`, a personal skill), click **Discover worktrees**
+on the hub after configuring the parent repo. CDH will run
+`git worktree list --porcelain` for each configured repo and ingest
+every worktree it finds, skipping main checkouts, already-tracked
+paths, name collisions, and detached-HEAD worktrees.
+
+**Detached-HEAD worktrees are intentionally skipped.** These show up
+when you `gh pr checkout` without an explicit branch. CDH's downstream
+features (ticket extraction from branch name, skill-runner button
+labels, sidecar `worktree` field) all assume a branch is present, so
+importing detached-HEAD worktrees would create rows that misbehave in
+subtle ways. The Discover summary reports them in the skipped count
+with reason `detached HEAD`; if you want one in CDH, check out a
+branch on the worktree first, then re-run Discover.
+
 ## Optional: `cdh` shell function
 
 A tiny shell function lets you jump from any terminal into the right
