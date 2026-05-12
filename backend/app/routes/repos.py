@@ -152,6 +152,92 @@ async def list_repos() -> list[RepoConfig]:
     return load_config().repos
 
 
+class RepoCandidate(BaseModel):
+    path: str
+    name: str
+    already_configured: bool
+
+
+def _looks_like_main_checkout(entry: Path) -> bool:
+    """True if ``entry/.git`` looks like a main-checkout gitdir (not a
+    worktree). Handles three sub-cases:
+
+    - ``.git`` as a regular file → worktree pointer (``gitdir: …``).
+      Returns False.
+    - ``.git`` as a directory (possibly via symlink) → main checkout
+      unless the resolved path is inside another repo's
+      ``.git/worktrees/`` segment, in which case it's a manually-
+      symlinked worktree.
+    - Anything else (broken symlink, special file) → False.
+    """
+    git_path = entry / ".git"
+    if not git_path.exists():
+        return False
+    if git_path.is_file():
+        return False
+    if not git_path.is_dir():
+        return False
+    try:
+        resolved = git_path.resolve()
+    except OSError:
+        return False
+    parts = resolved.parts
+    for i in range(len(parts) - 1):
+        if parts[i] == ".git" and parts[i + 1] == "worktrees":
+            return False
+    return True
+
+
+@router.get("/candidates", response_model=list[RepoCandidate])
+async def list_candidates() -> list[RepoCandidate]:
+    """Auto-discover git main checkouts under ``config.development_root``.
+
+    One level deep, hidden dirs skipped, worktrees excluded (both the
+    standard ``.git``-file form and rare manually-symlinked variants).
+    Each candidate is flagged ``already_configured`` against the current
+    ``config.repos[]``.
+
+    Sort: not-configured first (so onboarding candidates float to the
+    top), then alphabetical by name.
+    """
+    config = load_config()
+    dev_root = Path(str(config.development_root)).expanduser()
+    if not dev_root.is_dir():
+        return []
+
+    configured = {str(r.path) for r in config.repos}
+
+    candidates: list[RepoCandidate] = []
+    try:
+        entries = list(dev_root.iterdir())
+    except OSError:
+        return []
+
+    for entry in entries:
+        try:
+            if not entry.is_dir():
+                continue
+        except OSError:
+            continue
+        if entry.name.startswith("."):
+            continue
+        try:
+            if not _looks_like_main_checkout(entry):
+                continue
+        except OSError:
+            continue
+        candidates.append(
+            RepoCandidate(
+                path=str(entry),
+                name=entry.name,
+                already_configured=str(entry) in configured,
+            )
+        )
+
+    candidates.sort(key=lambda c: (c.already_configured, c.name.lower()))
+    return candidates
+
+
 @router.post("/onboard", response_model=OnboardResponse)
 async def onboard(req: OnboardRequest) -> OnboardResponse:
     path = _normalize_path(req.path)
