@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "../api/client";
 import { getWorktree, runSkill, sendText, spawnIterm } from "../api/worktrees";
 import { Button } from "../components/Button";
+import { Tooltip } from "../components/Tooltip";
 
 export const Route = createFileRoute("/workspace/$repo/$name")({
   component: WorkspaceRoute,
@@ -96,37 +97,39 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
               Actions
             </h2>
             <div className="flex flex-wrap gap-2">
-              <Button
-                onClick={() => spawnMutation.mutate()}
-                disabled={spawnMutation.isPending || !ready}
-                title={
+              <Tooltip
+                text={
                   !ready
                     ? `worktree status is ${row.status}; nothing to spawn into`
-                    : undefined
+                    : null
                 }
               >
-                {hasClaude
-                  ? spawnMutation.isPending
-                    ? "Respawning…"
-                    : "Respawn iTerm2"
-                  : spawnMutation.isPending
-                    ? "Opening…"
-                    : "Open in iTerm2"}
-              </Button>
-              {SKILLS.map((skill) => (
                 <Button
-                  key={skill}
-                  variant="secondary"
-                  onClick={() => skillMutation.mutate(skill)}
-                  disabled={!hasClaude || skillMutation.isPending}
-                  title={
-                    !hasClaude
-                      ? "Open this workspace in iTerm2 first"
-                      : undefined
-                  }
+                  onClick={() => spawnMutation.mutate()}
+                  disabled={spawnMutation.isPending || !ready}
                 >
-                  /{skill}
+                  {hasClaude
+                    ? spawnMutation.isPending
+                      ? "Respawning…"
+                      : "Respawn iTerm2"
+                    : spawnMutation.isPending
+                      ? "Opening…"
+                      : "Open in iTerm2"}
                 </Button>
+              </Tooltip>
+              {SKILLS.map((skill) => (
+                <Tooltip
+                  key={skill}
+                  text={!hasClaude ? "Open this workspace in iTerm2 first" : null}
+                >
+                  <Button
+                    variant="secondary"
+                    onClick={() => skillMutation.mutate(skill)}
+                    disabled={!hasClaude || skillMutation.isPending}
+                  >
+                    /{skill}
+                  </Button>
+                </Tooltip>
               ))}
             </div>
 

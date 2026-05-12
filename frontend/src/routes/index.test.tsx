@@ -1,5 +1,6 @@
 import { render, screen, waitFor, cleanup, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import * as RadixTooltip from "@radix-ui/react-tooltip";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 // Stub Link so HubPage renders without a router context.
@@ -31,7 +32,9 @@ function renderHub() {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <HubPage />
+      <RadixTooltip.Provider>
+        <HubPage />
+      </RadixTooltip.Provider>
     </QueryClientProvider>,
   );
 }
