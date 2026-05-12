@@ -1,0 +1,42 @@
+backend/app/routes/worktrees.py
+  s_ba9084d0a1d9fb::t_6478d6672d394e 68-97
+  s_ba9084d0a1d9fb::t_0aed6faa66c0c9 35
+frontend/src/api/worktrees.ts
+  s_ba9084d0a1d9fb::t_66f436bbd74096 3
+  s_ba9084d0a1d9fb::t_e8500743a645ab 20-22
+README.md
+  s_ba9084d0a1d9fb::t_6956960b30515f 119-137
+backend/app/services/worktree_import.py
+  s_ba9084d0a1d9fb::t_9827ec81bb4e00 1-286
+frontend/src/routes/index.tsx
+  s_ba9084d0a1d9fb::t_3ba77760ec7820 3,6
+  s_ba9084d0a1d9fb::t_4cf98d30009478 35-39
+  s_ba9084d0a1d9fb::t_6fefd20f28e5af 50-82
+  s_ba9084d0a1d9fb::t_6a9a451176b4cd 17
+frontend/src/api/types.ts
+  s_ba9084d0a1d9fb::t_3a6657748f8538 97-115
+backend/tests/test_worktree_import.py
+  s_ba9084d0a1d9fb::t_4eb55a56180906 1-339
+frontend/src/routes/index.test.tsx
+  s_ba9084d0a1d9fb::t_44c13c95f5a115 1,5-17,24,32,102
+  s_ba9084d0a1d9fb::t_be0a940d575404 2-4,18-23,25-31,33-101,103-106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "c8ee6b6767b2da3241a1aaade3eec78469be6370",
+  "prompts": {},
+  "sessions": {
+    "s_ba9084d0a1d9fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b443a2b0-cc0c-40f9-94f4-67759cd30cb4",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
