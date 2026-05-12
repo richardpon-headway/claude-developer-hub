@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { listRepos } from "../api/repos";
-import { listWorktrees } from "../api/worktrees";
+import { discoverWorktrees, listWorktrees } from "../api/worktrees";
 import { AddRepoModal } from "../components/AddRepoModal";
 import { Button } from "../components/Button";
 import { RepoList } from "../components/RepoList";
@@ -14,7 +14,7 @@ export const Route = createFileRoute("/")({
   component: HubPage,
 });
 
-function HubPage() {
+export function HubPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const queryClient = useQueryClient();
 
@@ -32,6 +32,11 @@ function HubPage() {
   const repos = reposQuery.data ?? [];
   const worktrees = worktreesQuery.data ?? [];
 
+  const discover = useMutation({
+    mutationFn: discoverWorktrees,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["worktrees"] }),
+  });
+
   return (
     <main className="mx-auto max-w-5xl p-8">
       <header className="flex items-baseline justify-between">
@@ -42,9 +47,39 @@ function HubPage() {
       <div className="mt-8 grid grid-cols-3 gap-6">
         <div className="col-span-2 space-y-8">
           <section>
-            <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
-              Workspaces
-            </h2>
+            <div className="flex items-baseline justify-between">
+              <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
+                Workspaces
+              </h2>
+              {repos.length > 0 && (
+                <Button
+                  variant="secondary"
+                  onClick={() => discover.mutate()}
+                  disabled={discover.isPending}
+                >
+                  {discover.isPending ? "Discovering…" : "Discover worktrees"}
+                </Button>
+              )}
+            </div>
+            {discover.isSuccess && discover.data && (
+              <p className="mt-2 text-xs text-zinc-500">
+                Imported {discover.data.imported.length} · skipped{" "}
+                {discover.data.skipped.length}
+                {discover.data.skipped.length > 0 && (
+                  <>
+                    {" "}
+                    <span className="text-zinc-600">
+                      ({Array.from(new Set(discover.data.skipped.map((s) => s.reason))).join(", ")})
+                    </span>
+                  </>
+                )}
+              </p>
+            )}
+            {discover.isError && (
+              <p className="mt-2 text-xs text-red-400">
+                discover failed: {String(discover.error)}
+              </p>
+            )}
             <div className="mt-3">
               {worktreesQuery.isLoading && (
                 <p className="text-sm text-zinc-500">Loading…</p>

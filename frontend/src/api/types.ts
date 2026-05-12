@@ -94,3 +94,22 @@ export interface SpawnItermResponse {
 export interface SendResponse {
   sent: boolean;
 }
+
+export interface ImportedWorktree {
+  repo: string;
+  name: string;
+  path: string;
+  branch: string;
+  ticket: string | null;
+}
+
+export interface SkippedWorktree {
+  repo: string;
+  path: string;
+  reason: string;
+}
+
+export interface DiscoverResponse {
+  imported: ImportedWorktree[];
+  skipped: SkippedWorktree[];
+}
