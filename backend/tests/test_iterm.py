@@ -80,6 +80,7 @@ def _build_fake_window(
     claude_session = MagicMock(session_id=claude_session_id)
     claude_session.async_send_text = AsyncMock()
     claude_tab = MagicMock(current_session=claude_session)
+    claude_tab.async_select = AsyncMock()
 
     shell_session = MagicMock(session_id=shell_session_id)
     shell_session.async_send_text = AsyncMock()
@@ -88,6 +89,7 @@ def _build_fake_window(
     window = MagicMock(window_id=window_id, current_tab=claude_tab)
     window.async_set_frame = AsyncMock()
     window.async_create_tab = AsyncMock(return_value=shell_tab)
+    window.async_activate = AsyncMock()
     return window
 
 
@@ -104,6 +106,9 @@ def test_spawn_worktree_window_calls_iterm_api(
     monkeypatch.setattr(
         iterm2.Window, "async_create", AsyncMock(return_value=fake_window)
     )
+    fake_app = MagicMock()
+    fake_app.async_activate = AsyncMock()
+    monkeypatch.setattr(iterm2, "async_get_app", AsyncMock(return_value=fake_app))
 
     frame = ITermWindow(width=800, height=600, x=10, y=20)
     fake_conn = MagicMock()
@@ -127,6 +132,9 @@ def test_spawn_worktree_window_calls_iterm_api(
     assert shell_call.args[0] == f"cd {worktree_path}\n"
     # Frame applied
     fake_window.async_set_frame.assert_awaited_once()
+    # Window brought to the front so it isn't hidden behind the browser
+    fake_window.async_activate.assert_awaited_once()
+    fake_window.current_tab.async_select.assert_awaited_once()
 
 
 # --- upsert_iterm_sessions_sync ------------------------------------------
@@ -285,6 +293,9 @@ def test_spawn_endpoint_happy_path(
     monkeypatch.setattr(
         iterm2.Window, "async_create", AsyncMock(return_value=fake_window)
     )
+    fake_app = MagicMock()
+    fake_app.async_activate = AsyncMock()
+    monkeypatch.setattr(iterm2, "async_get_app", AsyncMock(return_value=fake_app))
     # Stub the discovery so this test doesn't wait the full 30s for a
     # jsonl that won't appear; that's exercised in test_sidecar.py.
     import app.routes.worktrees as wt_route
