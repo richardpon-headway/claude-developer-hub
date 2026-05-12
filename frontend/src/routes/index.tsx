@@ -3,9 +3,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { listRepos } from "../api/repos";
+import { listWorktrees } from "../api/worktrees";
 import { AddRepoModal } from "../components/AddRepoModal";
 import { Button } from "../components/Button";
 import { RepoList } from "../components/RepoList";
+import { TokenUsageTile } from "../components/TokenUsageTile";
+import { WorkspaceList } from "../components/WorkspaceList";
 
 export const Route = createFileRoute("/")({
   component: HubPage,
@@ -20,37 +23,80 @@ function HubPage() {
     queryFn: listRepos,
   });
 
+  const worktreesQuery = useQuery({
+    queryKey: ["worktrees"],
+    queryFn: listWorktrees,
+    refetchInterval: 5_000,
+  });
+
   const repos = reposQuery.data ?? [];
+  const worktrees = worktreesQuery.data ?? [];
 
   return (
-    <main className="mx-auto max-w-4xl p-8">
+    <main className="mx-auto max-w-5xl p-8">
       <header className="flex items-baseline justify-between">
         <h1 className="text-2xl font-semibold">Claude Developer Hub</h1>
         <Button onClick={() => setModalOpen(true)}>Add a repo</Button>
       </header>
 
-      <section className="mt-8">
-        <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
-          Repos
-        </h2>
-        <div className="mt-3">
-          {reposQuery.isLoading && <p className="text-sm text-zinc-500">Loading…</p>}
-          {reposQuery.isError && (
-            <p className="text-sm text-red-400">
-              Failed to load repos. Is the backend running on :47823?
-            </p>
-          )}
-          {reposQuery.isSuccess && repos.length === 0 && (
-            <div className="rounded-lg border border-dashed border-zinc-700 p-6 text-center">
-              <p className="text-sm text-zinc-400">No repos configured yet.</p>
-              <div className="mt-3">
-                <Button onClick={() => setModalOpen(true)}>Add your first repo</Button>
-              </div>
+      <div className="mt-8 grid grid-cols-3 gap-6">
+        <div className="col-span-2 space-y-8">
+          <section>
+            <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
+              Workspaces
+            </h2>
+            <div className="mt-3">
+              {worktreesQuery.isLoading && (
+                <p className="text-sm text-zinc-500">Loading…</p>
+              )}
+              {worktreesQuery.isError && (
+                <p className="text-sm text-red-400">Failed to load worktrees.</p>
+              )}
+              {worktreesQuery.isSuccess && worktrees.length === 0 && (
+                <div className="rounded-lg border border-dashed border-zinc-700 p-6 text-center">
+                  <p className="text-sm text-zinc-400">
+                    {repos.length === 0
+                      ? "Add a repo first, then create a worktree from a branch."
+                      : "No worktrees yet. Create one via POST /api/worktree."}
+                  </p>
+                </div>
+              )}
+              {worktreesQuery.isSuccess && worktrees.length > 0 && (
+                <WorkspaceList worktrees={worktrees} />
+              )}
             </div>
-          )}
-          {reposQuery.isSuccess && repos.length > 0 && <RepoList repos={repos} />}
+          </section>
+
+          <section>
+            <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
+              Repos
+            </h2>
+            <div className="mt-3">
+              {reposQuery.isLoading && (
+                <p className="text-sm text-zinc-500">Loading…</p>
+              )}
+              {reposQuery.isError && (
+                <p className="text-sm text-red-400">Failed to load repos.</p>
+              )}
+              {reposQuery.isSuccess && repos.length === 0 && (
+                <div className="rounded-lg border border-dashed border-zinc-700 p-6 text-center">
+                  <p className="text-sm text-zinc-400">No repos configured yet.</p>
+                  <div className="mt-3">
+                    <Button onClick={() => setModalOpen(true)}>
+                      Add your first repo
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {reposQuery.isSuccess && repos.length > 0 && <RepoList repos={repos} />}
+            </div>
+          </section>
         </div>
-      </section>
+
+        <aside className="space-y-6">
+          <TokenUsageTile />
+        </aside>
+      </div>
 
       <AddRepoModal
         open={modalOpen}

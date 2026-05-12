@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.db import apply_migrations
-from app.routes import repos, workspace, worktrees
+from app.routes import repos, token_usage, workspace, worktrees
 from app.services.iterm_supervisor import iterm_supervisor
 
 
@@ -36,6 +36,7 @@ app = FastAPI(title="Claude Developer Hub", lifespan=lifespan)
 app.include_router(repos.router)
 app.include_router(worktrees.router)
 app.include_router(workspace.router)
+app.include_router(token_usage.router)
 
 
 @app.get("/api/health")
