@@ -47,6 +47,12 @@ export interface OnboardCompleteResponse {
   saved_entry: RepoConfig;
 }
 
+export interface RepoCandidate {
+  path: string;
+  name: string;
+  already_configured: boolean;
+}
+
 export type WorktreeStatus = "setting_up" | "ready" | "failed" | "stale" | "removing";
 
 export interface Worktree {
