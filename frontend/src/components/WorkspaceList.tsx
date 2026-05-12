@@ -41,7 +41,7 @@ export function WorkspaceList({ worktrees, jira }: Props) {
           <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
             {repo}
           </h3>
-          <ul className="divide-y divide-zinc-800 rounded-lg border border-zinc-800 bg-zinc-900/50">
+          <ul className="space-y-2">
             {grouped[repo].map((w) => (
               <WorkspaceRow key={`${w.repo}/${w.name}`} w={w} jira={jira} />
             ))}
@@ -59,7 +59,7 @@ interface RowProps {
 
 function WorkspaceRow({ w, jira }: RowProps) {
   return (
-    <li className="px-4 py-3">
+    <li className="rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-3">
       <div className="flex items-start justify-between gap-4">
         <Link
           to="/workspace/$repo/$name"
