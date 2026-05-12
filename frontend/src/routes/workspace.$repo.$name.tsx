@@ -108,13 +108,7 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
                   onClick={() => spawnMutation.mutate()}
                   disabled={spawnMutation.isPending || !ready}
                 >
-                  {hasClaude
-                    ? spawnMutation.isPending
-                      ? "Respawning…"
-                      : "Respawn iTerm2"
-                    : spawnMutation.isPending
-                      ? "Opening…"
-                      : "Open in iTerm2"}
+                  {spawnMutation.isPending ? "Opening…" : "Open in iTerm2"}
                 </Button>
               </Tooltip>
               {SKILLS.map((skill) => (

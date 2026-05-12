@@ -221,6 +221,7 @@ def _build_fake_window(
     claude_session = MagicMock(session_id=claude_session_id)
     claude_session.async_send_text = AsyncMock()
     claude_tab = MagicMock(current_session=claude_session)
+    claude_tab.async_select = AsyncMock()
 
     shell_session = MagicMock(session_id=shell_session_id)
     shell_session.async_send_text = AsyncMock()
@@ -229,6 +230,7 @@ def _build_fake_window(
     window = MagicMock(window_id=window_id, current_tab=claude_tab)
     window.async_set_frame = AsyncMock()
     window.async_create_tab = AsyncMock(return_value=shell_tab)
+    window.async_activate = AsyncMock()
     return window
 
 
@@ -247,6 +249,9 @@ def test_spawn_endpoint_writes_sidecar(
     monkeypatch.setattr(
         iterm2.Window, "async_create", AsyncMock(return_value=fake_window)
     )
+    fake_app = MagicMock()
+    fake_app.async_activate = AsyncMock()
+    monkeypatch.setattr(iterm2, "async_get_app", AsyncMock(return_value=fake_app))
 
     # When the spawn endpoint sends `claude\n` to iTerm2, real Claude
     # would later write a jsonl. We simulate that by patching
@@ -309,6 +314,9 @@ def test_spawn_endpoint_succeeds_on_discovery_timeout(
     monkeypatch.setattr(
         iterm2.Window, "async_create", AsyncMock(return_value=fake_window)
     )
+    fake_app = MagicMock()
+    fake_app.async_activate = AsyncMock()
+    monkeypatch.setattr(iterm2, "async_get_app", AsyncMock(return_value=fake_app))
     # Force a quick timeout so the test runs in well under a second.
     monkeypatch.setattr(
         sidecar, "DEFAULT_TIMEOUT_SECONDS", 0.2
