@@ -82,3 +82,15 @@ export interface TokenUsageResponse {
   offline: boolean;
   rows: TokenUsageRow[];
 }
+
+export interface SpawnItermResponse {
+  window_id: string;
+  claude_session_id: string;
+  shell_session_id: string;
+  claude_session_uuid: string | null;
+  sidecar_path: string | null;
+}
+
+export interface SendResponse {
+  sent: boolean;
+}

@@ -1,18 +1,59 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { getWorktree } from "../api/worktrees";
+import { ApiError } from "../api/client";
+import { getWorktree, runSkill, sendText, spawnIterm } from "../api/worktrees";
+import { Button } from "../components/Button";
 
 export const Route = createFileRoute("/workspace/$repo/$name")({
-  component: WorkspacePage,
+  component: WorkspaceRoute,
 });
 
-function WorkspacePage() {
+const SKILLS = ["pr-finalize-for-review", "pr-check-action-required"] as const;
+
+function errorMessage(err: unknown): string {
+  if (err instanceof ApiError) return err.detail;
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+function WorkspaceRoute() {
   const { repo, name } = Route.useParams();
-  const query = useQuery({
+  return <WorkspacePage repo={repo} name={name} />;
+}
+
+interface WorkspacePageProps {
+  repo: string;
+  name: string;
+}
+
+export function WorkspacePage({ repo, name }: WorkspacePageProps) {
+  const queryClient = useQueryClient();
+
+  const detail = useQuery({
     queryKey: ["worktree", repo, name],
     queryFn: () => getWorktree(repo, name),
     refetchInterval: 5_000,
+  });
+
+  const row = detail.data?.row;
+  const hasClaude = row?.has_claude_session ?? false;
+  const ready = row?.status === "ready";
+
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: ["worktree", repo, name] });
+
+  const spawnMutation = useMutation({
+    mutationFn: () => spawnIterm(repo, name),
+    onSuccess: invalidate,
+  });
+
+  const skillMutation = useMutation({
+    mutationFn: (skill: string) => runSkill(repo, name, skill),
+  });
+
+  const sendMutation = useMutation({
+    mutationFn: (text: string) => sendText(repo, name, text),
   });
 
   return (
@@ -24,50 +65,152 @@ function WorkspacePage() {
         {repo} / <span className="text-zinc-400">{name}</span>
       </h1>
 
-      {query.isLoading && <p className="mt-6 text-sm text-zinc-500">Loading…</p>}
-      {query.isError && (
+      {detail.isLoading && <p className="mt-6 text-sm text-zinc-500">Loading…</p>}
+      {detail.isError && (
         <p className="mt-6 text-sm text-red-400">
           Workspace not found, or backend unreachable.
         </p>
       )}
-      {query.isSuccess && (
+
+      {detail.isSuccess && row && (
         <>
           <dl className="mt-6 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1 text-sm">
             <dt className="text-zinc-500">branch</dt>
-            <dd className="text-zinc-200">{query.data.row.branch}</dd>
+            <dd className="text-zinc-200">{row.branch}</dd>
             <dt className="text-zinc-500">status</dt>
-            <dd className="text-zinc-200">{query.data.row.status}</dd>
+            <dd className="text-zinc-200">{row.status}</dd>
             <dt className="text-zinc-500">path</dt>
-            <dd className="font-mono text-xs text-zinc-300">{query.data.row.path}</dd>
-            {query.data.row.ticket && (
+            <dd className="font-mono text-xs text-zinc-300">{row.path}</dd>
+            {row.ticket && (
               <>
                 <dt className="text-zinc-500">ticket</dt>
-                <dd className="text-zinc-200">{query.data.row.ticket}</dd>
+                <dd className="text-zinc-200">{row.ticket}</dd>
               </>
             )}
             <dt className="text-zinc-500">claude session</dt>
-            <dd className="text-zinc-200">
-              {query.data.row.has_claude_session ? "open" : "—"}
-            </dd>
+            <dd className="text-zinc-200">{hasClaude ? "open" : "—"}</dd>
           </dl>
 
-          {query.data.log.length > 0 && (
+          <section className="mt-8 space-y-4">
+            <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              Actions
+            </h2>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() => spawnMutation.mutate()}
+                disabled={spawnMutation.isPending || !ready}
+                title={
+                  !ready
+                    ? `worktree status is ${row.status}; nothing to spawn into`
+                    : undefined
+                }
+              >
+                {hasClaude
+                  ? spawnMutation.isPending
+                    ? "Respawning…"
+                    : "Respawn iTerm2"
+                  : spawnMutation.isPending
+                    ? "Opening…"
+                    : "Open in iTerm2"}
+              </Button>
+              {SKILLS.map((skill) => (
+                <Button
+                  key={skill}
+                  variant="secondary"
+                  onClick={() => skillMutation.mutate(skill)}
+                  disabled={!hasClaude || skillMutation.isPending}
+                  title={
+                    !hasClaude
+                      ? "Open this workspace in iTerm2 first"
+                      : undefined
+                  }
+                >
+                  /{skill}
+                </Button>
+              ))}
+            </div>
+
+            <SendTextForm
+              hasClaude={hasClaude}
+              onSubmit={(text) => sendMutation.mutate(text)}
+              isPending={sendMutation.isPending}
+            />
+
+            {spawnMutation.error && (
+              <p role="alert" className="text-sm text-red-400">
+                spawn failed: {errorMessage(spawnMutation.error)}
+              </p>
+            )}
+            {skillMutation.error && (
+              <p role="alert" className="text-sm text-red-400">
+                skill failed: {errorMessage(skillMutation.error)}
+              </p>
+            )}
+            {sendMutation.error && (
+              <p role="alert" className="text-sm text-red-400">
+                send failed: {errorMessage(sendMutation.error)}
+              </p>
+            )}
+          </section>
+
+          {detail.data.log.length > 0 && (
             <section className="mt-8">
               <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
                 Setup log
               </h2>
               <pre className="mt-2 max-h-96 overflow-auto rounded border border-zinc-800 bg-zinc-950 p-3 font-mono text-xs text-zinc-200 whitespace-pre-wrap">
-                {query.data.log.join("\n")}
+                {detail.data.log.join("\n")}
               </pre>
             </section>
           )}
-
-          <p className="mt-8 text-xs text-zinc-500">
-            Action buttons (Open in iTerm2, skill-runner, …) land in the next
-            slice.
-          </p>
         </>
       )}
     </main>
+  );
+}
+
+interface SendTextFormProps {
+  hasClaude: boolean;
+  isPending: boolean;
+  onSubmit: (text: string) => void;
+}
+
+function SendTextForm({ hasClaude, isPending, onSubmit }: SendTextFormProps) {
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        const data = new FormData(e.currentTarget);
+        const text = String(data.get("text") ?? "").trim();
+        if (!text) return;
+        onSubmit(text);
+        (e.currentTarget.querySelector("textarea") as HTMLTextAreaElement).value = "";
+      }}
+      className="space-y-2"
+    >
+      <label className="block text-xs uppercase tracking-wide text-zinc-500">
+        Send text to Claude
+      </label>
+      <textarea
+        name="text"
+        rows={2}
+        disabled={!hasClaude || isPending}
+        placeholder={
+          hasClaude
+            ? "type a message, press Submit to send + Enter"
+            : "open this workspace in iTerm2 first"
+        }
+        className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none disabled:opacity-50"
+      />
+      <div className="flex justify-end">
+        <Button
+          type="submit"
+          variant="secondary"
+          disabled={!hasClaude || isPending}
+        >
+          {isPending ? "Sending…" : "Submit"}
+        </Button>
+      </div>
+    </form>
   );
 }
