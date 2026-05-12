@@ -116,6 +116,65 @@ URL routing:
 Visiting a URL is pure rendering. Spawning iTerm2, launching Cursor, or
 creating a worktree from a PR all require explicit button clicks.
 
+## Optional: `cdh` shell function
+
+A tiny shell function lets you jump from any terminal into the right
+hub URL without typing it. Drop this into your `~/.zshrc` or
+`~/.bashrc`:
+
+```bash
+cdh() {
+  if [ $# -eq 0 ]; then
+    local cwd target
+    cwd=$(pwd -P)
+    target=$(curl -s --max-time 2 \
+      "http://localhost:47823/api/workspace/from-path?path=$cwd" 2>/dev/null \
+      | jq -r '.url // "/"' 2>/dev/null)
+    open "http://localhost:47823${target:-/}"
+  else
+    case "$1" in
+      /*) open "http://localhost:47823$1" ;;
+      *)  open "http://localhost:47823/$1" ;;
+    esac
+  fi
+}
+```
+
+Behaviour:
+
+- `cdh` (no args) — read the cwd, ask the backend which workspace lives
+  here, open that URL. Falls back to the hub if no match (so dropping
+  into any directory still opens something useful).
+- `cdh /workspace/foo/bar` — open that explicit URL.
+- `cdh hub` — open `/hub`.
+
+Requires `jq` on `PATH` and CDH already running (`make run`). If the
+backend is unreachable, the function falls back to opening the hub URL
+directly; you'll see the connection error in the browser.
+
+A fish-shell variant uses the same backend endpoint but different syntax:
+
+```fish
+function cdh
+  if test (count $argv) -eq 0
+    set -l cwd (pwd -P)
+    set -l target (curl -s --max-time 2 \
+      "http://localhost:47823/api/workspace/from-path?path=$cwd" 2>/dev/null \
+      | jq -r '.url // "/"' 2>/dev/null)
+    test -z "$target"; and set target "/"
+    open "http://localhost:47823$target"
+  else if string match -q -- '/*' $argv[1]
+    open "http://localhost:47823$argv[1]"
+  else
+    open "http://localhost:47823/$argv[1]"
+  end
+end
+```
+
+CDH never auto-modifies your shell rc files. Copy-paste install is the
+only supported path right now; an opt-in auto-installer (with backup at
+`~/.zshrc.cdh-backup-<timestamp>`) may land later.
+
 ## Privacy and telemetry
 
 **No telemetry, no analytics, no phone-home.** The only network calls CDH
