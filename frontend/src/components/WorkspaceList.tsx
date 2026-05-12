@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { ApiError } from "../api/client";
 import { getPrUrl } from "../api/worktrees";
 import type { JiraConfig, Worktree, WorktreeStatus } from "../api/types";
+import { Tooltip } from "./Tooltip";
 
 interface Props {
   worktrees: Worktree[];
@@ -75,12 +76,13 @@ function WorkspaceRow({ w, jira }: RowProps) {
               {w.status}
             </span>
             {w.has_claude_session && (
-              <span
-                title="Claude session is open in iTerm2"
-                className="rounded border border-emerald-800 bg-emerald-900/40 px-1.5 py-0.5 text-[10px] text-emerald-300"
-              >
-                claude ●
-              </span>
+              <Tooltip text="Claude session is open in iTerm2">
+                <span
+                  className="rounded border border-emerald-800 bg-emerald-900/40 px-1.5 py-0.5 text-[10px] text-emerald-300"
+                >
+                  claude ●
+                </span>
+              </Tooltip>
             )}
           </div>
           <div className="mt-1 space-y-0.5 text-xs text-zinc-500">
@@ -97,13 +99,15 @@ function WorkspaceRow({ w, jira }: RowProps) {
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <PrButton repo={w.repo} name={w.name} />
-          <Link
-            to="/workspace/$repo/$name"
-            params={{ repo: w.repo, name: w.name }}
-            className="rounded border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700"
-          >
-            Manage
-          </Link>
+          <Tooltip text="Workspace actions: open in iTerm2, run skills, send text">
+            <Link
+              to="/workspace/$repo/$name"
+              params={{ repo: w.repo, name: w.name }}
+              className="rounded border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700"
+            >
+              Manage
+            </Link>
+          </Tooltip>
         </div>
       </div>
     </li>
@@ -171,7 +175,7 @@ function PrButton({ repo, name }: PrButtonProps) {
           ? "PR failed"
           : "PR";
 
-  const title =
+  const tooltip =
     state.kind === "error"
       ? state.message
       : state.kind === "missing"
@@ -179,14 +183,15 @@ function PrButton({ repo, name }: PrButtonProps) {
         : "Open the GitHub PR for this branch";
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={state.kind === "loading" || state.kind === "missing"}
-      title={title}
-      className="rounded border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
-    >
-      {label}
-    </button>
+    <Tooltip text={tooltip}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={state.kind === "loading" || state.kind === "missing"}
+        className="rounded border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {label}
+      </button>
+    </Tooltip>
   );
 }
