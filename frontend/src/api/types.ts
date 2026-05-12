@@ -46,3 +46,39 @@ export interface OnboardCompleteResponse {
   state: "saved";
   saved_entry: RepoConfig;
 }
+
+export type WorktreeStatus = "setting_up" | "ready" | "failed" | "stale" | "removing";
+
+export interface Worktree {
+  repo: string;
+  name: string;
+  path: string;
+  branch: string;
+  ticket: string | null;
+  pr_number: number | null;
+  pr_repo: string | null;
+  created_at: string;
+  status: WorktreeStatus;
+  has_claude_session: boolean;
+}
+
+export interface WorktreeDetail {
+  row: Worktree;
+  log: string[];
+}
+
+export interface TokenUsageRow {
+  topic_id: string;
+  sessions: number;
+  output: number;
+  input: number;
+  messages: number;
+  last_at: string | null;
+  label: string | null;
+  summary: string | null;
+}
+
+export interface TokenUsageResponse {
+  offline: boolean;
+  rows: TokenUsageRow[];
+}
