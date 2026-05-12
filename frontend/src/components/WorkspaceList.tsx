@@ -83,16 +83,19 @@ function WorkspaceRow({ w, jira }: RowProps) {
               </span>
             )}
           </div>
-          <div className="mt-1 flex flex-wrap gap-x-4 text-xs text-zinc-500">
-            <span>branch: {w.branch}</span>
-            {w.ticket && <span>ticket: {w.ticket}</span>}
-            <span className="truncate font-mono text-zinc-600" title={w.path}>
+          <div className="mt-1 space-y-0.5 text-xs text-zinc-500">
+            <div>branch: {w.branch}</div>
+            {w.ticket && (
+              <div>
+                ticket: <TicketValue ticket={w.ticket} jira={jira} />
+              </div>
+            )}
+            <div className="truncate font-mono text-zinc-600" title={w.path}>
               {w.path}
-            </span>
+            </div>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <TicketButton ticket={w.ticket} jira={jira} />
           <PrButton repo={w.repo} name={w.name} />
           <Link
             to="/workspace/$repo/$name"
@@ -107,20 +110,20 @@ function WorkspaceRow({ w, jira }: RowProps) {
   );
 }
 
-interface TicketButtonProps {
-  ticket: string | null;
+interface TicketValueProps {
+  ticket: string;
   jira: JiraConfig | null;
 }
 
-function TicketButton({ ticket, jira }: TicketButtonProps) {
-  if (!ticket || !jira?.base_url) return null;
+function TicketValue({ ticket, jira }: TicketValueProps) {
+  if (!jira?.base_url) return <>{ticket}</>;
   const base = jira.base_url.replace(/\/+$/, "");
   return (
     <a
       href={`${base}/browse/${ticket}`}
       target="_blank"
       rel="noopener noreferrer"
-      className="rounded border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700"
+      className="text-zinc-400 underline decoration-zinc-700 underline-offset-2 hover:text-indigo-300 hover:decoration-indigo-400"
     >
       {ticket}
     </a>
