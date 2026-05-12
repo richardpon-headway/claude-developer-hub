@@ -6,10 +6,10 @@ REST layer to serialize rows and by the service layer to type its returns.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 WorktreeStatus = Literal["setting_up", "ready", "failed", "stale", "removing"]
 
@@ -68,7 +68,7 @@ def derive_worktree_name(
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def extract_ticket(branch: str, ticket_pattern: str | None) -> str | None:

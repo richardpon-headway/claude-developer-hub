@@ -45,8 +45,8 @@ class SessionNotFoundError(Exception):
 
 
 async def find_session_by_id(
-    connection: "iterm2.Connection", session_id: str
-) -> "iterm2.Session | None":
+    connection: iterm2.Connection, session_id: str
+) -> iterm2.Session | None:
     """Linear scan through all open iTerm2 sessions. Returns None if not
     found. The connection is assumed live; the caller checks ``app.state``."""
     import iterm2
@@ -72,7 +72,7 @@ def _extract_trailing_text(lines: list[str]) -> str:
 
 
 async def _read_trailing(
-    session: "iterm2.Session", num_lines: int = SCREEN_GATE_LINES
+    session: iterm2.Session, num_lines: int = SCREEN_GATE_LINES
 ) -> str:
     """Pull the last ``num_lines`` rendered lines from the session screen
     and return the trailing non-blank one. Iterates the iterm2
@@ -97,7 +97,7 @@ def _send_gate_check(trailing: str, patterns: list[str]) -> str | None:
 
 
 async def send_to_session(
-    connection: "iterm2.Connection",
+    connection: iterm2.Connection,
     session_id: str,
     text: str,
     press_enter: bool = True,
