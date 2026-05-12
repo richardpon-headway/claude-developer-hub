@@ -60,41 +60,41 @@ interface RowProps {
 function WorkspaceRow({ w, jira }: RowProps) {
   return (
     <li className="px-4 py-3">
-      <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <Link
-              to="/workspace/$repo/$name"
-              params={{ repo: w.repo, name: w.name }}
-              className="font-medium text-zinc-100 hover:text-indigo-300"
-            >
-              {w.name}
-            </Link>
-            <span
-              className={`rounded border px-1.5 py-0.5 text-[10px] ${statusStyle[w.status]}`}
-            >
-              {w.status}
-            </span>
-            {w.has_claude_session && (
-              <Tooltip text="Claude session is open in iTerm2">
-                <span
-                  className="rounded border border-emerald-800 bg-emerald-900/40 px-1.5 py-0.5 text-[10px] text-emerald-300"
-                >
-                  claude ●
-                </span>
-              </Tooltip>
-            )}
-          </div>
-          <div className="mt-1 space-y-0.5 text-xs text-zinc-500">
-            <div>branch: {w.branch}</div>
-            {w.ticket && (
-              <div>
-                ticket: <TicketValue ticket={w.ticket} jira={jira} />
-              </div>
-            )}
-            <div className="truncate font-mono text-zinc-600" title={w.path}>
-              {w.path}
+      <div className="flex items-start justify-between gap-4">
+        <Link
+          to="/workspace/$repo/$name"
+          params={{ repo: w.repo, name: w.name }}
+          className="min-w-0 truncate font-medium text-zinc-100 hover:text-indigo-300"
+        >
+          {w.name}
+        </Link>
+        <div className="flex shrink-0 items-center gap-2">
+          <span
+            className={`rounded border px-1.5 py-0.5 text-[10px] ${statusStyle[w.status]}`}
+          >
+            {w.status}
+          </span>
+          {w.has_claude_session && (
+            <Tooltip text="Claude session is open in iTerm2">
+              <span
+                className="rounded border border-emerald-800 bg-emerald-900/40 px-1.5 py-0.5 text-[10px] text-emerald-300"
+              >
+                claude ●
+              </span>
+            </Tooltip>
+          )}
+        </div>
+      </div>
+      <div className="mt-2 flex items-end justify-between gap-4">
+        <div className="min-w-0 flex-1 space-y-0.5 text-xs text-zinc-500">
+          <div>branch: {w.branch}</div>
+          {w.ticket && (
+            <div>
+              ticket: <TicketValue ticket={w.ticket} jira={jira} />
             </div>
+          )}
+          <div className="truncate font-mono text-zinc-600" title={w.path}>
+            {w.path}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
