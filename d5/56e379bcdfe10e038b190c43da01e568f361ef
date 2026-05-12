@@ -1,0 +1,54 @@
+backend/app/routes/repos.py
+  s_ba9084d0a1d9fb::t_413d219d4ce6cb 41
+backend/tests/test_iterm.py
+  s_ba9084d0a1d9fb::t_0da80991512f77 125-126
+  s_ba9084d0a1d9fb::t_413d219d4ce6cb 23-24,178-179,211
+backend/app/models/worktree.py
+  s_ba9084d0a1d9fb::t_413d219d4ce6cb 9,12,71
+backend/app/services/iterm_send.py
+  s_ba9084d0a1d9fb::t_413d219d4ce6cb 48-49,75,100
+backend/app/services/iterm_supervisor.py
+  s_ba9084d0a1d9fb::t_413d219d4ce6cb 30,46,53,106,124
+backend/app/main.py
+  s_ba9084d0a1d9fb::t_413d219d4ce6cb 10
+backend/app/db.py
+  s_ba9084d0a1d9fb::t_413d219d4ce6cb 34,85,122,129
+backend/pyproject.toml
+  s_ba9084d0a1d9fb::t_1675ffba12d761 40-56
+backend/app/services/worktree.py
+  s_ba9084d0a1d9fb::t_bb108405c9aa42 71
+  s_ba9084d0a1d9fb::t_09aa655334ab54 255-257
+  s_ba9084d0a1d9fb::t_fbe644458c433a 89
+  s_ba9084d0a1d9fb::t_6df902235b012c 267-269
+  s_ba9084d0a1d9fb::t_c3e97552bc0cb9 286-288,292-294
+  s_ba9084d0a1d9fb::t_ce7e37096f8118 320-321
+backend/tests/test_db.py
+  s_ba9084d0a1d9fb::t_9a4803edb4c172 33-36
+backend/tests/test_worktrees.py
+  s_ba9084d0a1d9fb::t_366311db198117 121-124
+backend/app/services/sidecar.py
+  s_ba9084d0a1d9fb::t_413d219d4ce6cb 28,34,115
+.github/workflows/ci.yml
+  s_ba9084d0a1d9fb::t_be52c4efdce314 1-73
+backend/app/services/iterm_spawn.py
+  s_ba9084d0a1d9fb::t_413d219d4ce6cb 38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "d556e379bcdfe10e038b190c43da01e568f361ef",
+  "prompts": {},
+  "sessions": {
+    "s_ba9084d0a1d9fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b443a2b0-cc0c-40f9-94f4-67759cd30cb4",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
