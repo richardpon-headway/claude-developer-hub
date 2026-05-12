@@ -1,0 +1,46 @@
+frontend/src/api/types.ts
+  s_ba9084d0a1d9fb::t_740b3cdd48e222 49-84
+backend/app/routes/token_usage.py
+  s_ba9084d0a1d9fb::t_3c51d8e9d601af 1-84
+frontend/src/routes/index.tsx
+  s_ba9084d0a1d9fb::t_cefb9d11319a17 6,10-11,26-31,33,36,42-66,68-93,95-99
+frontend/src/routes/workspace.$repo.$name.tsx
+  s_ba9084d0a1d9fb::t_5a5e7689ff5393 1-73
+frontend/src/api/worktrees.ts
+  s_ba9084d0a1d9fb::t_25929d5f456114 1-11
+backend/app/models/worktree.py
+  s_ba9084d0a1d9fb::t_697e7d368c5107 29-33
+frontend/src/components/WorkspaceList.tsx
+  s_ba9084d0a1d9fb::t_7cfcd128607e0b 1-89
+backend/tests/test_token_usage.py
+  s_ba9084d0a1d9fb::t_67e32185203a59 5
+  s_ba9084d0a1d9fb::t_48fe3628f7809b 1-4,6-146
+frontend/src/components/TokenUsageTile.test.tsx
+  s_ba9084d0a1d9fb::t_81dd28cbb24cde 1-75
+backend/app/main.py
+  s_ba9084d0a1d9fb::t_4e461f9958d779 16
+  s_ba9084d0a1d9fb::t_91da52d56e2351 39
+backend/app/services/worktree.py
+  s_ba9084d0a1d9fb::t_d097e7212245b5 62-86,92-93,106,110
+frontend/src/components/TokenUsageTile.tsx
+  s_ba9084d0a1d9fb::t_62fb95128f278b 1-104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "7fb968203aa26d5c2d52f0320bd1e2e26c28021f",
+  "prompts": {},
+  "sessions": {
+    "s_ba9084d0a1d9fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b443a2b0-cc0c-40f9-94f4-67759cd30cb4",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
