@@ -1,0 +1,46 @@
+frontend/src/components/Tooltip.tsx
+  s_f6c2b8d06e0dbe::t_dd63b8b633aae0 26
+  s_f6c2b8d06e0dbe::t_6d5bcfdb22fb76 1-15,21-25,27-34
+  s_f6c2b8d06e0dbe::t_a69c82e77a6620 16-20
+frontend/src/components/WorkspaceList.tsx
+  s_f6c2b8d06e0dbe::t_0ebedc3179baa0 178,186-195
+  s_f6c2b8d06e0dbe::t_999354c4527d38 7
+  s_f6c2b8d06e0dbe::t_aebfc9308fa727 102-110
+  s_f6c2b8d06e0dbe::t_320756978d3004 79-85
+frontend/src/routes/workspace.$repo.$name.tsx
+  s_f6c2b8d06e0dbe::t_223314f0e362df 100-101,104,108-109,111-117,119-132
+  s_f6c2b8d06e0dbe::t_fd937c450f5a61 7
+frontend/src/routes/workspace.test.tsx
+  s_f6c2b8d06e0dbe::t_664bdfd97fb068 3
+  s_f6c2b8d06e0dbe::t_556b8bd3053965 34-36
+  s_f6c2b8d06e0dbe::t_aa95570aefba93 76
+frontend/src/routes/index.test.tsx
+  s_f6c2b8d06e0dbe::t_d46bb0d3fe6cb5 3
+  s_f6c2b8d06e0dbe::t_4df265c80225c6 35-37
+frontend/package.json
+  s_f6c2b8d06e0dbe::t_969fd73c4c74e0 19
+frontend/pnpm-lock.yaml
+  ai_agent 11-13,398-412,429-637,2034-2050,2070-2244
+frontend/src/main.tsx
+  s_f6c2b8d06e0dbe::t_2f76c0d0064ace 5
+  s_f6c2b8d06e0dbe::t_36ad78d0c2a116 23-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "e47c7902ddab1a45c4d9f91222a640bd8c30a2b1",
+  "prompts": {},
+  "sessions": {
+    "s_f6c2b8d06e0dbe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e348f4fc-6ea8-4765-bd8c-c013f0a47831",
+        "model": "unknown"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
