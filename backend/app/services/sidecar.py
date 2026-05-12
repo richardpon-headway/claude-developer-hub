@@ -25,15 +25,14 @@ endpoint still returns success — sidecar just isn't written and
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-
-import asyncio
 
 from app.config.loader import load_config
 
@@ -113,7 +112,7 @@ def build_sidecar(
     sidecar: dict = {
         "session_id": session_id,
         "started_via": "cdh",
-        "started_at": datetime.now(timezone.utc).isoformat(),
+        "started_at": datetime.now(UTC).isoformat(),
         "worktree": worktree,
     }
     if ticket:

@@ -27,7 +27,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from app.db import get_db_path, open_db
+from app.db import open_db
 
 if TYPE_CHECKING:
     import iterm2
@@ -43,14 +43,14 @@ class ItermState:
     """Cached on ``app.state.iterm``. ``connection`` is None while we're
     disconnected; endpoints check truthiness before using."""
 
-    connection: "iterm2.Connection | None" = None
+    connection: iterm2.Connection | None = None
     started_at: str | None = None
     # Reserved for the notification-driven session-id index added in a
     # follow-up slice.
     session_index: dict[str, Any] = field(default_factory=dict)
 
 
-async def _get_iterm2_started_at(connection: "iterm2.Connection") -> str | None:
+async def _get_iterm2_started_at(connection: iterm2.Connection) -> str | None:
     """Probe the ``iterm2_started_at`` app variable. Returns None if the
     variable isn't accessible (e.g., older iTerm2 build)."""
     import iterm2
@@ -103,7 +103,7 @@ def _mark_iterm_sessions_stale_sync() -> int:
         conn.close()
 
 
-async def _detect_and_handle_restart(connection: "iterm2.Connection") -> None:
+async def _detect_and_handle_restart(connection: iterm2.Connection) -> None:
     """If the probed ``iterm2_started_at`` differs from what we have
     persisted, iTerm2 restarted: invalidate ``iterm_session`` rows and
     update the persisted value. First-ever connect (no persisted value)
@@ -121,7 +121,7 @@ async def _detect_and_handle_restart(connection: "iterm2.Connection") -> None:
         await asyncio.to_thread(_write_persisted_started_at_sync, current)
 
 
-async def _wait_for_disconnect(connection: "iterm2.Connection") -> None:
+async def _wait_for_disconnect(connection: iterm2.Connection) -> None:
     """Block until the connection is closed. Done by waiting on the
     underlying websocket. Falls back to a long sleep if the underlying
     handle isn't accessible (we'll detect disconnect on the next API call

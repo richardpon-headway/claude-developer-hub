@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -21,9 +20,9 @@ from fastapi.testclient import TestClient
 from app import db
 from app.config.schema import ITermWindow
 from app.main import app
-from app.services import iterm_spawn, iterm_supervisor as supervisor
+from app.services import iterm_spawn
+from app.services import iterm_supervisor as supervisor
 from app.services import worktree as wsvc
-
 
 # --- fixtures ------------------------------------------------------------
 
@@ -123,10 +122,8 @@ def test_spawn_worktree_window_calls_iterm_api(
     claude_call = fake_window.current_tab.current_session.async_send_text.await_args
     assert claude_call.args[0] == f"cd {worktree_path}\nclaude\n"
     # Second tab: cd only
-    shell_call = (
-        (await_call := fake_window.async_create_tab.return_value)
-        .current_session.async_send_text.await_args
-    )
+    shell_tab = fake_window.async_create_tab.return_value
+    shell_call = shell_tab.current_session.async_send_text.await_args
     assert shell_call.args[0] == f"cd {worktree_path}\n"
     # Frame applied
     fake_window.async_set_frame.assert_awaited_once()
@@ -177,9 +174,9 @@ def test_restart_invalidates_sessions(_isolate: dict[str, Path]) -> None:
     # Build a fake connection whose iterm2_started_at probe returns "NEW".
     fake_app = MagicMock()
     fake_app.async_get_variable = AsyncMock(return_value="NEW")
-    import iterm2
-
     import unittest.mock as _m
+
+    import iterm2
     with _m.patch.object(iterm2, "async_get_app", AsyncMock(return_value=fake_app)):
         asyncio.run(supervisor._detect_and_handle_restart(MagicMock()))
 
@@ -209,8 +206,9 @@ def test_first_connect_records_started_at_without_invalidating(
 
     fake_app = MagicMock()
     fake_app.async_get_variable = AsyncMock(return_value="START-1")
-    import iterm2
     import unittest.mock as _m
+
+    import iterm2
 
     with _m.patch.object(iterm2, "async_get_app", AsyncMock(return_value=fake_app)):
         asyncio.run(supervisor._detect_and_handle_restart(MagicMock()))

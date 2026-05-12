@@ -2,7 +2,6 @@
 the spawn endpoint's integration of both."""
 from __future__ import annotations
 
-import asyncio
 import json
 import sqlite3
 import time
@@ -23,7 +22,6 @@ from app.services.sidecar import (
     encode_project_dir,
     write_sidecar_sync,
 )
-
 
 # --- fixtures ------------------------------------------------------------
 
