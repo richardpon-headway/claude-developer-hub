@@ -26,6 +26,11 @@ class WorktreeRow(BaseModel):
     pr_repo: str | None = None
     created_at: str
     status: WorktreeStatus
+    # True if an iterm_session row with role='claude' exists for this
+    # worktree. Populated at read time (not stored in the worktree table)
+    # so the hub can render the "claude running" indicator and decide
+    # whether skill-runner buttons should be enabled.
+    has_claude_session: bool = False
 
 
 def derive_worktree_name(
