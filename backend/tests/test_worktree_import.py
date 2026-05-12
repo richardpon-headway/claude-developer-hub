@@ -145,7 +145,6 @@ def test_discover_happy_path(_isolate: dict[str, Path]) -> None:
                 "default_branch": "main",
                 "setup_steps": [],
                 "ticket_pattern": None,
-                "jira": {"tool": "none"},
             }
         ],
     )
@@ -184,7 +183,6 @@ def test_discover_ticket_extraction(_isolate: dict[str, Path]) -> None:
                 "branch_prefix": "alice/",
                 "setup_steps": [],
                 "ticket_pattern": r"PROJ-\d+",
-                "jira": {"tool": "none"},
             }
         ],
     )
@@ -213,7 +211,6 @@ def test_discover_skips_already_tracked(_isolate: dict[str, Path]) -> None:
                 "default_branch": "main",
                 "setup_steps": [],
                 "ticket_pattern": None,
-                "jira": {"tool": "none"},
             }
         ],
     )
@@ -252,7 +249,6 @@ def test_discover_skips_detached_head(_isolate: dict[str, Path]) -> None:
                 "default_branch": "main",
                 "setup_steps": [],
                 "ticket_pattern": None,
-                "jira": {"tool": "none"},
             }
         ],
     )
@@ -278,7 +274,6 @@ def test_discover_reports_missing_repo_path(_isolate: dict[str, Path]) -> None:
                 "default_branch": "main",
                 "setup_steps": [],
                 "ticket_pattern": None,
-                "jira": {"tool": "none"},
             }
         ],
     )
@@ -310,7 +305,6 @@ def test_discover_isolates_per_repo_failures(_isolate: dict[str, Path]) -> None:
                 "default_branch": "main",
                 "setup_steps": [],
                 "ticket_pattern": None,
-                "jira": {"tool": "none"},
             },
             {
                 "name": "good",
@@ -318,7 +312,6 @@ def test_discover_isolates_per_repo_failures(_isolate: dict[str, Path]) -> None:
                 "default_branch": "main",
                 "setup_steps": [],
                 "ticket_pattern": None,
-                "jira": {"tool": "none"},
             },
         ],
     )

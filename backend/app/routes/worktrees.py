@@ -6,6 +6,7 @@ page needs them.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from pathlib import Path
@@ -101,6 +102,114 @@ async def get_worktree(repo: str, name: str) -> WorktreeDetail:
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"worktree not found: {repo}/{name}")
     return WorktreeDetail(row=row, log=svc.get_log(repo, name))
+
+
+class PrUrlResponse(BaseModel):
+    url: str
+
+
+def _pr_url_from_row(row: WorktreeRow) -> str | None:
+    if row.pr_number is None or not row.pr_repo:
+        return None
+    return f"https://github.com/{row.pr_repo}/pull/{row.pr_number}"
+
+
+async def _gh_pr_view(cwd: Path) -> dict | None:
+    """Shell `gh pr view --json ...` in the given worktree path.
+
+    Returns the parsed JSON dict (with `number`, `url`, `headRepository`)
+    if a PR exists; ``None`` if `gh` reports no PR for the current branch.
+    Raises ``HTTPException`` for any other failure (gh missing, not
+    authed, network down, repo not on GitHub).
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "gh",
+        "pr",
+        "view",
+        "--json",
+        "number,url,headRepository,headRepositoryOwner",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=str(cwd),
+    )
+    stdout_b, stderr_b = await proc.communicate()
+    stderr = stderr_b.decode("utf-8", errors="replace")
+
+    if proc.returncode != 0:
+        if "no pull requests found" in stderr.lower() or "no pr found" in stderr.lower():
+            return None
+        if "executable file not found" in stderr.lower() or "command not found" in stderr.lower():
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                "`gh` CLI not found on PATH. Install GitHub CLI to enable PR lookups.",
+            )
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            f"`gh pr view` failed: {stderr.strip() or 'unknown error'}",
+        )
+
+    try:
+        return json.loads(stdout_b.decode("utf-8", errors="replace"))
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            f"could not parse `gh pr view` output: {e}",
+        ) from e
+
+
+@router.get("/worktree/{repo}/{name}/pr-url", response_model=PrUrlResponse)
+async def get_pr_url(repo: str, name: str) -> PrUrlResponse:
+    """Resolve the GitHub PR URL for a worktree's branch.
+
+    Uses cached ``pr_number`` + ``pr_repo`` from SQLite when present.
+    Otherwise shells ``gh pr view`` inside the worktree, caches the
+    result, and returns the URL. 404 if no PR exists yet.
+    """
+    row = await asyncio.to_thread(svc.get_worktree_sync, repo, name)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"worktree not found: {repo}/{name}")
+
+    cached = _pr_url_from_row(row)
+    if cached is not None:
+        return PrUrlResponse(url=cached)
+
+    worktree_path = Path(row.path)
+    if not worktree_path.is_dir():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"worktree path missing on disk: {worktree_path}",
+        )
+
+    data = await _gh_pr_view(worktree_path)
+    if data is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"no open PR found for branch '{row.branch}'",
+        )
+
+    pr_number = data.get("number")
+    url = data.get("url")
+    head_repo = data.get("headRepository") or {}
+    head_owner = data.get("headRepositoryOwner") or {}
+    repo_name = head_repo.get("name")
+    owner_login = head_owner.get("login")
+
+    if not isinstance(pr_number, int) or not isinstance(url, str):
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "`gh pr view` returned an unexpected payload shape",
+        )
+
+    pr_repo: str | None = None
+    if isinstance(owner_login, str) and isinstance(repo_name, str):
+        pr_repo = f"{owner_login}/{repo_name}"
+
+    if pr_repo:
+        await asyncio.to_thread(
+            svc.update_worktree_pr_sync, repo, name, pr_number, pr_repo
+        )
+
+    return PrUrlResponse(url=url)
 
 
 class SpawnItermResponse(BaseModel):

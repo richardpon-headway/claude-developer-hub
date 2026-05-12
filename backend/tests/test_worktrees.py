@@ -70,7 +70,6 @@ def _write_config(
                 "branch_prefix": branch_prefix,
                 "setup_steps": setup_steps or [],
                 "ticket_pattern": ticket_pattern,
-                "jira": {"tool": "none"},
             }
         ],
     }
@@ -212,3 +211,132 @@ def test_get_worktree_404() -> None:
     with TestClient(app) as client:
         r = client.get("/api/worktree/myapp/missing")
     assert r.status_code == 404
+
+
+# --- /api/worktree/{repo}/{name}/pr-url ----------------------------------
+
+
+def _insert_worktree_row(
+    db_path: Path,
+    repo: str,
+    name: str,
+    path: Path,
+    branch: str = "feature",
+    pr_number: int | None = None,
+    pr_repo: str | None = None,
+) -> None:
+    """Bypass the full create flow — just stamp a row so we can test the
+    pr-url endpoint independently of worktree creation."""
+    from app.models.worktree import WorktreeRow, now_iso
+
+    svc.insert_worktree_sync(
+        WorktreeRow(
+            repo=repo,
+            name=name,
+            path=str(path),
+            branch=branch,
+            ticket=None,
+            pr_number=pr_number,
+            pr_repo=pr_repo,
+            created_at=now_iso(),
+            status="ready",
+        ),
+        db_path,
+    )
+
+
+def test_pr_url_uses_cached_values(_isolate: dict[str, Path]) -> None:
+    wt_path = _isolate["dev_root"] / "myapp_wt"
+    wt_path.mkdir()
+    _insert_worktree_row(
+        _isolate["db_path"],
+        "myapp",
+        "feature",
+        wt_path,
+        pr_number=42,
+        pr_repo="acme/myapp",
+    )
+    with TestClient(app) as client:
+        r = client.get("/api/worktree/myapp/feature/pr-url")
+    assert r.status_code == 200
+    assert r.json() == {"url": "https://github.com/acme/myapp/pull/42"}
+
+
+def test_pr_url_404_when_worktree_missing() -> None:
+    with TestClient(app) as client:
+        r = client.get("/api/worktree/myapp/nope/pr-url")
+    assert r.status_code == 404
+
+
+def test_pr_url_lazy_lookup_and_cache(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """First call: no cache → shell `gh`, return URL, write cache.
+    Second call: cache hit, no `gh` invocation."""
+    wt_path = _isolate["dev_root"] / "myapp_wt"
+    wt_path.mkdir()
+    _insert_worktree_row(
+        _isolate["db_path"], "myapp", "feature", wt_path,
+    )
+
+    call_count = {"n": 0}
+
+    async def fake_gh_pr_view(cwd: Path) -> dict:
+        call_count["n"] += 1
+        return {
+            "number": 7,
+            "url": "https://github.com/acme/myapp/pull/7",
+            "headRepository": {"name": "myapp"},
+            "headRepositoryOwner": {"login": "acme"},
+        }
+
+    from app.routes import worktrees as routes_module
+
+    monkeypatch.setattr(routes_module, "_gh_pr_view", fake_gh_pr_view)
+
+    with TestClient(app) as client:
+        r1 = client.get("/api/worktree/myapp/feature/pr-url")
+        assert r1.status_code == 200
+        assert r1.json() == {"url": "https://github.com/acme/myapp/pull/7"}
+        assert call_count["n"] == 1
+
+        r2 = client.get("/api/worktree/myapp/feature/pr-url")
+        assert r2.status_code == 200
+        assert r2.json() == {"url": "https://github.com/acme/myapp/pull/7"}
+        # Cache hit — `gh` should NOT have been re-invoked.
+        assert call_count["n"] == 1
+
+
+def test_pr_url_404_when_no_pr(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wt_path = _isolate["dev_root"] / "myapp_wt"
+    wt_path.mkdir()
+    _insert_worktree_row(
+        _isolate["db_path"], "myapp", "feature", wt_path,
+    )
+
+    async def fake_gh_pr_view(cwd: Path) -> None:
+        return None
+
+    from app.routes import worktrees as routes_module
+
+    monkeypatch.setattr(routes_module, "_gh_pr_view", fake_gh_pr_view)
+
+    with TestClient(app) as client:
+        r = client.get("/api/worktree/myapp/feature/pr-url")
+    assert r.status_code == 404
+    assert "no open PR" in r.json()["detail"]
+
+
+def test_pr_url_400_when_worktree_path_missing(_isolate: dict[str, Path]) -> None:
+    _insert_worktree_row(
+        _isolate["db_path"],
+        "myapp",
+        "feature",
+        _isolate["dev_root"] / "does-not-exist",
+    )
+    with TestClient(app) as client:
+        r = client.get("/api/worktree/myapp/feature/pr-url")
+    assert r.status_code == 400
+    assert "missing on disk" in r.json()["detail"]

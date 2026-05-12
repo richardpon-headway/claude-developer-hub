@@ -25,7 +25,6 @@ export function RepoList({ repos }: Props) {
                 </span>
               )}
             </span>
-            <span>jira: {repo.jira.tool}</span>
             {repo.ticket_pattern && (
               <span>tickets: <code className="text-zinc-400">{repo.ticket_pattern}</code></span>
             )}

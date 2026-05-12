@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { getJiraConfig } from "../api/config";
 import { listRepos } from "../api/repos";
 import { discoverWorktrees, listWorktrees } from "../api/worktrees";
 import { AddRepoModal } from "../components/AddRepoModal";
@@ -29,8 +30,14 @@ export function HubPage() {
     refetchInterval: 5_000,
   });
 
+  const jiraQuery = useQuery({
+    queryKey: ["config", "jira"],
+    queryFn: getJiraConfig,
+  });
+
   const repos = reposQuery.data ?? [];
   const worktrees = worktreesQuery.data ?? [];
+  const jira = jiraQuery.data ?? null;
 
   const discover = useMutation({
     mutationFn: discoverWorktrees,
@@ -97,7 +104,7 @@ export function HubPage() {
                 </div>
               )}
               {worktreesQuery.isSuccess && worktrees.length > 0 && (
-                <WorkspaceList worktrees={worktrees} />
+                <WorkspaceList worktrees={worktrees} jira={jira} />
               )}
             </div>
           </section>
