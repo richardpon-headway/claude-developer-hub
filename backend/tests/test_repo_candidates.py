@@ -60,7 +60,6 @@ def _config_repo_entry(name: str, path: Path) -> dict:
         "default_branch": "main",
         "setup_steps": [],
         "ticket_pattern": None,
-        "jira": {"tool": "none"},
     }
 
 

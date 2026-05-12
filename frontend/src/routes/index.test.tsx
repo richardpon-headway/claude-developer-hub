@@ -17,7 +17,9 @@ vi.mock("@tanstack/react-router", async () => {
 
 vi.mock("../api/repos");
 vi.mock("../api/worktrees");
+vi.mock("../api/config");
 
+import * as configApi from "../api/config";
 import * as reposApi from "../api/repos";
 import * as worktreesApi from "../api/worktrees";
 
@@ -42,6 +44,12 @@ beforeEach(() => {
   vi.mocked(worktreesApi.getTokenUsage).mockResolvedValue({
     offline: true,
     rows: [],
+  });
+  vi.mocked(configApi.getJiraConfig).mockReset();
+  vi.mocked(configApi.getJiraConfig).mockResolvedValue({
+    tool: "none",
+    base_url: null,
+    list_jql: null,
   });
 });
 
@@ -72,7 +80,6 @@ describe("Hub — Discover worktrees button", () => {
         worktree_path_template: "x",
         setup_steps: [],
         ticket_pattern: null,
-        jira: { tool: "none", list_jql: null },
       },
     ]);
     vi.mocked(worktreesApi.listWorktrees).mockResolvedValue([]);

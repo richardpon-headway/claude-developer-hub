@@ -76,8 +76,6 @@ def _build_inspection_prompt(path: Path, session_id: str, callback_url: str) -> 
         "author prefix like `<user>/`. Default to `\"\"` if no consistent prefix.\n"
         "  - `ticket_pattern`: from recent commit subjects, look for a recurring "
         "ticket-key regex (e.g. `[A-Z]+-\\d+`). Default `null` if none found.\n"
-        "  - `jira.tool`: probe `jira-cli` and `acli` in PATH. Default `\"none\"` "
-        "if neither is present.\n"
         "  - `default_branch`: `git symbolic-ref refs/remotes/origin/HEAD` (strip "
         "the `refs/remotes/origin/` prefix), or `main` as a fallback.\n\n"
         "When done, POST your proposal as JSON to:\n"
@@ -92,8 +90,7 @@ def _build_inspection_prompt(path: Path, session_id: str, callback_url: str) -> 
         '    "default_branch": "main",\n'
         '    "branch_prefix": "",\n'
         '    "setup_steps": [{"cmd": "...", "cwd": "..."}],\n'
-        '    "ticket_pattern": null,\n'
-        '    "jira": {"tool": "none"}\n'
+        '    "ticket_pattern": null\n'
         '  }\n'
         "}\n"
         "```\n"
