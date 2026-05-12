@@ -1,0 +1,40 @@
+frontend/src/components/AddRepoModal.test.tsx
+  s_ba9084d0a1d9fb::t_3fbcebf3c9bb1e 48-91
+  s_ba9084d0a1d9fb::t_89bffb5b3ae2fa 28-31
+backend/app/routes/repos.py
+  s_ba9084d0a1d9fb::t_0554df44ba39eb 155-240
+README.md
+  s_ba9084d0a1d9fb::t_26cbe281eaa168 88-93
+backend/tests/test_repo_candidates.py
+  s_ba9084d0a1d9fb::t_6c6c8815dd2c61 1-222
+frontend/src/api/types.ts
+  s_ba9084d0a1d9fb::t_9204d77076d19e 50-55
+frontend/src/components/AddRepoModal.tsx
+  s_ba9084d0a1d9fb::t_57a283f559b31f 166-208
+  s_ba9084d0a1d9fb::t_10431cf3f0b9e9 2,5-6
+  s_ba9084d0a1d9fb::t_e6b4d415db6fd3 80-86,88-122
+  s_ba9084d0a1d9fb::t_f1e565414eea7e 125-126
+  s_ba9084d0a1d9fb::t_411fe3cba6fcd8 17,27-32
+  s_ba9084d0a1d9fb::t_b2be86265be878 58-60
+frontend/src/api/repos.ts
+  s_ba9084d0a1d9fb::t_2f2a3d46e8782a 7,13-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "80d3bfba63b4a99a5ab707508f0b3023c72dff09",
+  "prompts": {},
+  "sessions": {
+    "s_ba9084d0a1d9fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b443a2b0-cc0c-40f9-94f4-67759cd30cb4",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
