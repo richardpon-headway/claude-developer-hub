@@ -38,6 +38,7 @@ class JiraConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tool: Literal["acli", "jira-cli", "none"] = "none"
+    base_url: str | None = None
     list_jql: str | None = None
 
 
@@ -51,7 +52,6 @@ class RepoConfig(BaseModel):
     worktree_path_template: str = "{development_root}/{repo}_worktree_{short}"
     setup_steps: list[SetupStep] = Field(default_factory=list)
     ticket_pattern: str | None = None
-    jira: JiraConfig = Field(default_factory=JiraConfig)
 
 
 class ITermWindow(BaseModel):
@@ -99,6 +99,7 @@ class CDHConfig(BaseModel):
         default_factory=lambda: Path.home() / "development"
     )
     repos: list[RepoConfig] = Field(default_factory=list)
+    jira: JiraConfig = Field(default_factory=JiraConfig)
     iterm2: ITermConfig = Field(default_factory=ITermConfig)
     token_monitor: TokenMonitorConfig = Field(default_factory=TokenMonitorConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
