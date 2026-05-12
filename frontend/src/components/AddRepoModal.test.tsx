@@ -25,6 +25,10 @@ function renderModal(overrides: Partial<React.ComponentProps<typeof AddRepoModal
 beforeEach(() => {
   vi.mocked(reposApi.onboardRepo).mockReset();
   vi.mocked(reposApi.getOnboardStatus).mockReset();
+  vi.mocked(reposApi.listRepoCandidates).mockReset();
+  // Default: no candidates so existing tests don't have to think about
+  // the list section. Candidate-specific tests override this.
+  vi.mocked(reposApi.listRepoCandidates).mockResolvedValue([]);
   Object.assign(navigator, {
     clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
   });
@@ -39,6 +43,50 @@ describe("AddRepoModal", () => {
     renderModal();
     expect(screen.getByPlaceholderText(/development\/some-repo/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /inspect/i })).toBeDisabled();
+  });
+
+  test("renders candidate cards from /api/repos/candidates", async () => {
+    vi.mocked(reposApi.listRepoCandidates).mockResolvedValue([
+      { path: "/Users/x/dev/foo", name: "foo", already_configured: false },
+      { path: "/Users/x/dev/bar", name: "bar", already_configured: true },
+    ]);
+    renderModal();
+    expect(await screen.findByText("foo")).toBeInTheDocument();
+    expect(screen.getByText("bar")).toBeInTheDocument();
+    expect(screen.getByText(/already added/i)).toBeInTheDocument();
+  });
+
+  test("clicking an enabled candidate calls onboardRepo with its path", async () => {
+    vi.mocked(reposApi.listRepoCandidates).mockResolvedValue([
+      { path: "/Users/x/dev/foo", name: "foo", already_configured: false },
+    ]);
+    vi.mocked(reposApi.onboardRepo).mockResolvedValue({
+      session_id: "sid-x",
+      prompt: "stub",
+    });
+    // Block the status poll so we stay in awaiting_claude.
+    vi.mocked(reposApi.getOnboardStatus).mockImplementation(
+      () => new Promise(() => {}),
+    );
+    renderModal();
+    const card = await screen.findByRole("button", { name: /foo/i });
+    fireEvent.click(card);
+    await waitFor(() =>
+      expect(reposApi.onboardRepo).toHaveBeenCalledWith("/Users/x/dev/foo"),
+    );
+  });
+
+  test("already-configured candidate is rendered disabled", async () => {
+    vi.mocked(reposApi.listRepoCandidates).mockResolvedValue([
+      { path: "/Users/x/dev/foo", name: "foo", already_configured: true },
+    ]);
+    renderModal();
+    const card = await screen.findByRole("button", { name: /foo/i });
+    expect(card).toBeDisabled();
+    // Click shouldn't trigger onboardRepo
+    fireEvent.click(card);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(reposApi.onboardRepo).not.toHaveBeenCalled();
   });
 
   test("submit calls onboardRepo and renders the returned prompt", async () => {

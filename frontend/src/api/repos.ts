@@ -4,10 +4,14 @@ import type {
   OnboardCompleteResponse,
   OnboardResponse,
   OnboardStatus,
+  RepoCandidate,
   RepoConfig,
 } from "./types";
 
 export const listRepos = () => apiGet<RepoConfig[]>("/api/repos");
+
+export const listRepoCandidates = () =>
+  apiGet<RepoCandidate[]>("/api/repos/candidates");
 
 export const onboardRepo = (path: string) =>
   apiPost<OnboardResponse>("/api/repos/onboard", { path });
