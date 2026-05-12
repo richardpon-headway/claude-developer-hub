@@ -1,0 +1,25 @@
+frontend/package.json
+  s_ba9084d0a1d9fb::t_35a72e86b44c5f 26
+  s_ba9084d0a1d9fb::t_c26fa1f356aa04 8-9,12,14
+frontend/pnpm-lock.yaml
+  ai_agent 27-29,674-678,826-829,891-901,955-957,1007-1010,1041-1044,1279-1282,1331-1338,1520-1523,1531-1534,1538-1545,1998-2005,2206-2209,2278-2289,2328-2329,2389-2390,2415-2416,2609-2610,2668-2677,2805-2810,2815-2816,2819-2829
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "a10f007a6af321478ebffc07a156eae0e83a58ef",
+  "prompts": {},
+  "sessions": {
+    "s_ba9084d0a1d9fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b443a2b0-cc0c-40f9-94f4-67759cd30cb4",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
