@@ -1,0 +1,54 @@
+frontend/src/components/WorkspaceList.tsx
+  s_f6c2b8d06e0dbe::t_963df5721b7442 1,4-6,10,30,45,53-187
+frontend/src/api/config.ts
+  s_f6c2b8d06e0dbe::t_fe37595a02e92a 1-4
+frontend/src/routes/index.tsx
+  s_f6c2b8d06e0dbe::t_2755e2b7ff9091 5
+  s_f6c2b8d06e0dbe::t_509049857d4851 33-37,40
+  s_f6c2b8d06e0dbe::t_21978e9ea87d39 107
+backend/tests/test_worktrees.py
+  s_f6c2b8d06e0dbe::t_d0ee010cbf9820 214-342
+backend/app/services/worktree.py
+  s_f6c2b8d06e0dbe::t_40b9ef35358ce9 156-176
+backend/app/config/schema.py
+  s_f6c2b8d06e0dbe::t_91711de9ebcfa8 102
+  s_f6c2b8d06e0dbe::t_62bb1172b00b88 41
+frontend/src/routes/index.test.tsx
+  s_f6c2b8d06e0dbe::t_8359fba2a71a48 20,22
+  s_f6c2b8d06e0dbe::t_de2a41a732aa55 48-53
+backend/app/routes/worktrees.py
+  s_f6c2b8d06e0dbe::t_019b381729cdab 9
+  s_f6c2b8d06e0dbe::t_d87181054e6a5e 107-214
+frontend/src/api/types.ts
+  s_f6c2b8d06e0dbe::t_1b214de25a1317 12
+  s_f6c2b8d06e0dbe::t_e1ae808a91e716 122-125
+frontend/src/api/worktrees.ts
+  s_f6c2b8d06e0dbe::t_3515bd70a2b020 45-47
+  s_f6c2b8d06e0dbe::t_96ce7b03b7ca65 4
+backend/app/routes/config.py
+  s_f6c2b8d06e0dbe::t_4cbfe8e5bd63f7 1-19
+backend/app/main.py
+  s_f6c2b8d06e0dbe::t_c97dc6b866afd5 16
+  s_f6c2b8d06e0dbe::t_f554503accb4f3 40
+backend/app/routes/repos.py
+  s_f6c2b8d06e0dbe::t_241ff10622a463 93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "d6d54f56322d5225984a7aadbe7b96fe8161b1a6",
+  "prompts": {},
+  "sessions": {
+    "s_f6c2b8d06e0dbe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e348f4fc-6ea8-4765-bd8c-c013f0a47831",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
