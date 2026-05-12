@@ -1,5 +1,6 @@
 import { render, screen, waitFor, cleanup, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import * as RadixTooltip from "@radix-ui/react-tooltip";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { ApiError } from "../api/client";
@@ -30,7 +31,9 @@ function renderPage(repo = "myrepo", name = "feature") {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <WorkspacePage repo={repo} name={name} />
+      <RadixTooltip.Provider>
+        <WorkspacePage repo={repo} name={name} />
+      </RadixTooltip.Provider>
     </QueryClientProvider>,
   );
 }
@@ -70,7 +73,7 @@ afterEach(() => {
 });
 
 describe("WorkspacePage", () => {
-  test("skill buttons disabled with tooltip when no claude session", async () => {
+  test("skill buttons disabled when no claude session", async () => {
     vi.mocked(worktreesApi.getWorktree).mockResolvedValue(
       makeDetail({ has_claude_session: false }),
     );
@@ -79,10 +82,6 @@ describe("WorkspacePage", () => {
       name: "/pr-finalize-for-review",
     });
     expect(finalizeBtn).toBeDisabled();
-    expect(finalizeBtn).toHaveAttribute(
-      "title",
-      "Open this workspace in iTerm2 first",
-    );
   });
 
   test("skill buttons enabled when claude session is open", async () => {
