@@ -85,6 +85,12 @@ A reference of the schema lives in
 all keys default to generic values. There is no Acme-specific or
 user-specific data baked into the codebase.
 
+If your repo lives under `development_root` (default `~/development`),
+it'll appear in the "Add a repo" modal as a clickable card; otherwise
+paste the absolute path into the manual input below the list. Worktrees
+are excluded from the list (use the "Discover worktrees" button on the
+hub once the parent repo is added).
+
 ## Troubleshooting
 
 - **iTerm2 spawn buttons return HTTP 503.** Check the iTerm2 Python API
