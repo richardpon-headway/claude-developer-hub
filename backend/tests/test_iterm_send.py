@@ -14,7 +14,6 @@ from fastapi.testclient import TestClient
 
 from app import db
 from app.main import app
-from app.services import iterm_send
 from app.services.iterm_send import (
     SendGateError,
     SessionNotFoundError,
@@ -23,8 +22,6 @@ from app.services.iterm_send import (
     find_session_by_id,
     send_to_session,
 )
-from app.services import iterm_spawn
-
 
 # --- fixtures ------------------------------------------------------------
 

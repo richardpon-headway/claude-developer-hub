@@ -1,9 +1,7 @@
 """Tests for the worktree CRUD slice (model, service, /api/worktree)."""
 from __future__ import annotations
 
-import asyncio
 import subprocess
-import time
 from pathlib import Path
 
 import pytest
@@ -14,7 +12,6 @@ from app import db
 from app.main import app
 from app.models.worktree import derive_worktree_name, extract_ticket
 from app.services import worktree as svc
-
 
 # --- fixtures ------------------------------------------------------------
 
@@ -121,7 +118,10 @@ def test_list_worktrees_initially_empty() -> None:
 
 def test_create_unknown_repo_400(_isolate: dict[str, Path]) -> None:
     _write_config(
-        _isolate["config_path"], _isolate["dev_root"], _isolate["dev_root"] / "ignored", "registered"
+        _isolate["config_path"],
+        _isolate["dev_root"],
+        _isolate["dev_root"] / "ignored",
+        "registered",
     )
     with TestClient(app) as client:
         r = client.post("/api/worktree", json={"repo": "not-registered", "branch": "main"})

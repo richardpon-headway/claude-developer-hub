@@ -5,9 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "generate-routes": "tsr generate",
+    "prebuild": "pnpm generate-routes",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
+    "pretypecheck": "pnpm generate-routes",
     "typecheck": "tsc -b --noEmit",
+    "pretest": "pnpm generate-routes",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -19,6 +23,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
+    "@tanstack/router-cli": "^1.166.43",
     "@tanstack/router-plugin": "^1.95.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

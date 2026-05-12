@@ -38,7 +38,7 @@ router = APIRouter(prefix="/api/repos", tags=["repos"])
 _ONBOARD_TTL_SECONDS = 5 * 60
 
 _lock = asyncio.Lock()
-_sessions: dict[str, "_OnboardSession"] = {}
+_sessions: dict[str, _OnboardSession] = {}
 
 
 class _OnboardSession:
