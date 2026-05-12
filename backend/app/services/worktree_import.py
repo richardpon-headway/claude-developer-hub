@@ -1,0 +1,286 @@
+"""Discover existing worktrees on disk and ingest them as CDH workspaces.
+
+CDH normally tracks only worktrees it created itself (via the worktree
+create endpoint). Slice N adds a one-shot import: for each configured
+repo, ask git for every worktree it owns and insert rows for the ones
+CDH doesn't already know about.
+
+The parser handles the ``git worktree list --porcelain`` format, which
+emits a small record per worktree separated by blank lines. Each record
+has at minimum a ``worktree <path>`` line; depending on the worktree's
+state it may also have ``HEAD <sha>``, ``branch refs/heads/<name>``,
+``bare``, ``detached``, ``locked``, or ``prunable`` lines.
+
+Detached-HEAD worktrees are intentionally skipped. They exist mainly
+for ``gh pr checkout`` flows; importing them would create workspace
+rows with no branch, which most of CDH's downstream features
+(ticket extraction, send-skill button labels) can't reason about. The
+README documents this limitation.
+"""
+from __future__ import annotations
+
+import logging
+import re
+import subprocess
+from pathlib import Path
+
+from app.config.loader import load_config
+from app.config.schema import RepoConfig
+from app.db import get_db_path
+from app.models.worktree import (
+    WorktreeRow,
+    derive_worktree_name,
+    extract_ticket,
+    now_iso,
+)
+from app.services.worktree import (
+    get_worktree_sync,
+    insert_worktree_sync,
+)
+
+log = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Parser
+# ---------------------------------------------------------------------------
+
+
+def parse_worktree_list_porcelain(output: str) -> list[dict]:
+    """Parse the multi-record output of ``git worktree list --porcelain``.
+
+    Each record is a series of ``key value?`` lines followed by a blank
+    line. The first line of each record is always ``worktree <path>``.
+    Bare/detached/locked/prunable are presence flags (no value).
+    """
+    records: list[dict] = []
+    current: dict | None = None
+    for raw_line in output.splitlines():
+        line = raw_line.rstrip("\r")
+        if not line.strip():
+            if current is not None:
+                records.append(current)
+                current = None
+            continue
+        if current is None:
+            current = {}
+        key, _, value = line.partition(" ")
+        if value == "":
+            current[key] = True
+        else:
+            current[key] = value
+    if current is not None:
+        records.append(current)
+    return records
+
+
+# ---------------------------------------------------------------------------
+# Skip rules + name derivation
+# ---------------------------------------------------------------------------
+
+
+def _branch_from_record(record: dict) -> str | None:
+    """``branch`` is ``refs/heads/<name>`` when present; absent for detached."""
+    raw = record.get("branch")
+    if isinstance(raw, str):
+        return re.sub(r"^refs/heads/", "", raw)
+    return None
+
+
+def _derive_imported_name(
+    repo: RepoConfig, on_disk_path: Path, branch: str
+) -> str:
+    """Derive the workspace name for an existing worktree.
+
+    Step 1: if the basename starts with ``<repo>_worktree_``, strip
+    that prefix and use the remainder (this matches CDH's default
+    ``worktree_path_template``).
+
+    Step 2: otherwise, fall back to the basename verbatim.
+
+    Step 3: apply the same hyphen-to-underscore normalization as
+    create_worktree, preserving ticket-pattern matches.
+    """
+    basename = on_disk_path.name
+    expected_prefix = f"{repo.name}_worktree_"
+    if basename.startswith(expected_prefix):
+        short = basename[len(expected_prefix):]
+    else:
+        short = basename
+    # Use the same normalization as the create path so an imported
+    # `feature-x` and a CDH-created `feature-x` would collide on name
+    # rather than producing two near-identical entries.
+    return derive_worktree_name(short, "", repo.ticket_pattern)
+
+
+# ---------------------------------------------------------------------------
+# Per-repo discovery
+# ---------------------------------------------------------------------------
+
+
+def _run_git_worktree_list(repo_path: Path) -> str:
+    proc = subprocess.run(
+        ["git", "-C", str(repo_path), "worktree", "list", "--porcelain"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"git worktree list failed (exit {proc.returncode}): "
+            f"{proc.stderr.strip() or proc.stdout.strip() or '(no output)'}"
+        )
+    return proc.stdout
+
+
+def discover_worktrees_for_repo_sync(
+    repo: RepoConfig, db_path: Path | None = None
+) -> tuple[list[dict], list[dict]]:
+    """Return ``(imported, skipped)`` for a single configured repo.
+
+    Each ``imported`` entry includes ``repo``/``name``/``path``/
+    ``branch``/``ticket``. Each ``skipped`` entry includes ``repo``/
+    ``path``/``reason``.
+    """
+    imported: list[dict] = []
+    skipped: list[dict] = []
+
+    repo_path = Path(repo.path)
+    if not repo_path.is_dir():
+        skipped.append(
+            {"repo": repo.name, "path": str(repo_path), "reason": "repo path missing"}
+        )
+        return imported, skipped
+
+    try:
+        output = _run_git_worktree_list(repo_path)
+    except RuntimeError as e:
+        log.warning("git worktree list failed for %s: %s", repo.name, e)
+        skipped.append(
+            {"repo": repo.name, "path": str(repo_path), "reason": f"git failed: {e}"}
+        )
+        return imported, skipped
+
+    records = parse_worktree_list_porcelain(output)
+    for rec in records:
+        wt_path_str = rec.get("worktree")
+        if not isinstance(wt_path_str, str):
+            # Defensive: empty record. Should never happen.
+            continue
+        wt_path = Path(wt_path_str)
+
+        if rec.get("bare"):
+            skipped.append({"repo": repo.name, "path": str(wt_path), "reason": "bare"})
+            continue
+        if rec.get("prunable"):
+            skipped.append(
+                {"repo": repo.name, "path": str(wt_path), "reason": "prunable"}
+            )
+            continue
+        branch = _branch_from_record(rec)
+        if branch is None:
+            # Detached HEAD — no branch line in porcelain output.
+            skipped.append(
+                {"repo": repo.name, "path": str(wt_path), "reason": "detached HEAD"}
+            )
+            continue
+        if wt_path == repo_path:
+            skipped.append(
+                {"repo": repo.name, "path": str(wt_path), "reason": "main checkout"}
+            )
+            continue
+
+        # Already tracked? (path-based check; the (repo, name) collision
+        # check happens below after name derivation.)
+        existing_at_path = _get_worktree_by_path_sync(
+            repo.name, str(wt_path), db_path
+        )
+        if existing_at_path is not None:
+            skipped.append(
+                {"repo": repo.name, "path": str(wt_path), "reason": "already tracked"}
+            )
+            continue
+
+        name = _derive_imported_name(repo, wt_path, branch)
+        existing_by_name = get_worktree_sync(repo.name, name, db_path)
+        if existing_by_name is not None:
+            skipped.append(
+                {
+                    "repo": repo.name,
+                    "path": str(wt_path),
+                    "reason": "name collision",
+                }
+            )
+            continue
+
+        row = WorktreeRow(
+            repo=repo.name,
+            name=name,
+            path=str(wt_path),
+            branch=branch,
+            ticket=extract_ticket(branch, repo.ticket_pattern),
+            pr_number=None,
+            pr_repo=None,
+            created_at=now_iso(),
+            status="ready",
+        )
+        insert_worktree_sync(row, db_path)
+        imported.append(
+            {
+                "repo": repo.name,
+                "name": name,
+                "path": str(wt_path),
+                "branch": branch,
+                "ticket": row.ticket,
+            }
+        )
+
+    return imported, skipped
+
+
+def _get_worktree_by_path_sync(
+    repo: str, path: str, db_path: Path | None = None
+) -> WorktreeRow | None:
+    """Path-based lookup. Cheaper than scanning all rows."""
+    from app.db import open_db
+
+    if db_path is None:
+        db_path = get_db_path()
+    conn = open_db(db_path)
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM worktree WHERE repo = ? AND path = ? LIMIT 1",
+            (repo, path),
+        ).fetchone()
+        if row is None:
+            return None
+        # We don't need the full row — caller only checks for None-ness.
+        # Returning a marker WorktreeRow is awkward; the caller currently
+        # only cares about presence, so we sentinel via a minimal row.
+        # In practice the caller's only use is `if existing is not None`.
+        return WorktreeRow(
+            repo=repo,
+            name="(unused)",
+            path=path,
+            branch="(unused)",
+            created_at="(unused)",
+            status="ready",
+        )
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Top-level aggregator
+# ---------------------------------------------------------------------------
+
+
+def discover_all_sync(db_path: Path | None = None) -> dict:
+    config = load_config()
+    all_imported: list[dict] = []
+    all_skipped: list[dict] = []
+    for repo in config.repos:
+        imported, skipped = discover_worktrees_for_repo_sync(repo, db_path)
+        all_imported.extend(imported)
+        all_skipped.extend(skipped)
+    return {"imported": all_imported, "skipped": all_skipped}

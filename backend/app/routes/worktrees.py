@@ -32,6 +32,7 @@ from app.services.sidecar import (
     discover_session_id,
     write_sidecar_sync,
 )
+from app.services.worktree_import import discover_all_sync
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +63,36 @@ async def create_worktree(req: CreateWorktreeRequest) -> WorktreeRow:
 @router.get("/worktrees", response_model=list[WorktreeRow])
 async def list_worktrees() -> list[WorktreeRow]:
     return await asyncio.to_thread(svc.list_worktrees_sync)
+
+
+class ImportedWorktree(BaseModel):
+    repo: str
+    name: str
+    path: str
+    branch: str
+    ticket: str | None = None
+
+
+class SkippedWorktree(BaseModel):
+    repo: str
+    path: str
+    reason: str
+
+
+class DiscoverResponse(BaseModel):
+    imported: list[ImportedWorktree]
+    skipped: list[SkippedWorktree]
+
+
+@router.post("/worktrees/discover", response_model=DiscoverResponse)
+async def discover_worktrees() -> DiscoverResponse:
+    """Iterate every configured repo and ingest the worktrees git
+    already knows about. Per-repo failures appear in ``skipped[]``
+    (e.g. ``repo path missing``) rather than aborting the request, so
+    one broken repo doesn't block import for the others.
+    """
+    result = await asyncio.to_thread(discover_all_sync)
+    return DiscoverResponse(**result)
 
 
 @router.get("/worktree/{repo}/{name}", response_model=WorktreeDetail)
