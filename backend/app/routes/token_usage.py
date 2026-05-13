@@ -11,6 +11,7 @@ Why proxy rather than letting the frontend fetch CTM directly:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import httpx
@@ -39,6 +40,14 @@ class TokenUsageRow(BaseModel):
 
 class TokenUsageResponse(BaseModel):
     offline: bool
+    # Calendar-day totals from CTM's `/api/usage/windows.today_local`.
+    # Matches the "Today" tile in the CTM dashboard.
+    today_output: int = 0
+    today_input: int = 0
+    today_messages: int = 0
+    # Topic breakdown is a trailing-24h window, since CTM's groups
+    # endpoint doesn't expose calendar-day granularity. The frontend
+    # labels this explicitly so it's not confused with the today totals.
     rows: list[TokenUsageRow]
 
 
@@ -56,29 +65,49 @@ _RELEVANT_FIELDS = {
 
 @router.get("/token-usage", response_model=TokenUsageResponse)
 async def token_usage() -> TokenUsageResponse:
-    """Fetch CTM's last-day topic groups and return a trimmed view.
+    """Fetch CTM's calendar-day totals + last-24h topic groups.
 
-    ``offline: True`` is a normal response when CTM is unreachable —
+    Two CTM calls in parallel:
+
+    - ``/api/usage/windows`` for ``today_local`` (the calendar-day
+      output/input/messages that match CTM's "Today" tile).
+    - ``/api/usage/groups?range=1d&by=topic`` for the per-topic
+      breakdown (no calendar-day option exists; trailing 24h is the
+      finest available granularity).
+
+    ``offline: True`` is a normal response when either call fails —
     not an error — so the frontend renders a simple offline badge
     rather than a fetch-error spinner.
     """
     config = load_config()
-    url = (
-        f"{config.token_monitor.api_url.rstrip('/')}/api/usage/groups"
-        "?range=1d&by=topic"
-    )
+    base = config.token_monitor.api_url.rstrip("/")
+    windows_url = f"{base}/api/usage/windows"
+    groups_url = f"{base}/api/usage/groups?range=1d&by=topic"
+
     try:
         async with httpx.AsyncClient(timeout=CTM_TIMEOUT_SECONDS) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            data = response.json()
+            windows_resp, groups_resp = await asyncio.gather(
+                client.get(windows_url),
+                client.get(groups_url),
+            )
+            windows_resp.raise_for_status()
+            groups_resp.raise_for_status()
+            windows_data = windows_resp.json()
+            groups_data = groups_resp.json()
     except Exception as e:
-        log.info("token-monitor unreachable at %s: %s", url, e)
+        log.info("token-monitor unreachable at %s: %s", base, e)
         return TokenUsageResponse(offline=True, rows=[])
 
-    raw_rows = data.get("rows", [])
+    today = windows_data.get("today_local") or {}
+    raw_rows = groups_data.get("rows", [])
     trimmed = [
         TokenUsageRow(**{k: v for k, v in row.items() if k in _RELEVANT_FIELDS})
         for row in raw_rows
     ]
-    return TokenUsageResponse(offline=False, rows=trimmed)
+    return TokenUsageResponse(
+        offline=False,
+        today_output=int(today.get("output") or 0),
+        today_input=int(today.get("input") or 0),
+        today_messages=int(today.get("messages") or 0),
+        rows=trimmed,
+    )
