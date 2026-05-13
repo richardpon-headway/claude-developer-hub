@@ -7,6 +7,7 @@ import { listRepos } from "../api/repos";
 import { discoverWorktrees, listWorktrees } from "../api/worktrees";
 import { AddRepoModal } from "../components/AddRepoModal";
 import { Button } from "../components/Button";
+import { GlobalSkillsTile } from "../components/GlobalSkillsTile";
 import { RepoList } from "../components/RepoList";
 import { TokenUsageTile } from "../components/TokenUsageTile";
 import { WorkspaceList } from "../components/WorkspaceList";
@@ -137,6 +138,7 @@ export function HubPage() {
 
         <aside className="space-y-6">
           <TokenUsageTile />
+          <GlobalSkillsTile />
         </aside>
       </div>
 
