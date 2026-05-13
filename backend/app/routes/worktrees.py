@@ -362,6 +362,12 @@ async def run_skill(
 ) -> SendResponse:
     """Run a slash command in this worktree's Claude session.
 
+    ``req.skill_name`` must appear in ``config.workspace_skills`` —
+    that list is the server-side allow-list (symmetric with how
+    ``/api/skills/global`` enforces ``config.global_skills``). The
+    frontend only renders buttons for in-config skills, so this is
+    mainly defense against hand-rolled curl callers.
+
     If no Claude session exists yet, spawn one in the worktree path
     with the slash command as the initial prompt (``claude '/<skill>'``).
     That gives the user a one-click "fire the skill" affordance from
@@ -371,6 +377,14 @@ async def run_skill(
     If a session exists, send the slash command via the existing
     send-text path (CR-terminated for Claude's TUI).
     """
+    config = load_config()
+    if not any(s.name == req.skill_name for s in config.workspace_skills):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"unknown workspace skill: {req.skill_name!r}. Add it to "
+            "`workspace_skills` in ~/.config/cdh/config.yaml.",
+        )
+
     iterm = getattr(request.app.state, "iterm", None)
     if iterm is None or iterm.connection is None:
         raise HTTPException(
@@ -402,7 +416,7 @@ async def run_skill(
             f"worktree path missing on disk: {worktree_path}",
         )
 
-    frame = load_config().iterm2.default_window
+    frame = config.iterm2.default_window
     try:
         result = await spawn_worktree_window(
             iterm.connection,

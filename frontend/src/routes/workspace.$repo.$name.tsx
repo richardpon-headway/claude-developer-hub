@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError } from "../api/client";
+import { getWorkspaceSkills } from "../api/config";
 import { getWorktree, runSkill, sendText, spawnIterm } from "../api/worktrees";
 import { Button } from "../components/Button";
 import { Tooltip } from "../components/Tooltip";
@@ -9,8 +10,6 @@ import { Tooltip } from "../components/Tooltip";
 export const Route = createFileRoute("/workspace/$repo/$name")({
   component: WorkspaceRoute,
 });
-
-const SKILLS = ["pr-finalize-for-review", "pr-check-action-required"] as const;
 
 function errorMessage(err: unknown): string {
   if (err instanceof ApiError) return err.detail;
@@ -48,6 +47,12 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
     mutationFn: () => spawnIterm(repo, name),
     onSuccess: invalidate,
   });
+
+  const skillsQuery = useQuery({
+    queryKey: ["config", "workspace-skills"],
+    queryFn: getWorkspaceSkills,
+  });
+  const skills = skillsQuery.data ?? [];
 
   const skillMutation = useMutation({
     mutationFn: (skill: string) => runSkill(repo, name, skill),
@@ -111,23 +116,25 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
                   {spawnMutation.isPending ? "Opening…" : "Open in iTerm2"}
                 </Button>
               </Tooltip>
-              {SKILLS.map((skill) => (
+              {skills.map((skill) => (
                 <Tooltip
-                  key={skill}
+                  key={skill.name}
                   text={
                     !ready
                       ? `worktree status is ${row.status}; nothing to run into`
                       : !hasClaude
-                        ? "Spawns iTerm2 and runs the skill"
-                        : null
+                        ? skill.description
+                          ? `${skill.description} — spawns iTerm2 first`
+                          : "Spawns iTerm2 and runs the skill"
+                        : skill.description
                   }
                 >
                   <Button
                     variant="secondary"
-                    onClick={() => skillMutation.mutate(skill)}
+                    onClick={() => skillMutation.mutate(skill.name)}
                     disabled={!ready || skillMutation.isPending}
                   >
-                    /{skill}
+                    {skill.label}
                   </Button>
                 </Tooltip>
               ))}
