@@ -30,6 +30,9 @@ describe("TokenUsageTile", () => {
   test("renders the offline badge when monitor is unreachable", async () => {
     vi.mocked(worktreesApi.getTokenUsage).mockResolvedValue({
       offline: true,
+      today_output: 0,
+      today_input: 0,
+      today_messages: 0,
       rows: [],
     });
     renderTile();
@@ -38,9 +41,12 @@ describe("TokenUsageTile", () => {
     });
   });
 
-  test("renders totals and top topics when monitor is live", async () => {
+  test("renders today totals and last-24h top topics", async () => {
     vi.mocked(worktreesApi.getTokenUsage).mockResolvedValue({
       offline: false,
+      today_output: 8200,
+      today_input: 100000,
+      today_messages: 42,
       rows: [
         {
           topic_id: "A",
@@ -66,9 +72,13 @@ describe("TokenUsageTile", () => {
     });
     renderTile();
     await waitFor(() => {
-      expect(screen.getByText(/15,000/)).toBeInTheDocument(); // total output
+      // Headline number is today_output, not a sum of row outputs
+      expect(screen.getByText(/8,200/)).toBeInTheDocument();
     });
-    expect(screen.getByText(/across 8 sessions/)).toBeInTheDocument();
+    // today_messages drives the secondary count line
+    expect(screen.getByText(/42 messages/i)).toBeInTheDocument();
+    // Top topics list is labelled as the rolling-24h window
+    expect(screen.getByText(/top topics .* last 24h/i)).toBeInTheDocument();
     expect(screen.getByText("PROJ-1")).toBeInTheDocument();
     expect(screen.getByText("PROJ-2")).toBeInTheDocument();
   });
