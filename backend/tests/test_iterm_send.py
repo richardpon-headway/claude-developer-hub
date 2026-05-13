@@ -160,15 +160,19 @@ async def test_find_session_by_id_walks_windows(
 
 
 @pytest.mark.asyncio
-async def test_send_to_session_sends_with_newline_by_default(
+async def test_send_to_session_appends_cr_to_submit(
     monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
 ) -> None:
+    """Enter must be sent as CR (\\r), not LF (\\n) — Claude Code's TUI
+    runs in raw mode and treats \\n as newline-within-input rather than
+    submit. Regression test: pin the exact byte so a future refactor
+    can't quietly revert this."""
     _write_minimal_config(_isolate["config_path"], _isolate["dev_root"], send_gate_patterns=[])
     session = _build_fake_session(session_id="X")
     _patch_iterm_app(monkeypatch, [session])
 
     await send_to_session(MagicMock(), "X", "/pr-check-action-required")
-    session.async_send_text.assert_awaited_once_with("/pr-check-action-required\n")
+    session.async_send_text.assert_awaited_once_with("/pr-check-action-required\r")
 
 
 @pytest.mark.asyncio
@@ -309,7 +313,7 @@ def test_send_text_happy_path(
         )
     assert r.status_code == 200
     assert r.json() == {"sent": True}
-    session.async_send_text.assert_awaited_once_with("look at PROJ-12\n")
+    session.async_send_text.assert_awaited_once_with("look at PROJ-12\r")
 
 
 # --- /api/worktree/{repo}/{name}/run-skill endpoint ----------------------
@@ -343,4 +347,75 @@ def test_run_skill_prefixes_with_slash(
             json={"skill_name": "pr-check-action-required"},
         )
     assert r.status_code == 200
-    session.async_send_text.assert_awaited_once_with("/pr-check-action-required\n")
+    session.async_send_text.assert_awaited_once_with("/pr-check-action-required\r")
+
+
+def _seed_worktree_only(db_path: Path, repo: str, name: str, dev_root: Path) -> None:
+    """Insert a worktree row WITHOUT an iterm_session row — simulating
+    a worktree that's been discovered/created but never opened in iTerm2."""
+    worktree_path = dev_root / name
+    worktree_path.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO worktree (repo, name, path, branch, created_at, status) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (repo, name, str(worktree_path), "main", "2026-01-01T00:00:00Z", "ready"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_run_skill_spawns_when_no_session_exists(
+    monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
+) -> None:
+    """When no iterm_session row exists for the worktree, run_skill
+    should spawn a fresh iTerm2 window with `claude '/<skill>'` as the
+    initial prompt instead of returning an error. The DB row is then
+    persisted so subsequent skill clicks use the send-text path."""
+    _write_minimal_config(
+        _isolate["config_path"], _isolate["dev_root"], send_gate_patterns=[]
+    )
+    _seed_worktree_only(_isolate["db_path"], "r", "wt", _isolate["dev_root"])
+
+    # Stub the iTerm2 spawn surface so we never touch a real iTerm2.
+    import iterm2
+
+    from tests.test_iterm import _build_fake_window
+
+    fake_window = _build_fake_window(
+        window_id="WN", claude_session_id="CN", shell_session_id="SHN"
+    )
+    monkeypatch.setattr(
+        iterm2.Window, "async_create", AsyncMock(return_value=fake_window)
+    )
+    fake_app = MagicMock()
+    fake_app.async_activate = AsyncMock()
+    monkeypatch.setattr(iterm2, "async_get_app", AsyncMock(return_value=fake_app))
+
+    with TestClient(app) as client:
+        client.app.state.iterm = SimpleNamespace(connection=MagicMock())
+        r = client.post(
+            "/api/worktree/r/wt/run-skill",
+            json={"skill_name": "pr-finalize-for-review"},
+        )
+
+    assert r.status_code == 200, r.text
+    # The shell command must launch Claude with the slash command as the
+    # initial positional arg — that's what avoids the
+    # "shell-ready-vs-Claude-ready" race that broke the send-text path.
+    sent = fake_window.current_tab.current_session.async_send_text.await_args.args[0]
+    assert "claude '/pr-finalize-for-review'" in sent
+
+    # A row should now exist so subsequent clicks send via the
+    # existing-session path rather than spawning again.
+    conn = sqlite3.connect(_isolate["db_path"])
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM iterm_session WHERE repo=? AND worktree_name=? AND role='claude'",
+            ("r", "wt"),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert count == 1

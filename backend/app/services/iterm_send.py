@@ -125,5 +125,12 @@ async def send_to_session(
         if matched:
             raise SendGateError(matched, trailing)
 
-    payload = text + ("\n" if press_enter else "")
+    # Use CR (\r), not LF (\n), to trigger Enter. Claude Code's TUI runs
+    # the terminal in raw mode and treats \n as a newline-within-input
+    # (i.e. shift+Enter behavior), only submitting on \r. This is the
+    # byte a physical Return key produces on macOS, so it also matches
+    # how a human types into the prompt. Any LFs already in `text` are
+    # preserved as intra-message newlines, which is the desired
+    # behavior for multi-line sends.
+    payload = text + ("\r" if press_enter else "")
     await session.async_send_text(payload)
