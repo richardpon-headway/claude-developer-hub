@@ -69,63 +69,74 @@ interface RowProps {
 
 function WorkspaceRow({ w, jira }: RowProps) {
   return (
-    <li className="rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-3">
-      <div className="flex items-start justify-between gap-4">
-        <Link
-          to="/workspace/$repo/$name"
-          params={{ repo: w.repo, name: w.name }}
-          className="min-w-0 truncate font-medium text-zinc-100 hover:text-indigo-300"
-        >
-          {w.name}
-        </Link>
-        <div className="flex shrink-0 items-center gap-2">
-          <Tooltip text={statusTooltip[w.status]}>
-            <span
-              className={`rounded border px-1.5 py-0.5 text-[10px] ${statusStyle[w.status]}`}
-            >
-              {w.status}
-            </span>
-          </Tooltip>
-          {w.has_claude_session && (
-            <Tooltip text="Claude session is open in iTerm2">
+    <li className="flex items-stretch gap-2">
+      {/* min-w-0 is the standard flex-shrink trick — without it the
+          card refuses to shrink below its content's min-content
+          (the action-buttons cluster), which pushes the tall PR-state
+          bar past the column boundary into the sidebar. */}
+      <div className="min-w-0 flex-1 rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-3">
+        <div className="flex items-start justify-between gap-4">
+          <Link
+            to="/workspace/$repo/$name"
+            params={{ repo: w.repo, name: w.name }}
+            className="min-w-0 truncate font-medium text-zinc-100 hover:text-indigo-300"
+          >
+            {w.name}
+          </Link>
+          <div className="flex shrink-0 items-center gap-2">
+            <Tooltip text={statusTooltip[w.status]}>
               <span
-                className="rounded border border-emerald-800 bg-emerald-900/40 px-1.5 py-0.5 text-[10px] text-emerald-300"
+                className={`rounded border px-1.5 py-0.5 text-[10px] ${statusStyle[w.status]}`}
               >
-                claude ●
+                {w.status}
               </span>
             </Tooltip>
-          )}
-          {w.pr_state && (
-            <PrStateBadge repo={w.repo} name={w.name} state={w.pr_state} />
-          )}
-        </div>
-      </div>
-      <div className="mt-2 flex items-end justify-between gap-4">
-        <div className="min-w-0 flex-1 space-y-0.5 text-xs text-zinc-500">
-          <div>branch: {w.branch}</div>
-          {w.ticket && (
-            <div>
-              ticket: <TicketValue ticket={w.ticket} jira={jira} />
-            </div>
-          )}
-          <div className="truncate font-mono text-zinc-600" title={w.path}>
-            {w.path}
+            {w.has_claude_session && (
+              <Tooltip text="Claude session is open in iTerm2">
+                <span
+                  className="rounded border border-emerald-800 bg-emerald-900/40 px-1.5 py-0.5 text-[10px] text-emerald-300"
+                >
+                  claude ●
+                </span>
+              </Tooltip>
+            )}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <OpenItermButton repo={w.repo} name={w.name} ready={w.status === "ready"} status={w.status} />
-          <PrButton repo={w.repo} name={w.name} />
-          <Tooltip text="Workspace actions: run skills, send text, view setup log">
-            <Link
-              to="/workspace/$repo/$name"
-              params={{ repo: w.repo, name: w.name }}
-              className="rounded border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700"
-            >
-              Manage
-            </Link>
-          </Tooltip>
+        <div className="mt-2 flex items-end justify-between gap-4">
+          <div className="min-w-0 flex-1 space-y-0.5 text-xs text-zinc-500">
+            <div>branch: {w.branch}</div>
+            {w.ticket && (
+              <div>
+                ticket: <TicketValue ticket={w.ticket} jira={jira} />
+              </div>
+            )}
+            <div className="truncate font-mono text-zinc-600" title={w.path}>
+              {w.path}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <OpenItermButton repo={w.repo} name={w.name} ready={w.status === "ready"} status={w.status} />
+            <PrButton repo={w.repo} name={w.name} />
+            <Tooltip text="Workspace actions: run skills, send text, view setup log">
+              <Link
+                to="/workspace/$repo/$name"
+                params={{ repo: w.repo, name: w.name }}
+                className="rounded border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700"
+              >
+                Manage
+              </Link>
+            </Tooltip>
+          </div>
         </div>
       </div>
+      {w.pr_state && (
+        <PrStateBadge
+          repo={w.repo}
+          name={w.name}
+          state={w.pr_state}
+          variant="tall"
+        />
+      )}
     </li>
   );
 }
