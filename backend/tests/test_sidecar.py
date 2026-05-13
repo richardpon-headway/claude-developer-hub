@@ -271,40 +271,77 @@ def test_spawn_endpoint_writes_sidecar(
     import app.routes.worktrees as wt_route
     monkeypatch.setattr(wt_route, "spawn_worktree_window", fake_spawn)
 
+    # Quick timeout so the test polls only briefly when waiting for the
+    # background task; the fake jsonl is already on disk at this point.
+    monkeypatch.setattr(sidecar, "DEFAULT_POLL_INTERVAL_SECONDS", 0.05)
+
+    # Keep the TestClient context open while we wait — exiting it
+    # triggers lifespan shutdown which cancels any in-flight background
+    # tasks (including our discovery task) before they can complete.
     with TestClient(app) as client:
         client.app.state.iterm = SimpleNamespace(connection=MagicMock())
         r = client.post(f"/api/worktree/{repo}/{name}/spawn-iterm")
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["claude_session_uuid"] == "DISC-UUID-77"
-    assert body["sidecar_path"]
-    assert body["sidecar_path"].endswith("/DISC-UUID-77.json")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        # claude_session_uuid + sidecar_path are no longer populated
+        # inline — discovery + sidecar write run in a background task,
+        # so the spawn POST returns instantly.
+        assert body["claude_session_uuid"] is None
+        assert body["sidecar_path"] is None
 
-    # Sidecar contents
-    sidecar_data = json.loads(Path(body["sidecar_path"]).read_text())
-    assert sidecar_data["session_id"] == "DISC-UUID-77"
-    assert sidecar_data["started_via"] == "cdh"
-    assert sidecar_data["worktree"] == f"{repo}_{name}"
-    assert sidecar_data["ticket"] == "PROJ-7"
+        # Wait for the background task to write the sidecar + update
+        # the row. Both happen on the event loop in the TestClient's
+        # background thread.
+        sidecar_path = _wait_for_path(
+            _isolate["sidecar_dir"] / "DISC-UUID-77.json", timeout=2.0
+        )
+        sidecar_data = json.loads(sidecar_path.read_text())
+        assert sidecar_data["session_id"] == "DISC-UUID-77"
+        assert sidecar_data["started_via"] == "cdh"
+        assert sidecar_data["worktree"] == f"{repo}_{name}"
+        assert sidecar_data["ticket"] == "PROJ-7"
 
-    # claude_session_uuid persisted on the claude-role iterm_session row
-    conn = sqlite3.connect(_isolate["db_path"])
-    try:
-        uuid = conn.execute(
-            "SELECT claude_session_uuid FROM iterm_session "
-            "WHERE repo=? AND worktree_name=? AND role='claude'",
-            (repo, name),
-        ).fetchone()[0]
-    finally:
-        conn.close()
-    assert uuid == "DISC-UUID-77"
+        uuid = _wait_for_uuid(_isolate["db_path"], repo, name, timeout=2.0)
+        assert uuid == "DISC-UUID-77"
+
+
+def _wait_for_path(p: Path, timeout: float) -> Path:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if p.exists():
+            return p
+        time.sleep(0.05)
+    raise AssertionError(f"path {p} did not appear within {timeout}s")
+
+
+def _wait_for_uuid(db_path: Path, repo: str, name: str, timeout: float) -> str:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        conn = sqlite3.connect(db_path)
+        try:
+            row = conn.execute(
+                "SELECT claude_session_uuid FROM iterm_session "
+                "WHERE repo=? AND worktree_name=? AND role='claude'",
+                (repo, name),
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is not None and row[0] is not None:
+            return row[0]
+        time.sleep(0.05)
+    raise AssertionError(
+        f"claude_session_uuid did not appear in DB for {repo}/{name} within {timeout}s"
+    )
 
 
 def test_spawn_endpoint_succeeds_on_discovery_timeout(
     monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
 ) -> None:
     """If Claude doesn't write a jsonl in time, spawn still succeeds but
-    claude_session_uuid is null and no sidecar is written."""
+    claude_session_uuid is null and no sidecar is written. Now that
+    discovery runs in a background task this is doubly true — the HTTP
+    POST returns instantly regardless of whether Claude's jsonl ever
+    appears."""
     repo, name = "r", "wt"
     _seed_worktree(_isolate["db_path"], repo, name, _isolate["dev_root"] / "wt")
 
