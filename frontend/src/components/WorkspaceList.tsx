@@ -5,7 +5,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "../api/client";
 import { getPrUrl, spawnIterm } from "../api/worktrees";
 import type { JiraConfig, PrHeadline, Worktree, WorktreeStatus } from "../api/types";
-import { PrStateBadge } from "./PrStateBadge";
 import { Tooltip } from "./Tooltip";
 
 interface Props {
@@ -60,50 +59,76 @@ const TIER_LABEL: Record<Tier, string> = {
   no_pr: "No PR yet",
 };
 
-// Within "Needs your action", order by code-action urgency first
-// (red CI fails / conflicts at the top), then human/review feedback,
-// then cleanup-only items (purple "merged" / gray "closed") at the
-// bottom. Other tiers don't need per-headline ordering — the badges
-// inside them are visually similar enough that (repo, name) sort is
-// fine.
-const NEEDS_ACTION_PRIORITY: Record<string, number> = {
-  ci_failing: 0,
-  merge_conflicts: 1,
-  human_comment: 2,
-  review_requested: 3,
-  merged: 4,
-  closed: 5,
+// Within each tier, the order headlines appear in. Drives the order
+// of the colored sub-group containers. "Needs your action" leads with
+// the loudest code-action signals (red CI fails / conflicts), then
+// review feedback, then cleanup-only items.
+const HEADLINE_ORDER: Record<Tier, PrHeadline[]> = {
+  needs_action: [
+    "ci_failing",
+    "merge_conflicts",
+    "human_comment",
+    "review_requested",
+    "merged",
+    "closed",
+  ],
+  ready_to_merge: ["ready_to_merge", "in_merge_queue"],
+  in_progress: ["checks_running", "waiting_on_others", "draft"],
+  no_pr: ["no_pr"],
 };
 
-function tierForWorktree(w: Worktree): Tier {
-  const headline = w.pr_state?.headline ?? "no_pr";
-  return TIER_FOR_HEADLINE[headline];
+// Visual classes for the colored group container that surrounds all
+// workspaces sharing a headline. The container uses the same color
+// family as the previous per-row tall badge so the visual language
+// carries over; the small label at the top-right of each container
+// names the headline.
+const HEADLINE_GROUP_STYLE: Record<PrHeadline, { label: string; container: string; label_text: string }> = {
+  ci_failing:        { label: "PR CI fail",  container: "border-red-800/70 bg-red-950/20",         label_text: "text-red-300" },
+  merge_conflicts:   { label: "PR conflict", container: "border-red-800/70 bg-red-950/20",         label_text: "text-red-300" },
+  human_comment:     { label: "PR review",   container: "border-amber-800/70 bg-amber-950/20",     label_text: "text-amber-300" },
+  review_requested:  { label: "PR re-rev",   container: "border-amber-800/70 bg-amber-950/20",     label_text: "text-amber-300" },
+  merged:            { label: "PR merged",   container: "border-purple-800/70 bg-purple-950/20",   label_text: "text-purple-300" },
+  closed:            { label: "PR closed",   container: "border-zinc-700 bg-zinc-900/40",          label_text: "text-zinc-400" },
+  ready_to_merge:    { label: "PR ready",    container: "border-emerald-800/70 bg-emerald-950/20", label_text: "text-emerald-300" },
+  in_merge_queue:    { label: "PR queued",   container: "border-indigo-800/70 bg-indigo-950/20",   label_text: "text-indigo-300" },
+  checks_running:    { label: "PR checks",   container: "border-amber-800/70 bg-amber-950/20",     label_text: "text-amber-300" },
+  waiting_on_others: { label: "PR waiting",  container: "border-zinc-700 bg-zinc-900/40",          label_text: "text-zinc-400" },
+  draft:             { label: "PR draft",    container: "border-zinc-700 bg-zinc-900/40",          label_text: "text-zinc-400" },
+  no_pr:             { label: "No PR yet",   container: "border-zinc-800 bg-zinc-900/30",          label_text: "text-zinc-500" },
+};
+
+function headlineForWorktree(w: Worktree): PrHeadline {
+  return w.pr_state?.headline ?? "no_pr";
 }
 
-function compareInTier(tier: Tier, a: Worktree, b: Worktree): number {
-  if (tier === "needs_action") {
-    const ah = a.pr_state?.headline ?? "no_pr";
-    const bh = b.pr_state?.headline ?? "no_pr";
-    const ap = NEEDS_ACTION_PRIORITY[ah] ?? 99;
-    const bp = NEEDS_ACTION_PRIORITY[bh] ?? 99;
-    if (ap !== bp) return ap - bp;
-  }
+function tierForWorktree(w: Worktree): Tier {
+  return TIER_FOR_HEADLINE[headlineForWorktree(w)];
+}
+
+function compareByRepoName(a: Worktree, b: Worktree): number {
   if (a.repo !== b.repo) return a.repo < b.repo ? -1 : 1;
   return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 }
 
-function groupByTier(worktrees: Worktree[]): Record<Tier, Worktree[]> {
-  const out: Record<Tier, Worktree[]> = {
-    needs_action: [],
-    ready_to_merge: [],
-    in_progress: [],
-    no_pr: [],
+function groupByTierAndHeadline(
+  worktrees: Worktree[],
+): Record<Tier, Map<PrHeadline, Worktree[]>> {
+  const out: Record<Tier, Map<PrHeadline, Worktree[]>> = {
+    needs_action: new Map(),
+    ready_to_merge: new Map(),
+    in_progress: new Map(),
+    no_pr: new Map(),
   };
   for (const w of worktrees) {
-    out[tierForWorktree(w)].push(w);
+    const tier = tierForWorktree(w);
+    const headline = headlineForWorktree(w);
+    if (!out[tier].has(headline)) out[tier].set(headline, []);
+    out[tier].get(headline)!.push(w);
   }
   for (const tier of TIER_ORDER) {
-    out[tier].sort((a, b) => compareInTier(tier, a, b));
+    for (const rows of out[tier].values()) {
+      rows.sort(compareByRepoName);
+    }
   }
   return out;
 }
@@ -111,32 +136,74 @@ function groupByTier(worktrees: Worktree[]): Record<Tier, Worktree[]> {
 export function WorkspaceList({ worktrees, jira }: Props) {
   if (worktrees.length === 0) return null;
 
-  const grouped = groupByTier(worktrees);
+  const grouped = groupByTierAndHeadline(worktrees);
 
   return (
     <div className="space-y-4">
       {TIER_ORDER.map((tier) => {
-        const rows = grouped[tier];
+        const headlineGroups = grouped[tier];
+        const total = Array.from(headlineGroups.values()).reduce(
+          (acc, r) => acc + r.length,
+          0,
+        );
+        const isEmpty = total === 0;
         return (
-          <section key={tier} className={rows.length === 0 ? "opacity-50" : undefined}>
+          <section key={tier} className={isEmpty ? "opacity-50" : undefined}>
             <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
               {TIER_LABEL[tier]}
-              <span className="ml-2 text-zinc-600">· {rows.length}</span>
+              <span className="ml-2 text-zinc-600">· {total}</span>
             </h3>
-            {rows.length === 0 ? (
+            {isEmpty ? (
               <p className="rounded-lg border border-dashed border-zinc-800 px-4 py-3 text-xs italic text-zinc-600">
                 no worktrees in this tier
               </p>
             ) : (
-              <ul className="space-y-2">
-                {rows.map((w) => (
-                  <WorkspaceRow key={`${w.repo}/${w.name}`} w={w} jira={jira} />
-                ))}
-              </ul>
+              <div className="space-y-6">
+                {HEADLINE_ORDER[tier].map((headline) => {
+                  const rows = headlineGroups.get(headline);
+                  if (!rows || rows.length === 0) return null;
+                  return (
+                    <HeadlineGroup
+                      key={headline}
+                      headline={headline}
+                      worktrees={rows}
+                      jira={jira}
+                    />
+                  );
+                })}
+              </div>
             )}
           </section>
         );
       })}
+    </div>
+  );
+}
+
+interface HeadlineGroupProps {
+  headline: PrHeadline;
+  worktrees: Worktree[];
+  jira: JiraConfig | null;
+}
+
+function HeadlineGroup({ headline, worktrees, jira }: HeadlineGroupProps) {
+  const style = HEADLINE_GROUP_STYLE[headline];
+  return (
+    <div className={`relative rounded-lg border-2 ${style.container} px-3 pb-3 pt-6`}>
+      {/* Top-right "header" label naming the headline, as a small tab
+          that visually overlaps the top edge of the colored container.
+          pt-6 on the container gives the label breathing room above the
+          first workspace card. */}
+      <span
+        className={`absolute -top-3 right-3 rounded border-2 bg-zinc-950 px-2.5 py-0.5 text-sm font-medium uppercase tracking-wide ${style.container} ${style.label_text}`}
+      >
+        {style.label}
+      </span>
+      <ul className="space-y-2">
+        {worktrees.map((w) => (
+          <WorkspaceRow key={`${w.repo}/${w.name}`} w={w} jira={jira} />
+        ))}
+      </ul>
     </div>
   );
 }
@@ -148,13 +215,8 @@ interface RowProps {
 
 function WorkspaceRow({ w, jira }: RowProps) {
   return (
-    <li className="flex items-stretch gap-2">
-      {/* min-w-0 is the standard flex-shrink trick — without it the
-          card refuses to shrink below its content's min-content
-          (the action-buttons cluster), which pushes the tall PR-state
-          bar past the column boundary into the sidebar. */}
-      <div className="min-w-0 flex-1 rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-3">
-        <div className="flex items-start justify-between gap-4">
+    <li className="rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-3">
+      <div className="flex items-start justify-between gap-4">
           <Link
             to="/workspace/$repo/$name"
             params={{ repo: w.repo, name: w.name }}
@@ -207,15 +269,6 @@ function WorkspaceRow({ w, jira }: RowProps) {
             </Tooltip>
           </div>
         </div>
-      </div>
-      {w.pr_state && (
-        <PrStateBadge
-          repo={w.repo}
-          name={w.name}
-          state={w.pr_state}
-          variant="tall"
-        />
-      )}
     </li>
   );
 }
