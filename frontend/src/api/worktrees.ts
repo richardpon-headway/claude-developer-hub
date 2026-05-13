@@ -1,9 +1,9 @@
 import { apiGet, apiPost } from "./client";
 import type {
-  DiscoverResponse,
   PrUrlResponse,
   SendResponse,
   SpawnItermResponse,
+  SyncResponse,
   TokenUsageResponse,
   Worktree,
   WorktreeDetail,
@@ -18,8 +18,8 @@ export const getWorktree = (repo: string, name: string) =>
 
 export const getTokenUsage = () => apiGet<TokenUsageResponse>("/api/token-usage");
 
-export const discoverWorktrees = () =>
-  apiPost<DiscoverResponse>("/api/worktrees/discover", {});
+export const syncWorktrees = () =>
+  apiPost<SyncResponse>("/api/worktrees/sync", {});
 
 const workspacePath = (repo: string, name: string) =>
   `/api/worktree/${encodeURIComponent(repo)}/${encodeURIComponent(name)}`;

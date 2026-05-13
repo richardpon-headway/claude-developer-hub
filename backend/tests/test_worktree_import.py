@@ -150,7 +150,7 @@ def test_discover_happy_path(_isolate: dict[str, Path]) -> None:
     )
 
     with TestClient(app) as client:
-        r = client.post("/api/worktrees/discover")
+        r = client.post("/api/worktrees/sync")
     assert r.status_code == 200, r.text
     body = r.json()
     imported = body["imported"]
@@ -188,7 +188,7 @@ def test_discover_ticket_extraction(_isolate: dict[str, Path]) -> None:
     )
 
     with TestClient(app) as client:
-        r = client.post("/api/worktrees/discover")
+        r = client.post("/api/worktrees/sync")
     body = r.json()
     assert len(body["imported"]) == 1
     entry = body["imported"][0]
@@ -216,11 +216,11 @@ def test_discover_skips_already_tracked(_isolate: dict[str, Path]) -> None:
     )
 
     with TestClient(app) as client:
-        r1 = client.post("/api/worktrees/discover")
+        r1 = client.post("/api/worktrees/sync")
         assert r1.status_code == 200
         assert len(r1.json()["imported"]) == 1
         # Second run: same worktree on disk, already in DB.
-        r2 = client.post("/api/worktrees/discover")
+        r2 = client.post("/api/worktrees/sync")
     assert r2.status_code == 200
     body = r2.json()
     assert body["imported"] == []
@@ -254,7 +254,7 @@ def test_discover_skips_detached_head(_isolate: dict[str, Path]) -> None:
     )
 
     with TestClient(app) as client:
-        r = client.post("/api/worktrees/discover")
+        r = client.post("/api/worktrees/sync")
     body = r.json()
     assert body["imported"] == []
     detached = [s for s in body["skipped"] if s["reason"] == "detached HEAD"]
@@ -278,7 +278,7 @@ def test_discover_reports_missing_repo_path(_isolate: dict[str, Path]) -> None:
         ],
     )
     with TestClient(app) as client:
-        r = client.post("/api/worktrees/discover")
+        r = client.post("/api/worktrees/sync")
     assert r.status_code == 200
     body = r.json()
     assert body["imported"] == []
@@ -317,16 +317,121 @@ def test_discover_isolates_per_repo_failures(_isolate: dict[str, Path]) -> None:
     )
 
     with TestClient(app) as client:
-        r = client.post("/api/worktrees/discover")
+        r = client.post("/api/worktrees/sync")
     body = r.json()
     # Good repo's worktree imported despite the ghost repo failing
     assert any(w["repo"] == "good" and w["name"] == "feature1" for w in body["imported"])
     assert any(s["repo"] == "ghost" and s["reason"] == "repo path missing" for s in body["skipped"])
 
 
-def test_discover_noop_when_no_repos(_isolate: dict[str, Path]) -> None:
+def test_sync_noop_when_no_repos(_isolate: dict[str, Path]) -> None:
     _write_config(_isolate["config_path"], _isolate["dev_root"], [])
     with TestClient(app) as client:
-        r = client.post("/api/worktrees/discover")
+        r = client.post("/api/worktrees/sync")
     assert r.status_code == 200
-    assert r.json() == {"imported": [], "skipped": []}
+    assert r.json() == {"imported": [], "removed": [], "skipped": []}
+
+
+def test_sync_removes_worktree_gone_from_git(_isolate: dict[str, Path]) -> None:
+    """A worktree imported in one sync, then deleted via
+    ``git worktree remove`` outside CDH, disappears on the next sync."""
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path, branches=["feature1"])
+    wt_path = _isolate["dev_root"] / "myapp_worktree_feature1"
+    _make_worktree(repo_path, wt_path, "feature1")
+    _write_config(
+        _isolate["config_path"],
+        _isolate["dev_root"],
+        [
+            {
+                "name": "myapp",
+                "path": str(repo_path),
+                "default_branch": "main",
+                "setup_steps": [],
+                "ticket_pattern": None,
+            }
+        ],
+    )
+
+    with TestClient(app) as client:
+        r1 = client.post("/api/worktrees/sync")
+        assert r1.status_code == 200
+        assert len(r1.json()["imported"]) == 1
+        assert r1.json()["removed"] == []
+
+        # Remove the worktree the way a user would. --force isn't needed
+        # since there are no uncommitted changes in the fixture.
+        subprocess.run(
+            ["git", "-C", str(repo_path), "worktree", "remove", str(wt_path)],
+            check=True,
+            capture_output=True,
+        )
+
+        r2 = client.post("/api/worktrees/sync")
+    assert r2.status_code == 200
+    body = r2.json()
+    assert body["imported"] == []
+    assert len(body["removed"]) == 1
+    assert body["removed"][0]["name"] == "feature1"
+    assert body["removed"][0]["path"] == str(wt_path)
+
+    # Tracked row is actually gone from the DB.
+    with TestClient(app) as client:
+        r3 = client.get("/api/worktrees")
+    assert r3.json() == []
+
+
+def test_sync_does_not_remove_worktrees_in_other_repos(
+    _isolate: dict[str, Path],
+) -> None:
+    """The removal pass is scoped to the repo being synced — a tracked
+    row whose path is missing from repo A's worktree list shouldn't be
+    dropped just because we synced repo B. Concretely: each repo's
+    removal pass looks only at its own ``worktree`` rows.
+    """
+    repo_a = _isolate["dev_root"] / "a"
+    repo_b = _isolate["dev_root"] / "b"
+    _init_git_repo(repo_a, branches=["feat"])
+    _init_git_repo(repo_b, branches=["feat"])
+    wt_a = _isolate["dev_root"] / "a_worktree_feat"
+    wt_b = _isolate["dev_root"] / "b_worktree_feat"
+    _make_worktree(repo_a, wt_a, "feat")
+    _make_worktree(repo_b, wt_b, "feat")
+    _write_config(
+        _isolate["config_path"],
+        _isolate["dev_root"],
+        [
+            {
+                "name": "a",
+                "path": str(repo_a),
+                "default_branch": "main",
+                "setup_steps": [],
+                "ticket_pattern": None,
+            },
+            {
+                "name": "b",
+                "path": str(repo_b),
+                "default_branch": "main",
+                "setup_steps": [],
+                "ticket_pattern": None,
+            },
+        ],
+    )
+
+    with TestClient(app) as client:
+        r1 = client.post("/api/worktrees/sync")
+        assert len(r1.json()["imported"]) == 2
+        # Remove only B's worktree
+        subprocess.run(
+            ["git", "-C", str(repo_b), "worktree", "remove", str(wt_b)],
+            check=True,
+            capture_output=True,
+        )
+        r2 = client.post("/api/worktrees/sync")
+    body = r2.json()
+    assert len(body["removed"]) == 1
+    assert body["removed"][0]["repo"] == "b"
+    # A's worktree is still tracked
+    with TestClient(app) as client:
+        rows = client.get("/api/worktrees").json()
+    assert {(r["repo"], r["name"]) for r in rows} == {("a", "feat")}
