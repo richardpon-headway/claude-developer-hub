@@ -174,6 +174,43 @@ def update_worktree_status_sync(
         conn.close()
 
 
+def list_worktree_paths_for_repo_sync(
+    repo: str, db_path: Path | None = None
+) -> list[tuple[str, str]]:
+    """Return ``[(name, path), …]`` for every row this repo owns. Used by
+    the sync flow to find tracked worktrees whose path is no longer in
+    git's worktree list (and therefore should be removed from the DB)."""
+    if db_path is None:
+        db_path = get_db_path()
+    conn = open_db(db_path)
+    try:
+        cur = conn.execute(
+            "SELECT name, path FROM worktree WHERE repo = ?", (repo,)
+        )
+        return [(row[0], row[1]) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def delete_worktree_sync(
+    repo: str, name: str, db_path: Path | None = None
+) -> int:
+    """Delete a worktree row. ``iterm_session`` and ``pr_state`` rows
+    cascade away via FK ON DELETE CASCADE. Returns the row count actually
+    deleted (0 if no matching row)."""
+    if db_path is None:
+        db_path = get_db_path()
+    conn = open_db(db_path)
+    try:
+        cur = conn.execute(
+            "DELETE FROM worktree WHERE repo = ? AND name = ?", (repo, name)
+        )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
 def update_worktree_pr_sync(
     repo: str,
     name: str,

@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { getJiraConfig } from "../api/config";
 import { listRepos } from "../api/repos";
-import { discoverWorktrees, listWorktrees } from "../api/worktrees";
+import { listWorktrees, syncWorktrees } from "../api/worktrees";
 import { AddRepoModal } from "../components/AddRepoModal";
 import { Button } from "../components/Button";
 import { GlobalSkillsTile } from "../components/GlobalSkillsTile";
@@ -40,8 +40,8 @@ export function HubPage() {
   const worktrees = worktreesQuery.data ?? [];
   const jira = jiraQuery.data ?? null;
 
-  const discover = useMutation({
-    mutationFn: discoverWorktrees,
+  const sync = useMutation({
+    mutationFn: syncWorktrees,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["worktrees"] }),
   });
 
@@ -62,30 +62,31 @@ export function HubPage() {
               {repos.length > 0 && (
                 <Button
                   variant="secondary"
-                  onClick={() => discover.mutate()}
-                  disabled={discover.isPending}
+                  onClick={() => sync.mutate()}
+                  disabled={sync.isPending}
                 >
-                  {discover.isPending ? "Discovering…" : "Discover worktrees"}
+                  {sync.isPending ? "Syncing…" : "Sync worktrees"}
                 </Button>
               )}
             </div>
-            {discover.isSuccess && discover.data && (
+            {sync.isSuccess && sync.data && (
               <p className="mt-2 text-xs text-zinc-500">
-                Imported {discover.data.imported.length} · skipped{" "}
-                {discover.data.skipped.length}
-                {discover.data.skipped.length > 0 && (
+                Imported {sync.data.imported.length} · removed{" "}
+                {sync.data.removed.length} · skipped{" "}
+                {sync.data.skipped.length}
+                {sync.data.skipped.length > 0 && (
                   <>
                     {" "}
                     <span className="text-zinc-600">
-                      ({Array.from(new Set(discover.data.skipped.map((s) => s.reason))).join(", ")})
+                      ({Array.from(new Set(sync.data.skipped.map((s) => s.reason))).join(", ")})
                     </span>
                   </>
                 )}
               </p>
             )}
-            {discover.isError && (
+            {sync.isError && (
               <p className="mt-2 text-xs text-red-400">
-                discover failed: {String(discover.error)}
+                sync failed: {String(sync.error)}
               </p>
             )}
             <div className="mt-3">

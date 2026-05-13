@@ -163,14 +163,22 @@ export interface ImportedWorktree {
   ticket: string | null;
 }
 
+export interface RemovedWorktree {
+  repo: string;
+  name: string;
+  path: string;
+  reason: string;
+}
+
 export interface SkippedWorktree {
   repo: string;
   path: string;
   reason: string;
 }
 
-export interface DiscoverResponse {
+export interface SyncResponse {
   imported: ImportedWorktree[];
+  removed: RemovedWorktree[];
   skipped: SkippedWorktree[];
 }
 

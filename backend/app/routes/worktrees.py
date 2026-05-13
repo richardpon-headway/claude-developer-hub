@@ -35,7 +35,7 @@ from app.services.sidecar import (
     discover_session_id,
     write_sidecar_sync,
 )
-from app.services.worktree_import import discover_all_sync
+from app.services.worktree_import import sync_all_sync
 
 log = logging.getLogger(__name__)
 
@@ -76,26 +76,36 @@ class ImportedWorktree(BaseModel):
     ticket: str | None = None
 
 
+class RemovedWorktree(BaseModel):
+    repo: str
+    name: str
+    path: str
+    reason: str
+
+
 class SkippedWorktree(BaseModel):
     repo: str
     path: str
     reason: str
 
 
-class DiscoverResponse(BaseModel):
+class SyncResponse(BaseModel):
     imported: list[ImportedWorktree]
+    removed: list[RemovedWorktree]
     skipped: list[SkippedWorktree]
 
 
-@router.post("/worktrees/discover", response_model=DiscoverResponse)
-async def discover_worktrees() -> DiscoverResponse:
-    """Iterate every configured repo and ingest the worktrees git
-    already knows about. Per-repo failures appear in ``skipped[]``
-    (e.g. ``repo path missing``) rather than aborting the request, so
-    one broken repo doesn't block import for the others.
+@router.post("/worktrees/sync", response_model=SyncResponse)
+async def sync_worktrees() -> SyncResponse:
+    """Reconcile every configured repo's worktree list with the DB:
+    insert rows for new worktrees git knows about, drop rows whose
+    path is no longer in ``git worktree list``. Per-repo failures
+    appear in ``skipped[]`` (e.g. ``repo path missing``) rather than
+    aborting the request, so one broken repo doesn't block reconcile
+    for the others.
     """
-    result = await asyncio.to_thread(discover_all_sync)
-    return DiscoverResponse(**result)
+    result = await asyncio.to_thread(sync_all_sync)
+    return SyncResponse(**result)
 
 
 @router.get("/worktree/{repo}/{name}", response_model=WorktreeDetail)
