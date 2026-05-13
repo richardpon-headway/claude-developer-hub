@@ -1,0 +1,33 @@
+frontend/src/components/RepoList.tsx
+  s_d128a241c2e116::t_c1c29f27093b0c 1-4,6,19-33,35-40,47-69
+backend/tests/test_repos.py
+  s_d128a241c2e116::t_41d02c32f5711c 229
+  s_d128a241c2e116::t_110c469e98cbe2 6-7
+  s_d128a241c2e116::t_2ff893b40b8784 182-228,230-266
+frontend/src/api/repos.ts
+  s_d128a241c2e116::t_d999946ebb54d0 9,14-18
+backend/app/routes/repos.py
+  s_d128a241c2e116::t_efe4241b02a831 30,35
+  s_d128a241c2e116::t_648a3f71b1277e 314-364
+frontend/src/api/types.ts
+  s_d128a241c2e116::t_a1aafff0cdf234 148-153
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "7198537583ec7f64250dbe28b1c92ae41d7cf941",
+  "prompts": {},
+  "sessions": {
+    "s_d128a241c2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6a9c603-8a9f-47c5-a234-1b418c8994f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
