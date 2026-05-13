@@ -20,6 +20,7 @@ def test_default_config_is_generic() -> None:
     c = CDHConfig()
     assert c.repos == []
     assert c.global_skills == []
+    assert c.workspace_skills == []
     assert c.server.port == 47823
     assert c.server.host == "127.0.0.1"
     assert c.iterm2.default_window.width == 1024
@@ -46,6 +47,25 @@ def test_global_skill_validates() -> None:
     # Extra keys → rejected (extra="forbid")
     with pytest.raises(Exception):
         GlobalSkill(name="ok", label="x", surprise=True)  # type: ignore[call-arg]
+
+
+def test_workspace_skill_validates() -> None:
+    from app.config.schema import WorkspaceSkill
+
+    # Happy path — no cwd field, that's the distinction from GlobalSkill.
+    s = WorkspaceSkill(name="pr-finalize-for-review", label="/pr-finalize-for-review")
+    assert s.description is None
+    # Same name regex as GlobalSkill
+    with pytest.raises(Exception):
+        WorkspaceSkill(name="UPPERCASE", label="x")
+    with pytest.raises(Exception):
+        WorkspaceSkill(name="has spaces", label="x")
+    with pytest.raises(Exception):
+        WorkspaceSkill(name="ok", label="")
+    # cwd is NOT a WorkspaceSkill field — extra="forbid" should catch attempts
+    # to set one (would mean the caller has the wrong model).
+    with pytest.raises(Exception):
+        WorkspaceSkill(name="ok", label="x", cwd="home")  # type: ignore[call-arg]
 
 
 def test_name_must_be_slug() -> None:

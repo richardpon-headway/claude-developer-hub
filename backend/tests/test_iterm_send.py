@@ -42,13 +42,26 @@ def _write_minimal_config(
     config_path: Path,
     dev_root: Path,
     send_gate_patterns: list[str] | None = None,
+    workspace_skills: list[dict] | None = None,
 ) -> None:
     iterm2_block: dict = {"default_window": {"width": 800, "height": 600, "x": 0, "y": 0}}
     if send_gate_patterns is not None:
         iterm2_block["send_gate_patterns"] = send_gate_patterns
+    # Pre-populate workspace_skills with the names existing run-skill tests
+    # use, otherwise the allow-list check on POST /run-skill 404s them.
+    if workspace_skills is None:
+        workspace_skills = [
+            {"name": "pr-check-action-required", "label": "/pr-check-action-required"},
+            {"name": "pr-finalize-for-review", "label": "/pr-finalize-for-review"},
+        ]
     config_path.write_text(
         yaml.safe_dump(
-            {"development_root": str(dev_root), "repos": [], "iterm2": iterm2_block}
+            {
+                "development_root": str(dev_root),
+                "repos": [],
+                "iterm2": iterm2_block,
+                "workspace_skills": workspace_skills,
+            }
         )
     )
 
@@ -328,6 +341,26 @@ def test_run_skill_validates_name() -> None:
                 "/api/worktree/r/wt/run-skill", json={"skill_name": bad}
             )
             assert r.status_code == 422, f"expected 422 for {bad!r} got {r.status_code}"
+
+
+def test_run_skill_rejects_unknown_skill_name(_isolate: dict[str, Path]) -> None:
+    """Skill names that pass the regex but aren't in
+    ``config.workspace_skills`` get rejected with 404 — the config IS the
+    allow-list, symmetric with /api/skills/global."""
+    _write_minimal_config(
+        _isolate["config_path"],
+        _isolate["dev_root"],
+        workspace_skills=[{"name": "pr-finalize-for-review", "label": "/pr-finalize-for-review"}],
+    )
+    with TestClient(app) as client:
+        client.app.state.iterm = SimpleNamespace(connection=MagicMock())
+        r = client.post(
+            "/api/worktree/r/wt/run-skill",
+            json={"skill_name": "definitely-not-configured"},
+        )
+    assert r.status_code == 404
+    assert "unknown workspace skill" in r.json()["detail"]
+    assert "definitely-not-configured" in r.json()["detail"]
 
 
 def test_run_skill_prefixes_with_slash(

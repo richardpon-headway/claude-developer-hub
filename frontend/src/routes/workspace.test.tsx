@@ -21,8 +21,10 @@ vi.mock("@tanstack/react-router", async () => {
 });
 
 vi.mock("../api/worktrees");
+vi.mock("../api/config");
 
 // Import after the mocks so the page picks them up.
+import * as configApi from "../api/config";
 import { WorkspacePage } from "./workspace.$repo.$name";
 
 function renderPage(repo = "myrepo", name = "feature") {
@@ -66,6 +68,19 @@ beforeEach(() => {
   vi.mocked(worktreesApi.spawnIterm).mockReset();
   vi.mocked(worktreesApi.runSkill).mockReset();
   vi.mocked(worktreesApi.sendText).mockReset();
+  vi.mocked(configApi.getWorkspaceSkills).mockReset();
+  vi.mocked(configApi.getWorkspaceSkills).mockResolvedValue([
+    {
+      name: "pr-finalize-for-review",
+      label: "/pr-finalize-for-review",
+      description: null,
+    },
+    {
+      name: "pr-review",
+      label: "/pr-review",
+      description: null,
+    },
+  ]);
 });
 
 afterEach(() => {
