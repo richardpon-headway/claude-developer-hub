@@ -9,6 +9,13 @@ interface Props {
   repo: string;
   name: string;
   state: PrStateSummary;
+  /**
+   * - "inline" (default): small pill, sits among other badges in a
+   *   horizontal cluster (e.g., next to the worktree status pill).
+   * - "tall": full-height vertical bar designed to sit alongside the
+   *   workspace card, matching its height via flex items-stretch.
+   */
+  variant?: "inline" | "tall";
 }
 
 interface HeadlineStyle {
@@ -65,18 +72,25 @@ const HEADLINE_STYLE: Record<Exclude<PrHeadline, "no_pr">, HeadlineStyle> = {
   },
 };
 
-export function PrStateBadge({ repo, name, state }: Props) {
+export function PrStateBadge({ repo, name, state, variant = "inline" }: Props) {
   if (state.headline === "no_pr") return null;
 
   const style = HEADLINE_STYLE[state.headline];
 
+  const triggerClass =
+    variant === "tall"
+      ? // Full-height bar to the right of the workspace card.
+        // min-w-28 (= 7rem ≈ 112px) is wide enough for the longest
+        // label ("PR conflict") so every bar's right edge lines up.
+        // Pairs with `min-w-0` on the card so the row doesn't push
+        // past the column boundary on narrower viewports.
+        `flex min-w-28 items-center justify-center whitespace-nowrap rounded-lg border px-3 text-xs font-medium hover:brightness-125 ${style.className}`
+      : `rounded border px-1.5 py-0.5 text-[10px] hover:brightness-125 ${style.className}`;
+
   return (
     <RadixPopover.Root>
       <RadixPopover.Trigger asChild>
-        <button
-          type="button"
-          className={`rounded border px-1.5 py-0.5 text-[10px] hover:brightness-125 ${style.className}`}
-        >
+        <button type="button" className={triggerClass}>
           {style.label}
         </button>
       </RadixPopover.Trigger>
