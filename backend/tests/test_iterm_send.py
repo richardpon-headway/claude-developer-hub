@@ -256,36 +256,95 @@ def test_send_text_503_when_disconnected(_isolate: dict[str, Path]) -> None:
     assert r.status_code == 503
 
 
-def test_send_text_400_when_no_claude_session(_isolate: dict[str, Path]) -> None:
-    _write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
-    # Worktree exists but never had spawn-iterm called for it.
-    conn = sqlite3.connect(_isolate["db_path"])
-    conn.execute(
-        "INSERT INTO worktree (repo, name, path, branch, created_at, status) "
-        "VALUES ('r', 'wt', '/tmp', 'main', '2026', 'ready')"
-    )
-    conn.commit()
-    conn.close()
-
-    with TestClient(app) as client:
-        client.app.state.iterm = SimpleNamespace(connection=MagicMock())
-        r = client.post("/api/worktree/r/wt/send-text", json={"text": "hi"})
-    assert r.status_code == 400
-    assert "open it in iTerm2" in r.json()["detail"]
-
-
-def test_send_text_404_when_session_vanished(
+def test_send_text_auto_spawns_when_no_claude_session(
     monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
 ) -> None:
+    """Send-text now mirrors the skill button's auto-spawn-on-miss
+    behavior: if no iterm_session row exists for the worktree, spawn
+    a fresh iTerm2 window with the user's text as the initial prompt
+    (``claude '<text>'``) instead of refusing with a 400."""
     _write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
-    _seed_claude_session(_isolate["db_path"], "r", "wt", _isolate["dev_root"], "S-stale")
-    # iTerm2 has no sessions matching that id (user closed the window).
-    _patch_iterm_app(monkeypatch, [_build_fake_session("S-someone-else")])
+    _seed_worktree_only(_isolate["db_path"], "r", "wt", _isolate["dev_root"])
+
+    import iterm2
+
+    from tests.test_iterm import _build_fake_window
+
+    fake_window = _build_fake_window(
+        window_id="WN", claude_session_id="CN", shell_session_id="SHN"
+    )
+    monkeypatch.setattr(
+        iterm2.Window, "async_create", AsyncMock(return_value=fake_window)
+    )
+    fake_app = MagicMock()
+    fake_app.async_activate = AsyncMock()
+    monkeypatch.setattr(iterm2, "async_get_app", AsyncMock(return_value=fake_app))
 
     with TestClient(app) as client:
         client.app.state.iterm = SimpleNamespace(connection=MagicMock())
-        r = client.post("/api/worktree/r/wt/send-text", json={"text": "hi"})
-    assert r.status_code == 404
+        r = client.post(
+            "/api/worktree/r/wt/send-text",
+            json={"text": "look at PROJ-12"},
+        )
+
+    assert r.status_code == 200, r.text
+    sent = fake_window.current_tab.current_session.async_send_text.await_args.args[0]
+    # Claude launched with the user's text as the positional initial
+    # prompt — that's what fires it at startup without needing a
+    # follow-up send_text keystroke.
+    assert "claude 'look at PROJ-12'" in sent
+
+
+def test_send_text_prunes_stale_row_and_respawns(
+    monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
+) -> None:
+    """If the DB has an iterm_session row but the iTerm2 process no
+    longer has that session (user closed the window manually), the
+    send-text endpoint prunes the stale row and spawns a fresh window
+    with the user's text as the initial prompt — same UX as the
+    no-row case."""
+    _write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
+    _seed_claude_session(_isolate["db_path"], "r", "wt", _isolate["dev_root"], "S-stale")
+    # iTerm2 has no sessions matching the stale id.
+    _patch_iterm_app(monkeypatch, [_build_fake_session("S-someone-else")])
+
+    import iterm2
+
+    from tests.test_iterm import _build_fake_window
+
+    fake_window = _build_fake_window(
+        window_id="WX", claude_session_id="CX", shell_session_id="SHX"
+    )
+    monkeypatch.setattr(
+        iterm2.Window, "async_create", AsyncMock(return_value=fake_window)
+    )
+    fake_app = MagicMock()
+    fake_app.async_activate = AsyncMock()
+    monkeypatch.setattr(iterm2, "async_get_app", AsyncMock(return_value=fake_app))
+
+    with TestClient(app) as client:
+        client.app.state.iterm = SimpleNamespace(connection=MagicMock())
+        r = client.post(
+            "/api/worktree/r/wt/send-text",
+            json={"text": "look at PROJ-12"},
+        )
+
+    assert r.status_code == 200, r.text
+    sent = fake_window.current_tab.current_session.async_send_text.await_args.args[0]
+    assert "claude 'look at PROJ-12'" in sent
+
+    # iterm_session row should now point at the NEW window, not the stale one.
+    conn = sqlite3.connect(_isolate["db_path"])
+    try:
+        row = conn.execute(
+            "SELECT iterm_session_id FROM iterm_session "
+            "WHERE repo=? AND worktree_name=? AND role='claude'",
+            ("r", "wt"),
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    assert row[0] == "CX"
 
 
 def test_send_text_409_on_send_gate(

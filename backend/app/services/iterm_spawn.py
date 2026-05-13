@@ -190,6 +190,23 @@ def get_claude_session_id_sync(repo: str, worktree_name: str) -> str | None:
         conn.close()
 
 
+def delete_iterm_sessions_sync(repo: str, worktree_name: str) -> int:
+    """Drop both the claude- and shell-role iterm_session rows for a
+    worktree. Used to evict stale entries — e.g. when the iTerm2 API
+    reports the tracked session_id doesn't exist anymore because the
+    user closed the window manually. Returns the row count removed."""
+    conn = open_db()
+    try:
+        cur = conn.execute(
+            "DELETE FROM iterm_session WHERE repo = ? AND worktree_name = ?",
+            (repo, worktree_name),
+        )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
 def set_iterm_session_uuid_sync(
     repo: str,
     worktree_name: str,
