@@ -1,0 +1,26 @@
+frontend/src/components/WorkspaceList.tsx
+  s_f6c2b8d06e0dbe::t_ef638c5a8f06fc 161
+  s_f6c2b8d06e0dbe::t_e1b15e0e827223 218-219
+  s_f6c2b8d06e0dbe::t_32723266ead2b2 192,194-196,198
+  s_f6c2b8d06e0dbe::t_0ee222b9df3b83 100-103,105,108,113-120,123-126,129-131,139,144-149,151,154,156,162-174,183-191,193,197,199-206
+  s_f6c2b8d06e0dbe::t_2e2feaa58fe6e9 62-77,80-97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "c8e90363e952ff65a71de051e832e85e55dee8f3",
+  "prompts": {},
+  "sessions": {
+    "s_f6c2b8d06e0dbe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e348f4fc-6ea8-4765-bd8c-c013f0a47831",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
