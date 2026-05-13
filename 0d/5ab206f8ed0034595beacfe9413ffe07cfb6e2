@@ -1,0 +1,33 @@
+backend/tests/test_sidecar.py
+  s_f6c2b8d06e0dbe::t_f081e3ebe9e6da 278-280,284-302,304-305
+  s_f6c2b8d06e0dbe::t_f5e9b64d0a88b0 274-277,303,306-334,341-344
+backend/tests/test_iterm.py
+  s_f6c2b8d06e0dbe::t_1c0b94d689b7cc 168-223
+frontend/src/components/WorkspaceList.tsx
+  s_f6c2b8d06e0dbe::t_e2a184d724ed4d 3,6,102,104,200-235
+  s_f6c2b8d06e0dbe::t_563d78c33661eb 236-239
+backend/app/routes/worktrees.py
+  s_f6c2b8d06e0dbe::t_4885372dc1b3f9 264-349,354-360,363,365-376,378-388
+  s_f6c2b8d06e0dbe::t_2877203cc47b37 28
+backend/app/services/iterm_spawn.py
+  s_f6c2b8d06e0dbe::t_2a1ea1f6db9116 193-219
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "0d5ab206f8ed0034595beacfe9413ffe07cfb6e2",
+  "prompts": {},
+  "sessions": {
+    "s_f6c2b8d06e0dbe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e348f4fc-6ea8-4765-bd8c-c013f0a47831",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
