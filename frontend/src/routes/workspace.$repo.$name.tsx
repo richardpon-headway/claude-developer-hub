@@ -114,12 +114,18 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
               {SKILLS.map((skill) => (
                 <Tooltip
                   key={skill}
-                  text={!hasClaude ? "Open this workspace in iTerm2 first" : null}
+                  text={
+                    !ready
+                      ? `worktree status is ${row.status}; nothing to run into`
+                      : !hasClaude
+                        ? "Spawns iTerm2 and runs the skill"
+                        : null
+                  }
                 >
                   <Button
                     variant="secondary"
                     onClick={() => skillMutation.mutate(skill)}
-                    disabled={!hasClaude || skillMutation.isPending}
+                    disabled={!ready || skillMutation.isPending}
                   >
                     /{skill}
                   </Button>

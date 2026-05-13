@@ -360,8 +360,60 @@ async def send_text(
 async def run_skill(
     repo: str, name: str, req: RunSkillRequest, request: Request
 ) -> SendResponse:
-    # Slash command always carries Enter so Claude processes it as a
-    # complete invocation rather than sitting at a half-typed prompt.
-    return await _send_to_worktree_claude(
-        request, repo, name, f"/{req.skill_name}", press_enter=True
-    )
+    """Run a slash command in this worktree's Claude session.
+
+    If no Claude session exists yet, spawn one in the worktree path
+    with the slash command as the initial prompt (``claude '/<skill>'``).
+    That gives the user a one-click "fire the skill" affordance from
+    the workspace page even when nothing is open yet — same trick the
+    hub-level global-skill button uses.
+
+    If a session exists, send the slash command via the existing
+    send-text path (CR-terminated for Claude's TUI).
+    """
+    iterm = getattr(request.app.state, "iterm", None)
+    if iterm is None or iterm.connection is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "iTerm2 not connected. Check Preferences → Magic → Enable Python API.",
+        )
+
+    claude_sid = await asyncio.to_thread(get_claude_session_id_sync, repo, name)
+    if claude_sid is not None:
+        return await _send_to_worktree_claude(
+            request, repo, name, f"/{req.skill_name}", press_enter=True
+        )
+
+    # No Claude session yet — spawn one with the slash command as initial
+    # prompt. Mirrors the spawn-iterm route except we pre-load the prompt
+    # instead of just `claude`, and we don't bother with sidecar discovery
+    # here (the skill runs at startup; the sidecar can be backfilled the
+    # next time the user opens a window).
+    row = await asyncio.to_thread(svc.get_worktree_sync, repo, name)
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"worktree not found: {repo}/{name}"
+        )
+
+    worktree_path = Path(row.path)
+    if not worktree_path.is_dir():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"worktree path missing on disk: {worktree_path}",
+        )
+
+    frame = load_config().iterm2.default_window
+    try:
+        result = await spawn_worktree_window(
+            iterm.connection,
+            worktree_path,
+            frame,
+            initial_prompt=f"/{req.skill_name}",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, f"iTerm2 spawn failed: {e}"
+        ) from e
+
+    await asyncio.to_thread(upsert_iterm_sessions_sync, repo, name, result, None)
+    return SendResponse(sent=True)

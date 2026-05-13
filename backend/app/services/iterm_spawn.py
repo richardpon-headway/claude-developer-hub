@@ -72,10 +72,17 @@ async def spawn_worktree_window(
     connection: iterm2.Connection,
     worktree_path: Path,
     frame: ITermWindow,
+    initial_prompt: str | None = None,
 ) -> SpawnResult:
     """Open a new iTerm2 window at ``frame`` and seed it with Claude +
     shell tabs in ``worktree_path``. Returns the iTerm2-assigned ids
     so callers can persist them in the ``iterm_session`` table.
+
+    If ``initial_prompt`` is set, Claude is launched as
+    ``claude '<prompt>'`` so the prompt runs at startup (no race
+    between "shell ready" and "Claude ready" that would exist with a
+    follow-up keystroke send). Used by ``run_skill`` to fire a slash
+    command when no Claude session exists yet.
 
     Raises any underlying ``iterm2.RPCException`` so the caller turns it
     into an HTTP 5xx with a useful detail.
@@ -98,9 +105,15 @@ async def spawn_worktree_window(
     # Tab 1: Claude
     tab1 = window.current_tab
     claude_session = tab1.current_session
-    # \n triggers Enter; we send both lines in one call so the shell
-    # treats them as separate commands rather than partial input.
-    await claude_session.async_send_text(f"cd {worktree_path}\nclaude\n")
+    # \n triggers Enter to the shell (cooked mode treats it as Return).
+    # We send both lines in one call so the shell treats them as
+    # separate commands rather than partial input.
+    if initial_prompt is not None:
+        quoted = "'" + initial_prompt.replace("'", "'\\''") + "'"
+        claude_cmd = f"claude {quoted}"
+    else:
+        claude_cmd = "claude"
+    await claude_session.async_send_text(f"cd {worktree_path}\n{claude_cmd}\n")
 
     # Tab 2: shell only
     tab2 = await window.async_create_tab()
