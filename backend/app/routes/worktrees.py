@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from app.config.loader import load_config
-from app.models.worktree import WorktreeRow
+from app.models.worktree import PrStateSummary, WorktreeRow
 from app.services import worktree as svc
 from app.services.iterm_send import (
     SendGateError,
@@ -211,6 +211,48 @@ async def get_pr_url(repo: str, name: str) -> PrUrlResponse:
         )
 
     return PrUrlResponse(url=url)
+
+
+@router.post(
+    "/worktree/{repo}/{name}/pr-state/refresh", response_model=PrStateSummary
+)
+async def refresh_pr_state(repo: str, name: str) -> PrStateSummary:
+    """Force-refresh the cached PR state for this worktree by shelling
+    `gh pr view` synchronously. Returns the fresh classified summary.
+    Used by the popover's "Refresh now" button so the user doesn't
+    have to wait for the next polling tick (~3 min)."""
+    from app.services.pr_state import (
+        GhUnavailable,
+        fetch_pr_summary,
+        upsert_pr_state_sync,
+    )
+
+    row = await asyncio.to_thread(svc.get_worktree_sync, repo, name)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"worktree not found: {repo}/{name}")
+
+    worktree_path = Path(row.path)
+    if not worktree_path.is_dir():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"worktree path missing on disk: {worktree_path}",
+        )
+
+    try:
+        summary = await fetch_pr_summary(worktree_path)
+    except GhUnavailable as e:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "`gh` CLI not on PATH. Install GitHub CLI to enable PR state.",
+        ) from e
+
+    checked_at = await asyncio.to_thread(
+        upsert_pr_state_sync, repo, name, summary
+    )
+
+    payload = summary.to_payload()
+    payload["checked_at"] = checked_at
+    return PrStateSummary.model_validate(payload)
 
 
 class SpawnItermResponse(BaseModel):

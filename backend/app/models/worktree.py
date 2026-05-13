@@ -9,9 +9,67 @@ import re
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 WorktreeStatus = Literal["setting_up", "ready", "failed", "stale", "removing"]
+
+PrHeadline = Literal[
+    "no_pr",
+    "merged",
+    "closed",
+    "ci_failing",
+    "merge_conflicts",
+    "in_merge_queue",
+    "ready_to_merge",
+    "human_comment",
+    "review_requested",
+    "checks_running",
+    "waiting_on_others",
+    "draft",
+]
+
+
+class PrChecks(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # `passed` rather than `pass` to dodge the Python keyword. Used as
+    # both the Python field name and the wire-format key — keeps the
+    # backend and frontend reading the same word.
+    passed: int = 0
+    fail: int = 0
+    pending: int = 0
+    total: int = 0
+
+
+class PrComments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    human: int = 0
+    bot: int = 0
+    total: int = 0
+
+
+class PrStateSummary(BaseModel):
+    """Hub-row payload describing PR state for a single worktree.
+    Mirrors backend/app/services/pr_state.py's PrSummary, plus the
+    ``checked_at`` timestamp from the cache row."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    headline: PrHeadline
+    pr_number: int | None = None
+    url: str | None = None
+    title: str | None = None
+    is_draft: bool = False
+    mergeable: str | None = None
+    merge_state_status: str | None = None
+    review_decision: str | None = None
+    checks: PrChecks = Field(default_factory=PrChecks)
+    comments: PrComments = Field(default_factory=PrComments)
+    base_ref: str | None = None
+    head_ref: str | None = None
+    updated_at: str | None = None
+    checked_at: str
 
 
 class WorktreeRow(BaseModel):
@@ -31,6 +89,10 @@ class WorktreeRow(BaseModel):
     # so the hub can render the "claude running" indicator and decide
     # whether skill-runner buttons should be enabled.
     has_claude_session: bool = False
+    # Cached PR state from the pr_state polling task (populated by the
+    # LEFT JOIN in the list-worktrees query). None when no row has been
+    # polled yet — e.g., daemon just started.
+    pr_state: PrStateSummary | None = None
 
 
 def derive_worktree_name(

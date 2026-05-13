@@ -52,6 +52,7 @@ function makeWorktree(overrides: Partial<Worktree> = {}): Worktree {
     created_at: "2026-01-01T00:00:00Z",
     status: "ready",
     has_claude_session: false,
+    pr_state: null,
     ...overrides,
   };
 }
