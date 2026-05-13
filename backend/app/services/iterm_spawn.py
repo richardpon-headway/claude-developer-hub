@@ -190,6 +190,33 @@ def get_claude_session_id_sync(repo: str, worktree_name: str) -> str | None:
         conn.close()
 
 
+def set_iterm_session_uuid_sync(
+    repo: str,
+    worktree_name: str,
+    window_id: str,
+    claude_session_uuid: str,
+) -> int:
+    """Set ``claude_session_uuid`` on the claude-role ``iterm_session``
+    row, but only if it still points at ``window_id``. Used by the
+    fire-and-forget post-spawn discovery task to avoid clobbering a row
+    that a later spawn already replaced.
+
+    Returns the number of rows actually updated (0 if the row was
+    overtaken by a newer spawn, or no row exists)."""
+    conn = open_db()
+    try:
+        cur = conn.execute(
+            "UPDATE iterm_session SET claude_session_uuid = ? "
+            "WHERE repo = ? AND worktree_name = ? "
+            "AND role = 'claude' AND iterm_window_id = ?",
+            (claude_session_uuid, repo, worktree_name, window_id),
+        )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
 def upsert_iterm_sessions_sync(
     repo: str,
     worktree_name: str,
