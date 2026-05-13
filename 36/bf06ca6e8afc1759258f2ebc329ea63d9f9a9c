@@ -1,0 +1,33 @@
+backend/app/routes/token_usage.py
+  s_f6c2b8d06e0dbe::t_c7b8045574952e 14
+  s_f6c2b8d06e0dbe::t_dbb9a9604fcca8 43-50,68,70-78,83-86,89-96,98,101-102,107-113
+frontend/src/components/TokenUsageTile.test.tsx
+  s_f6c2b8d06e0dbe::t_8e2d729bd0dad0 33-35,44,47-49,75-76,78-81
+backend/tests/test_token_usage.py
+  s_f6c2b8d06e0dbe::t_5ca14fcb4aca04 41-46,64-79,90,96-108,127,133-135,148-151,153,157-160,167-169,171,178-198
+frontend/src/components/TokenUsageTile.tsx
+  s_f6c2b8d06e0dbe::t_e14b66e14cb6a9 65-66,77,82,86-105
+frontend/src/routes/index.test.tsx
+  s_f6c2b8d06e0dbe::t_a3a539914a275f 49-51
+frontend/src/api/types.ts
+  s_f6c2b8d06e0dbe::t_36282ec04d9426 89-91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "36bf06ca6e8afc1759258f2ebc329ea63d9f9a9c",
+  "prompts": {},
+  "sessions": {
+    "s_f6c2b8d06e0dbe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e348f4fc-6ea8-4765-bd8c-c013f0a47831",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
