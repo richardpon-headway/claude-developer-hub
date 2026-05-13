@@ -58,6 +58,20 @@ class GlobalSkill(BaseModel):
     cwd: str = "home"
 
 
+class WorkspaceSkill(BaseModel):
+    """A Claude slash-command surfaced as a button on the workspace
+    detail page. Always runs in the worktree's path — no ``cwd`` field,
+    unlike :class:`GlobalSkill`. The set of allowed names is the
+    server-side allow-list enforced by
+    ``POST /api/worktree/{repo}/{name}/run-skill``.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., pattern=r"^[a-z0-9][a-z0-9-]*$", min_length=1, max_length=64)
+    label: str = Field(..., min_length=1, max_length=64)
+    description: str | None = None
+
+
 class RepoConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -117,6 +131,7 @@ class CDHConfig(BaseModel):
     repos: list[RepoConfig] = Field(default_factory=list)
     jira: JiraConfig = Field(default_factory=JiraConfig)
     global_skills: list[GlobalSkill] = Field(default_factory=list)
+    workspace_skills: list[WorkspaceSkill] = Field(default_factory=list)
     iterm2: ITermConfig = Field(default_factory=ITermConfig)
     token_monitor: TokenMonitorConfig = Field(default_factory=TokenMonitorConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
