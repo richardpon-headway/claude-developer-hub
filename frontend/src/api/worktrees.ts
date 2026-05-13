@@ -45,3 +45,9 @@ export const runSkill = (repo: string, name: string, skillName: string) =>
 
 export const getPrUrl = (repo: string, name: string) =>
   apiGet<PrUrlResponse>(`${workspacePath(repo, name)}/pr-url`);
+
+export const refreshPrState = (repo: string, name: string) =>
+  apiPost<import("./types").PrStateSummary>(
+    `${workspacePath(repo, name)}/pr-state/refresh`,
+    {},
+  );
