@@ -19,12 +19,33 @@ def _isolate_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def test_default_config_is_generic() -> None:
     c = CDHConfig()
     assert c.repos == []
+    assert c.global_skills == []
     assert c.server.port == 47823
     assert c.server.host == "127.0.0.1"
     assert c.iterm2.default_window.width == 1024
     assert c.iterm2.default_window.height == 768
     assert c.token_monitor.api_url == "http://localhost:47821"
     assert len(c.iterm2.send_gate_patterns) >= 1
+
+
+def test_global_skill_validates() -> None:
+    from app.config.schema import GlobalSkill
+
+    # Happy path
+    s = GlobalSkill(name="pr-check-action-required", label="Check action required")
+    assert s.cwd == "home"
+    assert s.description is None
+    # Uppercase / spaces in name → rejected
+    with pytest.raises(Exception):
+        GlobalSkill(name="UPPERCASE", label="x")
+    with pytest.raises(Exception):
+        GlobalSkill(name="has spaces", label="x")
+    # Empty label → rejected
+    with pytest.raises(Exception):
+        GlobalSkill(name="ok", label="")
+    # Extra keys → rejected (extra="forbid")
+    with pytest.raises(Exception):
+        GlobalSkill(name="ok", label="x", surprise=True)  # type: ignore[call-arg]
 
 
 def test_name_must_be_slug() -> None:

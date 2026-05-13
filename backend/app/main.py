@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.db import apply_migrations
-from app.routes import config, repos, token_usage, workspace, worktrees
+from app.routes import config, repos, skills, token_usage, workspace, worktrees
 from app.services.iterm_supervisor import iterm_supervisor
 
 
@@ -38,6 +38,7 @@ app.include_router(worktrees.router)
 app.include_router(workspace.router)
 app.include_router(token_usage.router)
 app.include_router(config.router)
+app.include_router(skills.router)
 
 
 @app.get("/api/health")

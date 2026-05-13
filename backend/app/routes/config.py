@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.config.loader import load_config
-from app.config.schema import JiraConfig
+from app.config.schema import GlobalSkill, JiraConfig
 
 router = APIRouter(prefix="/api/config", tags=["config"])
 
@@ -17,3 +17,11 @@ router = APIRouter(prefix="/api/config", tags=["config"])
 @router.get("/jira", response_model=JiraConfig)
 async def get_jira_config() -> JiraConfig:
     return load_config().jira
+
+
+@router.get("/skills", response_model=list[GlobalSkill])
+async def get_global_skills() -> list[GlobalSkill]:
+    """List hub-level skill buttons declared in the user's config.
+    The frontend renders one button per entry; the same list is the
+    server-side allow-list enforced by ``POST /api/skills/global``."""
+    return load_config().global_skills

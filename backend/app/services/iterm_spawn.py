@@ -34,6 +34,40 @@ class SpawnResult:
     shell_session_id: str
 
 
+@dataclass
+class GlobalSpawnResult:
+    """Outcome of a non-worktree iTerm2 spawn (e.g. a hub-level global
+    skill button). Only one tab is created — Claude, with the slash
+    command pre-loaded via ``claude <initial_prompt>`` — so there's no
+    shell_session_id to surface."""
+
+    window_id: str
+    claude_session_id: str
+
+
+async def _bring_window_to_front(
+    connection: iterm2.Connection,
+    window: iterm2.Window,
+    focus_tab: iterm2.Tab,
+) -> None:
+    """Select the given tab, then activate the iTerm2 app + window so
+    the spawn isn't hidden behind the browser. Each step is best-effort
+    — a transient iTerm2 state must never sink the spawn."""
+    import iterm2
+
+    await focus_tab.async_select()
+    try:
+        app = await iterm2.async_get_app(connection)
+        if app is not None:
+            await app.async_activate(raise_all_windows=False)
+    except Exception as e:
+        log.warning("iTerm2 app activate failed (non-fatal): %s", e)
+    try:
+        await window.async_activate()
+    except Exception as e:
+        log.warning("iTerm2 window activate failed (non-fatal): %s", e)
+
+
 async def spawn_worktree_window(
     connection: iterm2.Connection,
     worktree_path: Path,
@@ -73,27 +107,57 @@ async def spawn_worktree_window(
     shell_session = tab2.current_session
     await shell_session.async_send_text(f"cd {worktree_path}\n")
 
-    # Make sure the new window is frontmost. Without this, the spawn happens
-    # in iTerm2's z-order but iTerm2 itself stays behind whatever app had
-    # focus (typically the browser the user just clicked from), so the
-    # window appears "behind other windows" until the user cmd-tabs.
-    # Select the Claude tab first so it's the one that gets focus.
-    await tab1.async_select()
-    try:
-        app = await iterm2.async_get_app(connection)
-        if app is not None:
-            await app.async_activate(raise_all_windows=False)
-    except Exception as e:
-        log.warning("iTerm2 app activate failed (non-fatal): %s", e)
-    try:
-        await window.async_activate()
-    except Exception as e:
-        log.warning("iTerm2 window activate failed (non-fatal): %s", e)
+    await _bring_window_to_front(connection, window, tab1)
 
     return SpawnResult(
         window_id=window.window_id,
         claude_session_id=claude_session.session_id,
         shell_session_id=shell_session.session_id,
+    )
+
+
+async def spawn_global_claude_window(
+    connection: iterm2.Connection,
+    cwd: Path,
+    initial_prompt: str,
+    frame: ITermWindow,
+) -> GlobalSpawnResult:
+    """Open a one-tab iTerm2 window at ``frame``, ``cd`` into ``cwd``,
+    and launch Claude with ``initial_prompt`` as its first message —
+    ``claude`` accepts a positional argument that becomes the user's
+    opening prompt, so a slash command passed here runs at startup
+    with no race between "shell ready" and "Claude ready".
+
+    Unlike :func:`spawn_worktree_window`, this does NOT write to the
+    ``iterm_session`` table — global spawns aren't bound to a worktree.
+    """
+    import iterm2
+
+    window = await iterm2.Window.async_create(connection)
+    if window is None:
+        raise RuntimeError("iTerm2 returned no window — session ended immediately?")
+    await window.async_set_frame(
+        iterm2.Frame(
+            origin=iterm2.Point(frame.x, frame.y),
+            size=iterm2.Size(frame.width, frame.height),
+        )
+    )
+
+    tab = window.current_tab
+    session = tab.current_session
+    # Single shell call: cd, then `claude <prompt>`. The prompt is
+    # passed as a single positional arg via shell quoting; callers are
+    # expected to pass a single token like "/skill-name", so no escaping
+    # is needed for the v1 callers, but we wrap in single-quotes anyway
+    # so future multi-word prompts don't break.
+    quoted_prompt = "'" + initial_prompt.replace("'", "'\\''") + "'"
+    await session.async_send_text(f"cd {cwd}\nclaude {quoted_prompt}\n")
+
+    await _bring_window_to_front(connection, window, tab)
+
+    return GlobalSpawnResult(
+        window_id=window.window_id,
+        claude_session_id=session.session_id,
     )
 
 

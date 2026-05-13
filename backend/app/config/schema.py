@@ -42,6 +42,22 @@ class JiraConfig(BaseModel):
     list_jql: str | None = None
 
 
+class GlobalSkill(BaseModel):
+    """A Claude slash-command surfaced on the hub page (not bound to a
+    worktree). Clicking the button opens a fresh iTerm2 window at
+    ``cwd`` and launches ``claude /<name>`` as the initial prompt.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., pattern=r"^[a-z0-9][a-z0-9-]*$", min_length=1, max_length=64)
+    label: str = Field(..., min_length=1, max_length=64)
+    description: str | None = None
+    # "home" → Path.home() at spawn time. Anything else is treated as a
+    # path (tildes expanded, must be absolute + exist when the button is
+    # clicked).
+    cwd: str = "home"
+
+
 class RepoConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -100,6 +116,7 @@ class CDHConfig(BaseModel):
     )
     repos: list[RepoConfig] = Field(default_factory=list)
     jira: JiraConfig = Field(default_factory=JiraConfig)
+    global_skills: list[GlobalSkill] = Field(default_factory=list)
     iterm2: ITermConfig = Field(default_factory=ITermConfig)
     token_monitor: TokenMonitorConfig = Field(default_factory=TokenMonitorConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
