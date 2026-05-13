@@ -204,11 +204,11 @@ function SendTextForm({ hasClaude, isPending, onSubmit }: SendTextFormProps) {
       <textarea
         name="text"
         rows={2}
-        disabled={!hasClaude || isPending}
+        disabled={isPending}
         placeholder={
           hasClaude
             ? "type a message, press Submit to send + Enter"
-            : "open this workspace in iTerm2 first"
+            : "type a message — Submit will spawn iTerm2 and pre-load it"
         }
         className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none disabled:opacity-50"
       />
@@ -216,7 +216,7 @@ function SendTextForm({ hasClaude, isPending, onSubmit }: SendTextFormProps) {
         <Button
           type="submit"
           variant="secondary"
-          disabled={!hasClaude || isPending}
+          disabled={isPending}
         >
           {isPending ? "Sending…" : "Submit"}
         </Button>
