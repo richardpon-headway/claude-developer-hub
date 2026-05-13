@@ -73,9 +73,24 @@ afterEach(() => {
 });
 
 describe("WorkspacePage", () => {
-  test("skill buttons disabled when no claude session", async () => {
+  test("skill buttons stay enabled without a session (auto-spawn)", async () => {
+    // When no Claude session exists, the skill button still fires —
+    // the backend spawns iTerm2 with `claude '/<skill>'` as the
+    // initial prompt. The "open this workspace in iTerm2 first" gate
+    // only applied before the spawn-on-miss path landed.
     vi.mocked(worktreesApi.getWorktree).mockResolvedValue(
-      makeDetail({ has_claude_session: false }),
+      makeDetail({ has_claude_session: false, status: "ready" }),
+    );
+    renderPage();
+    const finalizeBtn = await screen.findByRole("button", {
+      name: "/pr-finalize-for-review",
+    });
+    expect(finalizeBtn).toBeEnabled();
+  });
+
+  test("skill buttons disabled when worktree is not ready", async () => {
+    vi.mocked(worktreesApi.getWorktree).mockResolvedValue(
+      makeDetail({ has_claude_session: false, status: "failed" }),
     );
     renderPage();
     const finalizeBtn = await screen.findByRole("button", {
