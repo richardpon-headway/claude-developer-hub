@@ -1,0 +1,78 @@
+backend/tests/test_pr_state.py
+  s_f6c2b8d06e0dbe::t_46bdd21902ba27 293-316,323
+  s_f6c2b8d06e0dbe::t_b1a35a7f05fe3c 426-428
+  s_f6c2b8d06e0dbe::t_6a2f2385ee469f 81-107
+  s_f6c2b8d06e0dbe::t_ef1502d72e58bd 218
+  s_f6c2b8d06e0dbe::t_0c11ff7f8916ec 124,138,150,164,178,191,205,231
+  s_f6c2b8d06e0dbe::t_304e541cb9238c 111
+  s_f6c2b8d06e0dbe::t_d01d422e29cb2b 1-80,108-110,112-123,125-137,139-149,151-163,165-177,179-190,192-204,206-217,219-230,232-292,317-322,324-425,429-540
+frontend/src/components/PrStateBadge.test.tsx
+  s_f6c2b8d06e0dbe::t_ef1e58b10b6163 1-107
+frontend/src/routes/workspace.test.tsx
+  s_f6c2b8d06e0dbe::t_7ca649b53edb58 55
+frontend/src/api/types.ts
+  s_f6c2b8d06e0dbe::t_045842fc989737 58-59,62-101,113
+  s_f6c2b8d06e0dbe::t_ffd0cfd5a06c18 60-61
+backend/app/migrations/002_pr_state.sql
+  s_f6c2b8d06e0dbe::t_c899ad799930f6 1-39
+backend/app/models/worktree.py
+  s_f6c2b8d06e0dbe::t_c7704dd0e33189 35-38
+  s_f6c2b8d06e0dbe::t_61717b7c36490a 18-19
+  s_f6c2b8d06e0dbe::t_4099f821790d29 12
+  s_f6c2b8d06e0dbe::t_725405a255020d 16-17,20-34,39-73,92-95
+backend/app/routes/worktrees.py
+  s_f6c2b8d06e0dbe::t_98251bdc66a9ae 216,218,220-257
+  s_f6c2b8d06e0dbe::t_18ee995accdd5f 18
+  s_f6c2b8d06e0dbe::t_a3817e12c803c8 217,219
+backend/app/services/pr_state.py
+  s_f6c2b8d06e0dbe::t_9e8fe06ad3cdaf 1-10,14-52,54-60,64-68,75-131,133-141,150-179,183,185,187-189,191-223,225-353
+  s_f6c2b8d06e0dbe::t_9fa9b10d9d6d58 132,142-149
+  s_f6c2b8d06e0dbe::t_1817213ff16b09 224
+  s_f6c2b8d06e0dbe::t_ad4024430b1f5f 61-63,69-74
+  s_f6c2b8d06e0dbe::t_9f4ef782fe2fb5 190
+  s_f6c2b8d06e0dbe::t_933c176883bdbf 180-182,184,186
+  s_f6c2b8d06e0dbe::t_4430761d0892e1 11-13
+  s_f6c2b8d06e0dbe::t_6b61ac5f6cbbbb 53
+backend/app/migrations/003_pr_state_terminal_states.sql
+  s_f6c2b8d06e0dbe::t_03fd08811a4600 1-42
+frontend/src/components/PrStateBadge.tsx
+  s_f6c2b8d06e0dbe::t_ce9c401f0b793f 1-19,30-222
+  s_f6c2b8d06e0dbe::t_d1a986dbca1d25 20-29
+frontend/src/components/WorkspaceList.tsx
+  s_f6c2b8d06e0dbe::t_c504eb5eb5f8e3 82-88,98-99
+  s_f6c2b8d06e0dbe::t_ea9c1ad1ec375f 8
+  s_f6c2b8d06e0dbe::t_6a1703038d4b0a 24-31
+frontend/src/api/worktrees.ts
+  s_f6c2b8d06e0dbe::t_280e58f48a918e 48-53
+backend/app/services/worktree.py
+  s_f6c2b8d06e0dbe::t_1a202c8c6ec173 67-71,76-92,104
+backend/app/main.py
+  s_f6c2b8d06e0dbe::t_6fc9194d432a9c 18,25,29-35
+backend/app/services/pr_state_poll.py
+  s_f6c2b8d06e0dbe::t_4fd9acc5418245 1-77
+frontend/package.json
+  s_f6c2b8d06e0dbe::t_7761f6a61e8824 19
+frontend/src/test-setup.ts
+  s_f6c2b8d06e0dbe::t_ca4af5f3fd928b 5-15
+frontend/pnpm-lock.yaml
+  ai_agent 11-13,479-500,510-522,1107-1110,1211-1213,1283-1286,1543-1572,1697-1699,1719-1738,2208-2224,2232-2254,2781-2784,2886-2887,2959-2960,3168-3194,3318-3319,3336-3349
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "15dc0d54f1e0173bbfa204bccb7da01b4d98a0e4",
+  "prompts": {},
+  "sessions": {
+    "s_f6c2b8d06e0dbe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e348f4fc-6ea8-4765-bd8c-c013f0a47831",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
