@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import yaml
@@ -177,3 +179,88 @@ def test_onboard_complete_proposed_entry_validates(git_repo: Path) -> None:
             },
         )
     assert r2.status_code == 422
+
+
+# --- POST /api/repos/{name}/spawn-iterm ---------------------------------
+
+
+def _build_fake_window(
+    window_id: str = "W1",
+    claude_session_id: str = "S-claude",
+    shell_session_id: str = "S-shell",
+) -> MagicMock:
+    """Mirror tests/test_iterm.py's helper — the spawn function walks
+    window.current_tab.current_session for the Claude tab and creates a
+    second tab via async_create_tab for the shell."""
+    claude_session = MagicMock(session_id=claude_session_id)
+    claude_session.async_send_text = AsyncMock()
+    claude_tab = MagicMock(current_session=claude_session)
+    claude_tab.async_select = AsyncMock()
+
+    shell_session = MagicMock(session_id=shell_session_id)
+    shell_session.async_send_text = AsyncMock()
+    shell_tab = MagicMock(current_session=shell_session)
+
+    window = MagicMock(window_id=window_id, current_tab=claude_tab)
+    window.async_set_frame = AsyncMock()
+    window.async_create_tab = AsyncMock(return_value=shell_tab)
+    window.async_activate = AsyncMock()
+    return window
+
+
+def test_spawn_repo_iterm_404_when_unknown_name(git_repo: Path) -> None:
+    save_config(CDHConfig(repos=[RepoConfig(name="known", path=git_repo)]))
+    with TestClient(app) as client:
+        client.app.state.iterm = SimpleNamespace(connection=MagicMock())
+        r = client.post("/api/repos/missing/spawn-iterm")
+    assert r.status_code == 404
+
+
+def test_spawn_repo_iterm_503_when_iterm_disconnected(git_repo: Path) -> None:
+    save_config(CDHConfig(repos=[RepoConfig(name="known", path=git_repo)]))
+    with TestClient(app) as client:
+        client.app.state.iterm = SimpleNamespace(connection=None)
+        r = client.post("/api/repos/known/spawn-iterm")
+    assert r.status_code == 503
+
+
+def test_spawn_repo_iterm_400_when_path_missing(tmp_path: Path) -> None:
+    missing = tmp_path / "gone"
+    save_config(CDHConfig(repos=[RepoConfig(name="known", path=missing)]))
+    with TestClient(app) as client:
+        client.app.state.iterm = SimpleNamespace(connection=MagicMock())
+        r = client.post("/api/repos/known/spawn-iterm")
+    assert r.status_code == 400
+    assert "missing on disk" in r.json()["detail"]
+
+
+def test_spawn_repo_iterm_happy_path(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    save_config(CDHConfig(repos=[RepoConfig(name="known", path=git_repo)]))
+
+    fake_window = _build_fake_window(
+        window_id="W-repo", claude_session_id="C-repo", shell_session_id="SH-repo"
+    )
+    import iterm2
+
+    monkeypatch.setattr(
+        iterm2.Window, "async_create", AsyncMock(return_value=fake_window)
+    )
+    fake_app = MagicMock()
+    fake_app.async_activate = AsyncMock()
+    monkeypatch.setattr(iterm2, "async_get_app", AsyncMock(return_value=fake_app))
+
+    with TestClient(app) as client:
+        client.app.state.iterm = SimpleNamespace(connection=MagicMock())
+        r = client.post("/api/repos/known/spawn-iterm")
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["window_id"] == "W-repo"
+    assert body["claude_session_id"] == "C-repo"
+    assert body["shell_session_id"] == "SH-repo"
+
+    # First tab: cd into repo root + claude
+    claude_call = fake_window.current_tab.current_session.async_send_text.await_args
+    assert claude_call.args[0] == f"cd {git_repo}\nclaude\n"

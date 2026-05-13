@@ -145,6 +145,12 @@ export interface SpawnItermResponse {
   sidecar_path: string | null;
 }
 
+export interface SpawnRepoItermResponse {
+  window_id: string;
+  claude_session_id: string;
+  shell_session_id: string;
+}
+
 export interface SendResponse {
   sent: boolean;
 }
