@@ -165,6 +165,62 @@ def test_upsert_iterm_sessions_replaces_prior_rows(_isolate: dict[str, Path]) ->
     assert rows == {"claude": "B1", "shell": "B2"}
 
 
+def test_set_iterm_session_uuid_is_window_id_scoped(
+    _isolate: dict[str, Path],
+) -> None:
+    """The race-safe UUID setter must only update the row when its
+    ``iterm_window_id`` still matches what the bg discovery task was
+    spawned for — otherwise a slow discovery from spawn #1 would
+    clobber the (still-uuid-less) row that spawn #2 just inserted."""
+    repo, name = "myapp", "feature"
+    _seed_worktree(_isolate["db_path"], repo, name, _isolate["dev_root"] / "wt")
+
+    # First spawn — bg discovery is about to start; UUID is null.
+    first = iterm_spawn.SpawnResult(window_id="W1", claude_session_id="C1", shell_session_id="S1")
+    iterm_spawn.upsert_iterm_sessions_sync(repo, name, first)
+
+    # User spawns a second window before discovery for #1 completes —
+    # row's window_id is now W2, UUID still null.
+    second = iterm_spawn.SpawnResult(window_id="W2", claude_session_id="C2", shell_session_id="S2")
+    iterm_spawn.upsert_iterm_sessions_sync(repo, name, second)
+
+    # Late-arriving discovery for spawn #1 tries to set its UUID — but
+    # the row no longer points at W1, so the update must be a no-op.
+    rows_changed = iterm_spawn.set_iterm_session_uuid_sync(
+        repo, name, window_id="W1", claude_session_uuid="UUID-FROM-FIRST"
+    )
+    assert rows_changed == 0
+
+    conn = sqlite3.connect(_isolate["db_path"])
+    try:
+        uuid = conn.execute(
+            "SELECT claude_session_uuid FROM iterm_session "
+            "WHERE repo=? AND worktree_name=? AND role='claude'",
+            (repo, name),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    # The row still belongs to W2; no stale UUID from W1's discovery.
+    assert uuid is None
+
+    # Now W2's own discovery completes — that one is allowed through.
+    rows_changed = iterm_spawn.set_iterm_session_uuid_sync(
+        repo, name, window_id="W2", claude_session_uuid="UUID-FROM-SECOND"
+    )
+    assert rows_changed == 1
+
+    conn = sqlite3.connect(_isolate["db_path"])
+    try:
+        uuid = conn.execute(
+            "SELECT claude_session_uuid FROM iterm_session "
+            "WHERE repo=? AND worktree_name=? AND role='claude'",
+            (repo, name),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert uuid == "UUID-FROM-SECOND"
+
+
 # --- restart detection ---------------------------------------------------
 
 

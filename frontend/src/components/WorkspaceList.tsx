@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError } from "../api/client";
-import { getPrUrl } from "../api/worktrees";
+import { getPrUrl, spawnIterm } from "../api/worktrees";
 import type { JiraConfig, Worktree, WorktreeStatus } from "../api/types";
 import { Tooltip } from "./Tooltip";
 
@@ -98,8 +99,9 @@ function WorkspaceRow({ w, jira }: RowProps) {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <OpenItermButton repo={w.repo} name={w.name} ready={w.status === "ready"} status={w.status} />
           <PrButton repo={w.repo} name={w.name} />
-          <Tooltip text="Workspace actions: open in iTerm2, run skills, send text">
+          <Tooltip text="Workspace actions: run skills, send text, view setup log">
             <Link
               to="/workspace/$repo/$name"
               params={{ repo: w.repo, name: w.name }}
@@ -191,6 +193,46 @@ function PrButton({ repo, name }: PrButtonProps) {
         className="rounded border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {label}
+      </button>
+    </Tooltip>
+  );
+}
+
+interface OpenItermButtonProps {
+  repo: string;
+  name: string;
+  ready: boolean;
+  status: WorktreeStatus;
+}
+
+function OpenItermButton({ repo, name, ready, status }: OpenItermButtonProps) {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: () => spawnIterm(repo, name),
+    onSuccess: () => {
+      // Pop the claude ● badge as soon as the spawn returns rather than
+      // waiting the full 5s for the workspaces query to re-poll.
+      queryClient.invalidateQueries({ queryKey: ["worktrees"] });
+    },
+  });
+
+  const tooltip = !ready
+    ? `worktree status is ${status}; nothing to spawn into`
+    : mutation.error
+      ? mutation.error instanceof ApiError
+        ? mutation.error.detail
+        : String(mutation.error)
+      : "Open this workspace in a new iTerm2 window (multiple windows are fine)";
+
+  return (
+    <Tooltip text={tooltip}>
+      <button
+        type="button"
+        onClick={() => mutation.mutate()}
+        disabled={mutation.isPending || !ready}
+        className="rounded border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {mutation.isPending ? "Opening…" : "iTerm2"}
       </button>
     </Tooltip>
   );

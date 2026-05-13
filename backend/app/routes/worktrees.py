@@ -25,6 +25,7 @@ from app.services.iterm_send import (
 from app.services.iterm_spawn import (
     SpawnResult,
     get_claude_session_id_sync,
+    set_iterm_session_uuid_sync,
     spawn_worktree_window,
     upsert_iterm_sessions_sync,
 )
@@ -260,44 +261,131 @@ async def spawn_iterm(repo: str, name: str, request: Request) -> SpawnItermRespo
             status.HTTP_502_BAD_GATEWAY, f"iTerm2 spawn failed: {e}"
         ) from e
 
-    # Discover the Claude session UUID + write the token-monitor sidecar.
-    # Non-fatal: timeout (or any error) just logs and leaves the UUID
-    # null; everything else still succeeds.
-    claude_uuid: str | None = None
-    sidecar_path: Path | None = None
-    try:
-        claude_uuid = await discover_session_id(worktree_path, mtime_floor)
-    except Exception as e:
-        log.warning("session_id discovery failed: %s", e)
-    if claude_uuid is None:
-        log.warning(
-            "session_id discovery timed out for %s/%s — sidecar not written",
-            repo, name,
-        )
-    else:
-        try:
-            sidecar = build_sidecar(
-                session_id=claude_uuid,
-                worktree=f"{repo}_{name}",
-                ticket=row.ticket,
-                pr_number=row.pr_number,
-                pr_repo=row.pr_repo,
-            )
-            sidecar_path = await asyncio.to_thread(write_sidecar_sync, claude_uuid, sidecar)
-        except Exception as e:
-            log.warning("sidecar write failed for %s: %s", claude_uuid, e)
+    # Persist the iterm_session row right now with no UUID — the
+    # has_claude_session badge on the hub depends on this row existing,
+    # and a fire-and-forget background task fills the UUID in later
+    # once Claude has written its jsonl. That way the HTTP response
+    # returns the instant the iTerm2 window is up, instead of blocking
+    # the user-facing button for the full discovery timeout (up to
+    # ~30s) when they close the window before Claude finished starting.
+    await asyncio.to_thread(upsert_iterm_sessions_sync, repo, name, result, None)
 
-    await asyncio.to_thread(
-        upsert_iterm_sessions_sync, repo, name, result, claude_uuid
+    _spawn_post_discovery_task(
+        repo=repo,
+        name=name,
+        ticket=row.ticket,
+        pr_number=row.pr_number,
+        pr_repo=row.pr_repo,
+        worktree_path=worktree_path,
+        mtime_floor=mtime_floor,
+        window_id=result.window_id,
     )
 
     return SpawnItermResponse(
         window_id=result.window_id,
         claude_session_id=result.claude_session_id,
         shell_session_id=result.shell_session_id,
-        claude_session_uuid=claude_uuid,
-        sidecar_path=str(sidecar_path) if sidecar_path else None,
+        # These are populated by the background task — clients that
+        # care can read the iterm_session row a moment later. Inline
+        # response fields stay for back-compat.
+        claude_session_uuid=None,
+        sidecar_path=None,
     )
+
+
+# Strong refs to in-flight background tasks. asyncio.create_task only
+# holds a weak ref to the returned Task; without this set, a discovery
+# task could be GC'd mid-poll and silently vanish.
+_post_spawn_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_post_discovery_task(
+    *,
+    repo: str,
+    name: str,
+    ticket: str | None,
+    pr_number: int | None,
+    pr_repo: str | None,
+    worktree_path: Path,
+    mtime_floor: float,
+    window_id: str,
+) -> None:
+    task = asyncio.create_task(
+        _post_spawn_discovery(
+            repo=repo,
+            name=name,
+            ticket=ticket,
+            pr_number=pr_number,
+            pr_repo=pr_repo,
+            worktree_path=worktree_path,
+            mtime_floor=mtime_floor,
+            window_id=window_id,
+        )
+    )
+    _post_spawn_tasks.add(task)
+    task.add_done_callback(_post_spawn_tasks.discard)
+
+
+async def _post_spawn_discovery(
+    *,
+    repo: str,
+    name: str,
+    ticket: str | None,
+    pr_number: int | None,
+    pr_repo: str | None,
+    worktree_path: Path,
+    mtime_floor: float,
+    window_id: str,
+) -> None:
+    """Poll for Claude's jsonl, write the token-monitor sidecar, and
+    update the iterm_session row's ``claude_session_uuid``. Runs after
+    the spawn-iterm HTTP response returns. Failures and timeouts only
+    log — the window is already up, which is all the HTTP caller cared
+    about.
+
+    The UUID update is race-safe: it only writes if the row still
+    points at ``window_id``, so a later spawn that took over the same
+    worktree won't be clobbered by this task's late-arriving UUID.
+    """
+    try:
+        claude_uuid = await discover_session_id(worktree_path, mtime_floor)
+    except Exception as e:
+        log.warning(
+            "post-spawn session_id discovery failed for %s/%s: %s", repo, name, e
+        )
+        return
+
+    if claude_uuid is None:
+        log.info(
+            "post-spawn session_id discovery timed out for %s/%s — no sidecar written",
+            repo, name,
+        )
+        return
+
+    try:
+        sidecar = build_sidecar(
+            session_id=claude_uuid,
+            worktree=f"{repo}_{name}",
+            ticket=ticket,
+            pr_number=pr_number,
+            pr_repo=pr_repo,
+        )
+        await asyncio.to_thread(write_sidecar_sync, claude_uuid, sidecar)
+    except Exception as e:
+        log.warning("post-spawn sidecar write failed for %s: %s", claude_uuid, e)
+        # Fall through: still try to record the UUID on the DB row.
+
+    try:
+        rows = await asyncio.to_thread(
+            set_iterm_session_uuid_sync, repo, name, window_id, claude_uuid
+        )
+        if rows == 0:
+            log.info(
+                "post-spawn UUID update for %s/%s skipped: row was overtaken by a newer spawn",
+                repo, name,
+            )
+    except Exception as e:
+        log.warning("post-spawn UUID DB update failed for %s/%s: %s", repo, name, e)
 
 
 # --- send-text / run-skill -----------------------------------------------
