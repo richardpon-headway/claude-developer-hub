@@ -64,12 +64,32 @@ _LIST_SELECT = (
     "       w.created_at, w.status, "
     "       (SELECT 1 FROM iterm_session s "
     "        WHERE s.repo = w.repo AND s.worktree_name = w.name "
-    "          AND s.role = 'claude' LIMIT 1) IS NOT NULL "
-    "FROM worktree w"
+    "          AND s.role = 'claude' LIMIT 1) IS NOT NULL, "
+    "       p.payload, p.checked_at "
+    "FROM worktree w "
+    "LEFT JOIN pr_state p "
+    "  ON p.repo = w.repo AND p.worktree_name = w.name"
 )
 
 
 def _row_to_model(row: tuple) -> WorktreeRow:
+    import json
+
+    from app.models.worktree import PrStateSummary
+
+    pr_state: PrStateSummary | None = None
+    payload_json = row[10]
+    checked_at = row[11]
+    if payload_json is not None and checked_at is not None:
+        try:
+            data = json.loads(payload_json)
+            data["checked_at"] = checked_at
+            pr_state = PrStateSummary.model_validate(data)
+        except Exception:
+            # Bad JSON in the cache row shouldn't sink the list query —
+            # surface as "no pr_state" and let the next poll repair.
+            pr_state = None
+
     return WorktreeRow(
         repo=row[0],
         name=row[1],
@@ -81,6 +101,7 @@ def _row_to_model(row: tuple) -> WorktreeRow:
         created_at=row[7],
         status=row[8],
         has_claude_session=bool(row[9]),
+        pr_state=pr_state,
     )
 
 

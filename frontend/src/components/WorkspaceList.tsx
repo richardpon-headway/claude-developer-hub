@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "../api/client";
 import { getPrUrl, spawnIterm } from "../api/worktrees";
 import type { JiraConfig, Worktree, WorktreeStatus } from "../api/types";
+import { PrStateBadge } from "./PrStateBadge";
 import { Tooltip } from "./Tooltip";
 
 interface Props {
@@ -18,6 +19,14 @@ const statusStyle: Record<WorktreeStatus, string> = {
   failed: "bg-red-900/40 text-red-300 border-red-800",
   stale: "bg-zinc-800 text-zinc-400 border-zinc-700",
   removing: "bg-zinc-800 text-zinc-400 border-zinc-700",
+};
+
+const statusTooltip: Record<WorktreeStatus, string> = {
+  ready: "Worktree setup completed; usable now",
+  setting_up: "git worktree add + setup_steps[] running",
+  failed: "A setup step exited non-zero. Check the setup log on Manage.",
+  stale: "Tracked in DB but the worktree path is missing on disk.",
+  removing: "Deletion in progress.",
 };
 
 function groupByRepo(worktrees: Worktree[]): Record<string, Worktree[]> {
@@ -70,11 +79,13 @@ function WorkspaceRow({ w, jira }: RowProps) {
           {w.name}
         </Link>
         <div className="flex shrink-0 items-center gap-2">
-          <span
-            className={`rounded border px-1.5 py-0.5 text-[10px] ${statusStyle[w.status]}`}
-          >
-            {w.status}
-          </span>
+          <Tooltip text={statusTooltip[w.status]}>
+            <span
+              className={`rounded border px-1.5 py-0.5 text-[10px] ${statusStyle[w.status]}`}
+            >
+              {w.status}
+            </span>
+          </Tooltip>
           {w.has_claude_session && (
             <Tooltip text="Claude session is open in iTerm2">
               <span
@@ -83,6 +94,9 @@ function WorkspaceRow({ w, jira }: RowProps) {
                 claude ●
               </span>
             </Tooltip>
+          )}
+          {w.pr_state && (
+            <PrStateBadge repo={w.repo} name={w.name} state={w.pr_state} />
           )}
         </div>
       </div>
