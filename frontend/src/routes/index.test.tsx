@@ -42,7 +42,7 @@ function renderHub() {
 beforeEach(() => {
   vi.mocked(reposApi.listRepos).mockReset();
   vi.mocked(worktreesApi.listWorktrees).mockReset();
-  vi.mocked(worktreesApi.discoverWorktrees).mockReset();
+  vi.mocked(worktreesApi.syncWorktrees).mockReset();
   vi.mocked(worktreesApi.getTokenUsage).mockReset();
   vi.mocked(worktreesApi.getTokenUsage).mockResolvedValue({
     offline: true,
@@ -65,7 +65,7 @@ afterEach(() => {
   cleanup();
 });
 
-describe("Hub — Discover worktrees button", () => {
+describe("Hub — Sync worktrees button", () => {
   test("hidden when no repos configured", async () => {
     vi.mocked(reposApi.listRepos).mockResolvedValue([]);
     vi.mocked(worktreesApi.listWorktrees).mockResolvedValue([]);
@@ -74,11 +74,11 @@ describe("Hub — Discover worktrees button", () => {
       expect(screen.getByText(/No repos configured yet/i)).toBeInTheDocument();
     });
     expect(
-      screen.queryByRole("button", { name: /discover worktrees/i }),
+      screen.queryByRole("button", { name: /sync worktrees/i }),
     ).not.toBeInTheDocument();
   });
 
-  test("shown when repos exist; clicking calls discover and renders summary", async () => {
+  test("shown when repos exist; clicking calls sync and renders summary", async () => {
     vi.mocked(reposApi.listRepos).mockResolvedValue([
       {
         name: "myrepo",
@@ -91,7 +91,7 @@ describe("Hub — Discover worktrees button", () => {
       },
     ]);
     vi.mocked(worktreesApi.listWorktrees).mockResolvedValue([]);
-    vi.mocked(worktreesApi.discoverWorktrees).mockResolvedValue({
+    vi.mocked(worktreesApi.syncWorktrees).mockResolvedValue({
       imported: [
         {
           repo: "myrepo",
@@ -101,20 +101,30 @@ describe("Hub — Discover worktrees button", () => {
           ticket: null,
         },
       ],
+      removed: [
+        {
+          repo: "myrepo",
+          name: "feature_gone",
+          path: "/tmp/r_worktree_feature_gone",
+          reason: "missing from git worktree list",
+        },
+      ],
       skipped: [
         { repo: "myrepo", path: "/tmp/r", reason: "main checkout" },
       ],
     });
     renderHub();
 
-    const btn = await screen.findByRole("button", { name: /discover worktrees/i });
+    const btn = await screen.findByRole("button", { name: /sync worktrees/i });
     fireEvent.click(btn);
 
     await waitFor(() => {
-      expect(worktreesApi.discoverWorktrees).toHaveBeenCalled();
+      expect(worktreesApi.syncWorktrees).toHaveBeenCalled();
     });
     await waitFor(() => {
-      expect(screen.getByText(/imported 1.*skipped 1/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/imported 1.*removed 1.*skipped 1/i),
+      ).toBeInTheDocument();
     });
     expect(screen.getByText(/main checkout/i)).toBeInTheDocument();
   });

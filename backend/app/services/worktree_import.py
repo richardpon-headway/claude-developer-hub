@@ -1,9 +1,15 @@
-"""Discover existing worktrees on disk and ingest them as CDH workspaces.
+"""Sync CDH's worktree table with git's view of the world.
 
 CDH normally tracks only worktrees it created itself (via the worktree
-create endpoint). Slice N adds a one-shot import: for each configured
-repo, ask git for every worktree it owns and insert rows for the ones
-CDH doesn't already know about.
+create endpoint). The sync flow reconciles per-configured-repo:
+
+- New worktrees that git knows about but CDH doesn't → insert rows.
+- Tracked rows whose path is no longer in git's worktree list (user
+  ran ``git worktree remove`` or ``rm -rf`` outside CDH) → delete rows.
+
+Rows in transient states (``setting_up``, ``removing``) are left alone
+since they're owned by an in-flight task that hasn't published the
+worktree to git yet (or is mid-tear-down).
 
 The parser handles the ``git worktree list --porcelain`` format, which
 emits a small record per worktree separated by blank lines. Each record
@@ -34,8 +40,10 @@ from app.models.worktree import (
     now_iso,
 )
 from app.services.worktree import (
+    delete_worktree_sync,
     get_worktree_sync,
     insert_worktree_sync,
+    list_worktree_paths_for_repo_sync,
 )
 
 log = logging.getLogger(__name__)
@@ -133,16 +141,23 @@ def _run_git_worktree_list(repo_path: Path) -> str:
     return proc.stdout
 
 
-def discover_worktrees_for_repo_sync(
+def sync_worktrees_for_repo_sync(
     repo: RepoConfig, db_path: Path | None = None
-) -> tuple[list[dict], list[dict]]:
-    """Return ``(imported, skipped)`` for a single configured repo.
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Return ``(imported, removed, skipped)`` for a single configured repo.
 
     Each ``imported`` entry includes ``repo``/``name``/``path``/
-    ``branch``/``ticket``. Each ``skipped`` entry includes ``repo``/
-    ``path``/``reason``.
+    ``branch``/``ticket``. Each ``removed`` entry includes ``repo``/
+    ``name``/``path``/``reason``. Each ``skipped`` entry includes
+    ``repo``/``path``/``reason``.
+
+    Removal: any tracked row whose path is no longer in git's
+    ``worktree list`` output is dropped (transient rows in
+    ``setting_up``/``removing`` are spared — those are owned by an
+    in-flight task).
     """
     imported: list[dict] = []
+    removed: list[dict] = []
     skipped: list[dict] = []
 
     repo_path = Path(repo.path)
@@ -150,7 +165,7 @@ def discover_worktrees_for_repo_sync(
         skipped.append(
             {"repo": repo.name, "path": str(repo_path), "reason": "repo path missing"}
         )
-        return imported, skipped
+        return imported, removed, skipped
 
     try:
         output = _run_git_worktree_list(repo_path)
@@ -159,9 +174,15 @@ def discover_worktrees_for_repo_sync(
         skipped.append(
             {"repo": repo.name, "path": str(repo_path), "reason": f"git failed: {e}"}
         )
-        return imported, skipped
+        return imported, removed, skipped
 
     records = parse_worktree_list_porcelain(output)
+    git_paths: set[str] = set()
+    for rec in records:
+        wt_path_str = rec.get("worktree")
+        if isinstance(wt_path_str, str):
+            git_paths.add(wt_path_str)
+
     for rec in records:
         wt_path_str = rec.get("worktree")
         if not isinstance(wt_path_str, str):
@@ -235,7 +256,30 @@ def discover_worktrees_for_repo_sync(
             }
         )
 
-    return imported, skipped
+    # Removal pass: any tracked row whose path is no longer in git's
+    # output gets dropped. Rows in transient states (setting_up,
+    # removing) are owned by an in-flight task and intentionally spared
+    # — their path may not be in git yet (setting_up) or is being torn
+    # down (removing).
+    for name, path in list_worktree_paths_for_repo_sync(repo.name, db_path):
+        if path in git_paths:
+            continue
+        existing = get_worktree_sync(repo.name, name, db_path)
+        if existing is None:
+            continue
+        if existing.status in ("setting_up", "removing"):
+            continue
+        if delete_worktree_sync(repo.name, name, db_path) > 0:
+            removed.append(
+                {
+                    "repo": repo.name,
+                    "name": name,
+                    "path": path,
+                    "reason": "missing from git worktree list",
+                }
+            )
+
+    return imported, removed, skipped
 
 
 def _get_worktree_by_path_sync(
@@ -275,12 +319,18 @@ def _get_worktree_by_path_sync(
 # ---------------------------------------------------------------------------
 
 
-def discover_all_sync(db_path: Path | None = None) -> dict:
+def sync_all_sync(db_path: Path | None = None) -> dict:
     config = load_config()
     all_imported: list[dict] = []
+    all_removed: list[dict] = []
     all_skipped: list[dict] = []
     for repo in config.repos:
-        imported, skipped = discover_worktrees_for_repo_sync(repo, db_path)
+        imported, removed, skipped = sync_worktrees_for_repo_sync(repo, db_path)
         all_imported.extend(imported)
+        all_removed.extend(removed)
         all_skipped.extend(skipped)
-    return {"imported": all_imported, "skipped": all_skipped}
+    return {
+        "imported": all_imported,
+        "removed": all_removed,
+        "skipped": all_skipped,
+    }
