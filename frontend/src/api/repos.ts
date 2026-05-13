@@ -6,9 +6,16 @@ import type {
   OnboardStatus,
   RepoCandidate,
   RepoConfig,
+  SpawnRepoItermResponse,
 } from "./types";
 
 export const listRepos = () => apiGet<RepoConfig[]>("/api/repos");
+
+export const spawnRepoIterm = (name: string) =>
+  apiPost<SpawnRepoItermResponse>(
+    `/api/repos/${encodeURIComponent(name)}/spawn-iterm`,
+    {},
+  );
 
 export const listRepoCandidates = () =>
   apiGet<RepoCandidate[]>("/api/repos/candidates");
