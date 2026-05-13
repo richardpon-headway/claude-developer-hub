@@ -134,6 +134,12 @@ export interface GlobalSkill {
   cwd: string;
 }
 
+export interface WorkspaceSkill {
+  name: string;
+  label: string;
+  description: string | null;
+}
+
 export interface GlobalSkillResponse {
   window_id: string;
   claude_session_id: string;
