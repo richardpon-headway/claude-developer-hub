@@ -55,6 +55,50 @@ export interface RepoCandidate {
 
 export type WorktreeStatus = "setting_up" | "ready" | "failed" | "stale" | "removing";
 
+export type PrHeadline =
+  | "no_pr"
+  | "merged"
+  | "closed"
+  | "ci_failing"
+  | "merge_conflicts"
+  | "in_merge_queue"
+  | "ready_to_merge"
+  | "human_comment"
+  | "review_requested"
+  | "checks_running"
+  | "waiting_on_others"
+  | "draft";
+
+export interface PrChecks {
+  passed: number;
+  fail: number;
+  pending: number;
+  total: number;
+}
+
+export interface PrComments {
+  human: number;
+  bot: number;
+  total: number;
+}
+
+export interface PrStateSummary {
+  headline: PrHeadline;
+  pr_number: number | null;
+  url: string | null;
+  title: string | null;
+  is_draft: boolean;
+  mergeable: string | null;
+  merge_state_status: string | null;
+  review_decision: string | null;
+  checks: PrChecks;
+  comments: PrComments;
+  base_ref: string | null;
+  head_ref: string | null;
+  updated_at: string | null;
+  checked_at: string;
+}
+
 export interface Worktree {
   repo: string;
   name: string;
@@ -66,6 +110,7 @@ export interface Worktree {
   created_at: string;
   status: WorktreeStatus;
   has_claude_session: boolean;
+  pr_state: PrStateSummary | null;
 }
 
 export interface WorktreeDetail {

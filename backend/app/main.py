@@ -15,20 +15,24 @@ from fastapi import FastAPI
 from app.db import apply_migrations
 from app.routes import config, repos, skills, token_usage, workspace, worktrees
 from app.services.iterm_supervisor import iterm_supervisor
+from app.services.pr_state_poll import pr_state_poll_loop
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await apply_migrations()
     supervisor_task = asyncio.create_task(iterm_supervisor(app.state))
+    pr_state_task = asyncio.create_task(pr_state_poll_loop(app.state))
     try:
         yield
     finally:
-        supervisor_task.cancel()
-        try:
-            await supervisor_task
-        except asyncio.CancelledError:
-            pass
+        for task in (supervisor_task, pr_state_task):
+            task.cancel()
+        for task in (supervisor_task, pr_state_task):
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(title="Claude Developer Hub", lifespan=lifespan)
