@@ -1,0 +1,51 @@
+frontend/src/routes/index.test.tsx
+  s_f6c2b8d06e0dbe::t_9a6243ad2bfc69 60-61
+frontend/src/components/GlobalSkillsTile.test.tsx
+  s_f6c2b8d06e0dbe::t_ae5dd935597bec 1-69
+frontend/src/api/types.ts
+  s_f6c2b8d06e0dbe::t_3eba2d9110c221 129-140
+backend/app/main.py
+  s_f6c2b8d06e0dbe::t_b836a9a67f8ee6 16
+  s_f6c2b8d06e0dbe::t_b3621d650620e3 41
+backend/app/routes/skills.py
+  s_f6c2b8d06e0dbe::t_bed21717ec6e4d 1-96
+backend/app/config/schema.py
+  s_f6c2b8d06e0dbe::t_18f119d9002ad2 45-60
+  s_f6c2b8d06e0dbe::t_47c96be0b8defe 119
+backend/app/services/iterm_spawn.py
+  s_f6c2b8d06e0dbe::t_57d0da1b8f5551 49-51,120
+  s_f6c2b8d06e0dbe::t_29868242a369bc 37-48,52-70
+  s_f6c2b8d06e0dbe::t_82e1fb3e15068b 110,119,121-160
+frontend/src/api/config.ts
+  s_f6c2b8d06e0dbe::t_775051ba0c008b 1-2,5-10
+backend/app/routes/config.py
+  s_f6c2b8d06e0dbe::t_624b92127a8376 12,20-27
+backend/tests/test_config.py
+  s_f6c2b8d06e0dbe::t_aeae48675c29fb 22,31-48
+backend/tests/test_skills.py
+  s_f6c2b8d06e0dbe::t_494214d9e94554 1-229
+frontend/src/routes/index.tsx
+  s_f6c2b8d06e0dbe::t_f0c86885a9fcca 141
+  s_f6c2b8d06e0dbe::t_11dccc5a351d6c 10
+frontend/src/components/GlobalSkillsTile.tsx
+  s_f6c2b8d06e0dbe::t_bbabdb097ef8ac 1-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "f0f3508ea9944e3d1d91a6c1762d5b8df0db7af5",
+  "prompts": {},
+  "sessions": {
+    "s_f6c2b8d06e0dbe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e348f4fc-6ea8-4765-bd8c-c013f0a47831",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
