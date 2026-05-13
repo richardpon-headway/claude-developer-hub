@@ -46,6 +46,9 @@ beforeEach(() => {
   vi.mocked(worktreesApi.getTokenUsage).mockReset();
   vi.mocked(worktreesApi.getTokenUsage).mockResolvedValue({
     offline: true,
+    today_output: 0,
+    today_input: 0,
+    today_messages: 0,
     rows: [],
   });
   vi.mocked(configApi.getJiraConfig).mockReset();

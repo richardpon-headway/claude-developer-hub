@@ -86,6 +86,9 @@ export interface TokenUsageRow {
 
 export interface TokenUsageResponse {
   offline: boolean;
+  today_output: number;
+  today_input: number;
+  today_messages: number;
   rows: TokenUsageRow[];
 }
 
