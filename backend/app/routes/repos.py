@@ -27,11 +27,12 @@ import time
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from app.config.loader import load_config, save_config
 from app.config.schema import RepoConfig
+from app.services.iterm_spawn import spawn_worktree_window
 
 router = APIRouter(prefix="/api/repos", tags=["repos"])
 
@@ -310,3 +311,54 @@ async def onboard_complete(req: OnboardCompleteRequest) -> OnboardCompleteRespon
         session.proposed_entry = req.proposed_entry
 
     return OnboardCompleteResponse(state="saved", saved_entry=req.proposed_entry)
+
+
+class SpawnRepoItermResponse(BaseModel):
+    window_id: str
+    claude_session_id: str
+    shell_session_id: str
+
+
+@router.post("/{name}/spawn-iterm", response_model=SpawnRepoItermResponse)
+async def spawn_repo_iterm(name: str, request: Request) -> SpawnRepoItermResponse:
+    """Open an iTerm2 window at the repo's root path with two tabs
+    (Claude + shell), mirroring the worktree spawn. Repo-level spawns
+    aren't tracked in ``iterm_session`` (that table is keyed on
+    ``(repo, worktree_name)``), so this endpoint returns the
+    iTerm2-assigned ids without persistence.
+    """
+    config = load_config()
+    repo = next((r for r in config.repos if r.name == name), None)
+    if repo is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"repo not found: {name}"
+        )
+
+    repo_path = Path(str(repo.path)).expanduser()
+    if not repo_path.is_dir():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"repo path missing on disk: {repo_path}",
+        )
+
+    iterm = getattr(request.app.state, "iterm", None)
+    if iterm is None or iterm.connection is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "iTerm2 not connected. Check Preferences → Magic → Enable Python API "
+            "and approve the first-connection auth dialog, then wait a few seconds.",
+        )
+
+    frame = config.iterm2.default_window
+    try:
+        result = await spawn_worktree_window(iterm.connection, repo_path, frame)
+    except Exception as e:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, f"iTerm2 spawn failed: {e}"
+        ) from e
+
+    return SpawnRepoItermResponse(
+        window_id=result.window_id,
+        claude_session_id=result.claude_session_id,
+        shell_session_id=result.shell_session_id,
+    )
