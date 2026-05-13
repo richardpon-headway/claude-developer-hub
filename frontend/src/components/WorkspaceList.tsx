@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError } from "../api/client";
 import { getPrUrl, spawnIterm } from "../api/worktrees";
-import type { JiraConfig, Worktree, WorktreeStatus } from "../api/types";
+import type { JiraConfig, PrHeadline, Worktree, WorktreeStatus } from "../api/types";
 import { PrStateBadge } from "./PrStateBadge";
 import { Tooltip } from "./Tooltip";
 
@@ -29,11 +29,81 @@ const statusTooltip: Record<WorktreeStatus, string> = {
   removing: "Deletion in progress.",
 };
 
-function groupByRepo(worktrees: Worktree[]): Record<string, Worktree[]> {
-  const out: Record<string, Worktree[]> = {};
+// Bucket headlines into action tiers so the hub answers "where does
+// this worktree need attention" at a glance. Merged/closed live in
+// "Needs your action" because a finished PR with a still-extant
+// worktree is itself a cleanup task (delete the branch, prune the
+// worktree, close the ticket).
+type Tier = "needs_action" | "ready_to_merge" | "in_progress" | "no_pr";
+
+const TIER_FOR_HEADLINE: Record<PrHeadline, Tier> = {
+  ci_failing: "needs_action",
+  merge_conflicts: "needs_action",
+  human_comment: "needs_action",
+  review_requested: "needs_action",
+  merged: "needs_action",
+  closed: "needs_action",
+  ready_to_merge: "ready_to_merge",
+  in_merge_queue: "ready_to_merge",
+  checks_running: "in_progress",
+  waiting_on_others: "in_progress",
+  draft: "in_progress",
+  no_pr: "no_pr",
+};
+
+const TIER_ORDER: Tier[] = ["needs_action", "ready_to_merge", "in_progress", "no_pr"];
+
+const TIER_LABEL: Record<Tier, string> = {
+  needs_action: "Needs your action",
+  ready_to_merge: "Ready to merge",
+  in_progress: "In progress",
+  no_pr: "No PR yet",
+};
+
+// Within "Needs your action", order by code-action urgency first
+// (red CI fails / conflicts at the top), then human/review feedback,
+// then cleanup-only items (purple "merged" / gray "closed") at the
+// bottom. Other tiers don't need per-headline ordering — the badges
+// inside them are visually similar enough that (repo, name) sort is
+// fine.
+const NEEDS_ACTION_PRIORITY: Record<string, number> = {
+  ci_failing: 0,
+  merge_conflicts: 1,
+  human_comment: 2,
+  review_requested: 3,
+  merged: 4,
+  closed: 5,
+};
+
+function tierForWorktree(w: Worktree): Tier {
+  const headline = w.pr_state?.headline ?? "no_pr";
+  return TIER_FOR_HEADLINE[headline];
+}
+
+function compareInTier(tier: Tier, a: Worktree, b: Worktree): number {
+  if (tier === "needs_action") {
+    const ah = a.pr_state?.headline ?? "no_pr";
+    const bh = b.pr_state?.headline ?? "no_pr";
+    const ap = NEEDS_ACTION_PRIORITY[ah] ?? 99;
+    const bp = NEEDS_ACTION_PRIORITY[bh] ?? 99;
+    if (ap !== bp) return ap - bp;
+  }
+  if (a.repo !== b.repo) return a.repo < b.repo ? -1 : 1;
+  return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+}
+
+function groupByTier(worktrees: Worktree[]): Record<Tier, Worktree[]> {
+  const out: Record<Tier, Worktree[]> = {
+    needs_action: [],
+    ready_to_merge: [],
+    in_progress: [],
+    no_pr: [],
+  };
   for (const w of worktrees) {
-    if (!out[w.repo]) out[w.repo] = [];
-    out[w.repo].push(w);
+    out[tierForWorktree(w)].push(w);
+  }
+  for (const tier of TIER_ORDER) {
+    out[tier].sort((a, b) => compareInTier(tier, a, b));
   }
   return out;
 }
@@ -41,23 +111,32 @@ function groupByRepo(worktrees: Worktree[]): Record<string, Worktree[]> {
 export function WorkspaceList({ worktrees, jira }: Props) {
   if (worktrees.length === 0) return null;
 
-  const grouped = groupByRepo(worktrees);
-  const repoNames = Object.keys(grouped).sort();
+  const grouped = groupByTier(worktrees);
 
   return (
     <div className="space-y-4">
-      {repoNames.map((repo) => (
-        <section key={repo}>
-          <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
-            {repo}
-          </h3>
-          <ul className="space-y-2">
-            {grouped[repo].map((w) => (
-              <WorkspaceRow key={`${w.repo}/${w.name}`} w={w} jira={jira} />
-            ))}
-          </ul>
-        </section>
-      ))}
+      {TIER_ORDER.map((tier) => {
+        const rows = grouped[tier];
+        return (
+          <section key={tier} className={rows.length === 0 ? "opacity-50" : undefined}>
+            <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+              {TIER_LABEL[tier]}
+              <span className="ml-2 text-zinc-600">· {rows.length}</span>
+            </h3>
+            {rows.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-zinc-800 px-4 py-3 text-xs italic text-zinc-600">
+                no worktrees in this tier
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {rows.map((w) => (
+                  <WorkspaceRow key={`${w.repo}/${w.name}`} w={w} jira={jira} />
+                ))}
+              </ul>
+            )}
+          </section>
+        );
+      })}
     </div>
   );
 }
