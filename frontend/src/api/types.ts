@@ -126,3 +126,15 @@ export interface DiscoverResponse {
 export interface PrUrlResponse {
   url: string;
 }
+
+export interface GlobalSkill {
+  name: string;
+  label: string;
+  description: string | null;
+  cwd: string;
+}
+
+export interface GlobalSkillResponse {
+  window_id: string;
+  claude_session_id: string;
+}
