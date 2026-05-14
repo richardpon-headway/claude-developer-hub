@@ -9,10 +9,11 @@ so a user (or Claude) can write ``~/development`` in YAML without surprise.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 
 
 def _expand_home(v: Any) -> Any:
@@ -122,6 +123,34 @@ class ServerConfig(BaseModel):
     host: str = "127.0.0.1"
 
 
+class InboxConfig(BaseModel):
+    """GitHub teams whose review-requested PRs should surface in the
+    hub's Inbox section alongside the user's authored + directly-
+    review-requested PRs. ``team-review-requested:<owner>/<slug>`` is
+    the GitHub search qualifier we drive."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    teams: list[str] = Field(
+        default_factory=list,
+        description="GitHub team slugs in 'owner/team' form.",
+    )
+
+    @field_validator("teams")
+    @classmethod
+    def _validate_team_slugs(cls, v: list[str]) -> list[str]:
+        # Each entry must be ``owner/team-slug``. GitHub allows
+        # alphanumerics, underscore, dot, hyphen in both halves.
+        pattern = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+        for slug in v:
+            if not pattern.match(slug):
+                raise ValueError(
+                    f"inbox.teams entry must be 'owner/team' "
+                    f"(alphanumerics + _.- only); got {slug!r}"
+                )
+        return v
+
+
 class CDHConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -135,3 +164,4 @@ class CDHConfig(BaseModel):
     iterm2: ITermConfig = Field(default_factory=ITermConfig)
     token_monitor: TokenMonitorConfig = Field(default_factory=TokenMonitorConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
+    inbox: InboxConfig = Field(default_factory=InboxConfig)

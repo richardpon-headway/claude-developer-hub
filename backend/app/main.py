@@ -13,7 +13,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.db import apply_migrations
-from app.routes import config, repos, skills, token_usage, workspace, worktrees
+from app.routes import (
+    config,
+    inbox,
+    repos,
+    skills,
+    token_usage,
+    workspace,
+    worktrees,
+)
+from app.services.inbox_poll import inbox_poll_loop
 from app.services.iterm_supervisor import iterm_supervisor
 from app.services.pr_state_poll import pr_state_poll_loop
 
@@ -23,12 +32,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await apply_migrations()
     supervisor_task = asyncio.create_task(iterm_supervisor(app.state))
     pr_state_task = asyncio.create_task(pr_state_poll_loop(app.state))
+    inbox_task = asyncio.create_task(inbox_poll_loop(app.state))
+    background_tasks = (supervisor_task, pr_state_task, inbox_task)
     try:
         yield
     finally:
-        for task in (supervisor_task, pr_state_task):
+        for task in background_tasks:
             task.cancel()
-        for task in (supervisor_task, pr_state_task):
+        for task in background_tasks:
             try:
                 await task
             except asyncio.CancelledError:
@@ -43,6 +54,7 @@ app.include_router(workspace.router)
 app.include_router(token_usage.router)
 app.include_router(config.router)
 app.include_router(skills.router)
+app.include_router(inbox.router)
 
 
 @app.get("/api/health")
