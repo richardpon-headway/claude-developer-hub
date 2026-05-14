@@ -19,8 +19,10 @@ vi.mock("@tanstack/react-router", async () => {
 vi.mock("../api/repos");
 vi.mock("../api/worktrees");
 vi.mock("../api/config");
+vi.mock("../api/inbox");
 
 import * as configApi from "../api/config";
+import * as inboxApi from "../api/inbox";
 import * as reposApi from "../api/repos";
 import * as worktreesApi from "../api/worktrees";
 
@@ -59,6 +61,11 @@ beforeEach(() => {
   });
   vi.mocked(configApi.getGlobalSkills).mockReset();
   vi.mocked(configApi.getGlobalSkills).mockResolvedValue([]);
+  vi.mocked(inboxApi.getInbox).mockReset();
+  vi.mocked(inboxApi.getInbox).mockResolvedValue({
+    prs: [],
+    checked_at: null,
+  });
 });
 
 afterEach(() => {
