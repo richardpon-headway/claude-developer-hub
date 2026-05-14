@@ -6,7 +6,6 @@ page needs them.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 from pathlib import Path
@@ -17,6 +16,7 @@ from pydantic import BaseModel, Field
 from app.config.loader import load_config
 from app.models.worktree import PrStateSummary, WorktreeRow
 from app.services import worktree as svc
+from app.services.gh_cli import GhFailed, GhNotFound, run_gh_json
 from app.services.iterm_send import (
     SendGateError,
     SessionNotFoundError,
@@ -27,7 +27,7 @@ from app.services.iterm_spawn import (
     delete_iterm_sessions_sync,
     get_claude_session_id_sync,
     set_iterm_session_uuid_sync,
-    spawn_worktree_window,
+    spawn_two_tab_window,
     upsert_iterm_sessions_sync,
 )
 from app.services.sidecar import (
@@ -127,46 +127,29 @@ def _pr_url_from_row(row: WorktreeRow) -> str | None:
 
 
 async def _gh_pr_view(cwd: Path) -> dict | None:
-    """Shell `gh pr view --json ...` in the given worktree path.
+    """Shell ``gh pr view --json …`` in the given worktree path.
 
-    Returns the parsed JSON dict (with `number`, `url`, `headRepository`)
-    if a PR exists; ``None`` if `gh` reports no PR for the current branch.
-    Raises ``HTTPException`` for any other failure (gh missing, not
-    authed, network down, repo not on GitHub).
+    Returns the parsed JSON dict (with ``number``, ``url``,
+    ``headRepository``) if a PR exists; ``None`` if ``gh`` reports no
+    PR for the current branch. Raises ``HTTPException(502)`` for any
+    other failure (``gh`` missing, network down, repo not on GitHub).
     """
-    proc = await asyncio.create_subprocess_exec(
-        "gh",
-        "pr",
-        "view",
-        "--json",
-        "number,url,headRepository,headRepositoryOwner",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=str(cwd),
-    )
-    stdout_b, stderr_b = await proc.communicate()
-    stderr = stderr_b.decode("utf-8", errors="replace")
-
-    if proc.returncode != 0:
-        if "no pull requests found" in stderr.lower() or "no pr found" in stderr.lower():
-            return None
-        if "executable file not found" in stderr.lower() or "command not found" in stderr.lower():
-            raise HTTPException(
-                status.HTTP_502_BAD_GATEWAY,
-                "`gh` CLI not found on PATH. Install GitHub CLI to enable PR lookups.",
-            )
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY,
-            f"`gh pr view` failed: {stderr.strip() or 'unknown error'}",
-        )
-
     try:
-        return json.loads(stdout_b.decode("utf-8", errors="replace"))
-    except json.JSONDecodeError as e:
+        data = await run_gh_json(
+            ["pr", "view", "--json", "number,url,headRepository,headRepositoryOwner"],
+            cwd=cwd,
+            swallow_errors=False,
+        )
+    except GhNotFound as e:
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,
-            f"could not parse `gh pr view` output: {e}",
+            "`gh` CLI not found on PATH. Install GitHub CLI to enable PR lookups.",
         ) from e
+    except GhFailed as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
+    # run_gh_json returns dict | list | None; gh pr view's JSON is a dict
+    # (or None for the "no PR" case). Narrow for the caller.
+    return data if isinstance(data, dict) else None
 
 
 @router.get("/worktree/{repo}/{name}/pr-url", response_model=PrUrlResponse)
@@ -233,7 +216,6 @@ async def refresh_pr_state(repo: str, name: str) -> PrStateSummary:
     Used by the popover's "Refresh now" button so the user doesn't
     have to wait for the next polling tick (~3 min)."""
     from app.services.pr_state import (
-        GhUnavailable,
         fetch_pr_summary,
         upsert_pr_state_sync,
     )
@@ -251,7 +233,7 @@ async def refresh_pr_state(repo: str, name: str) -> PrStateSummary:
 
     try:
         summary = await fetch_pr_summary(worktree_path)
-    except GhUnavailable as e:
+    except GhNotFound as e:
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,
             "`gh` CLI not on PATH. Install GitHub CLI to enable PR state.",
@@ -308,7 +290,7 @@ async def spawn_iterm(repo: str, name: str, request: Request) -> SpawnItermRespo
     mtime_floor = time.time()
 
     try:
-        result: SpawnResult = await spawn_worktree_window(iterm.connection, worktree_path, frame)
+        result: SpawnResult = await spawn_two_tab_window(iterm.connection, worktree_path, frame)
     except Exception as e:
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY, f"iTerm2 spawn failed: {e}"
@@ -484,7 +466,7 @@ async def _spawn_with_prompt(
 
     frame = config.iterm2.default_window
     try:
-        result = await spawn_worktree_window(
+        result = await spawn_two_tab_window(
             iterm.connection,
             worktree_path,
             frame,

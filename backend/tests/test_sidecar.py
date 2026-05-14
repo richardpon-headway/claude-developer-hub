@@ -255,9 +255,9 @@ def test_spawn_endpoint_writes_sidecar(
 
     # When the spawn endpoint sends `claude\n` to iTerm2, real Claude
     # would later write a jsonl. We simulate that by patching
-    # spawn_worktree_window to drop a jsonl into the right place
+    # spawn_two_tab_window to drop a jsonl into the right place
     # immediately. Wrapping the real function:
-    real_spawn = iterm_spawn.spawn_worktree_window
+    real_spawn = iterm_spawn.spawn_two_tab_window
 
     async def fake_spawn(connection, path, frame):  # type: ignore[no-untyped-def]
         result = await real_spawn(connection, path, frame)
@@ -266,10 +266,10 @@ def test_spawn_endpoint_writes_sidecar(
         )
         return result
 
-    monkeypatch.setattr(iterm_spawn, "spawn_worktree_window", fake_spawn)
+    monkeypatch.setattr(iterm_spawn, "spawn_two_tab_window", fake_spawn)
     # Also patch the import site in routes/worktrees.py.
     import app.routes.worktrees as wt_route
-    monkeypatch.setattr(wt_route, "spawn_worktree_window", fake_spawn)
+    monkeypatch.setattr(wt_route, "spawn_two_tab_window", fake_spawn)
 
     # Quick timeout so the test polls only briefly when waiting for the
     # background task; the fake jsonl is already on disk at this point.

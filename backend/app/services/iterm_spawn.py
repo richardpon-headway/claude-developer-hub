@@ -1,9 +1,13 @@
-"""Spawn an iTerm2 window for a worktree.
+"""Spawn iTerm2 windows seeded with Claude (and optionally a shell).
 
-Two tabs, both ``cd``'d into the worktree path:
+Two flavors, both used by the hub:
 
-- tab 1: runs ``claude`` (Claude Code CLI)
-- tab 2: an idle shell
+- :func:`spawn_two_tab_window` — two tabs (Claude + shell), both ``cd``'d
+  into the given directory. Originally for worktrees; PR #31 reused it
+  for repo-root spawns. Same shape works for any dev directory.
+- :func:`spawn_global_claude_window` — one tab, Claude only, with a
+  required initial prompt (typically a ``/skill-name``). For
+  hub-level "global" buttons that aren't bound to a worktree.
 
 Window frame (size + position) comes from the user config's
 ``iterm2.default_window`` block. Shipped defaults are intentionally
@@ -45,6 +49,34 @@ class GlobalSpawnResult:
     claude_session_id: str
 
 
+def _quote_for_shell(s: str) -> str:
+    """Wrap ``s`` in single quotes, escaping any embedded single
+    quotes. Lets callers safely pass user-supplied prompts through
+    ``claude '<prompt>'`` without shell metacharacter surprises."""
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+async def _create_and_frame_window(
+    connection: iterm2.Connection, frame: ITermWindow
+) -> iterm2.Window:
+    """Open a new iTerm2 window with the configured frame.
+
+    Raises ``RuntimeError`` if iTerm2 returns no window — usually
+    means the session died immediately, which is rare but real."""
+    import iterm2
+
+    window = await iterm2.Window.async_create(connection)
+    if window is None:
+        raise RuntimeError("iTerm2 returned no window — session ended immediately?")
+    await window.async_set_frame(
+        iterm2.Frame(
+            origin=iterm2.Point(frame.x, frame.y),
+            size=iterm2.Size(frame.width, frame.height),
+        )
+    )
+    return window
+
+
 async def _bring_window_to_front(
     connection: iterm2.Connection,
     window: iterm2.Window,
@@ -68,15 +100,16 @@ async def _bring_window_to_front(
         log.warning("iTerm2 window activate failed (non-fatal): %s", e)
 
 
-async def spawn_worktree_window(
+async def spawn_two_tab_window(
     connection: iterm2.Connection,
-    worktree_path: Path,
+    cwd: Path,
     frame: ITermWindow,
     initial_prompt: str | None = None,
 ) -> SpawnResult:
     """Open a new iTerm2 window at ``frame`` and seed it with Claude +
-    shell tabs in ``worktree_path``. Returns the iTerm2-assigned ids
-    so callers can persist them in the ``iterm_session`` table.
+    shell tabs, both ``cd``'d into ``cwd``. Returns the iTerm2-assigned
+    ids so worktree callers can persist them in the ``iterm_session``
+    table.
 
     If ``initial_prompt`` is set, Claude is launched as
     ``claude '<prompt>'`` so the prompt runs at startup (no race
@@ -87,20 +120,7 @@ async def spawn_worktree_window(
     Raises any underlying ``iterm2.RPCException`` so the caller turns it
     into an HTTP 5xx with a useful detail.
     """
-    import iterm2
-
-    # Window.async_create is the supported constructor (the App object
-    # doesn't expose window creation directly). Using the default profile
-    # by passing profile=None.
-    window = await iterm2.Window.async_create(connection)
-    if window is None:
-        raise RuntimeError("iTerm2 returned no window — session ended immediately?")
-    await window.async_set_frame(
-        iterm2.Frame(
-            origin=iterm2.Point(frame.x, frame.y),
-            size=iterm2.Size(frame.width, frame.height),
-        )
-    )
+    window = await _create_and_frame_window(connection, frame)
 
     # Tab 1: Claude
     tab1 = window.current_tab
@@ -109,16 +129,15 @@ async def spawn_worktree_window(
     # We send both lines in one call so the shell treats them as
     # separate commands rather than partial input.
     if initial_prompt is not None:
-        quoted = "'" + initial_prompt.replace("'", "'\\''") + "'"
-        claude_cmd = f"claude {quoted}"
+        claude_cmd = f"claude {_quote_for_shell(initial_prompt)}"
     else:
         claude_cmd = "claude"
-    await claude_session.async_send_text(f"cd {worktree_path}\n{claude_cmd}\n")
+    await claude_session.async_send_text(f"cd {cwd}\n{claude_cmd}\n")
 
     # Tab 2: shell only
     tab2 = await window.async_create_tab()
     shell_session = tab2.current_session
-    await shell_session.async_send_text(f"cd {worktree_path}\n")
+    await shell_session.async_send_text(f"cd {cwd}\n")
 
     await _bring_window_to_front(connection, window, tab1)
 
@@ -132,8 +151,8 @@ async def spawn_worktree_window(
 async def spawn_global_claude_window(
     connection: iterm2.Connection,
     cwd: Path,
-    initial_prompt: str,
     frame: ITermWindow,
+    initial_prompt: str,
 ) -> GlobalSpawnResult:
     """Open a one-tab iTerm2 window at ``frame``, ``cd`` into ``cwd``,
     and launch Claude with ``initial_prompt`` as its first message —
@@ -141,31 +160,15 @@ async def spawn_global_claude_window(
     opening prompt, so a slash command passed here runs at startup
     with no race between "shell ready" and "Claude ready".
 
-    Unlike :func:`spawn_worktree_window`, this does NOT write to the
+    Unlike :func:`spawn_two_tab_window`, this does NOT write to the
     ``iterm_session`` table — global spawns aren't bound to a worktree.
     """
-    import iterm2
-
-    window = await iterm2.Window.async_create(connection)
-    if window is None:
-        raise RuntimeError("iTerm2 returned no window — session ended immediately?")
-    await window.async_set_frame(
-        iterm2.Frame(
-            origin=iterm2.Point(frame.x, frame.y),
-            size=iterm2.Size(frame.width, frame.height),
-        )
-    )
-
+    window = await _create_and_frame_window(connection, frame)
     tab = window.current_tab
     session = tab.current_session
-    # Single shell call: cd, then `claude <prompt>`. The prompt is
-    # passed as a single positional arg via shell quoting; callers are
-    # expected to pass a single token like "/skill-name", so no escaping
-    # is needed for the v1 callers, but we wrap in single-quotes anyway
-    # so future multi-word prompts don't break.
-    quoted_prompt = "'" + initial_prompt.replace("'", "'\\''") + "'"
-    await session.async_send_text(f"cd {cwd}\nclaude {quoted_prompt}\n")
-
+    await session.async_send_text(
+        f"cd {cwd}\nclaude {_quote_for_shell(initial_prompt)}\n"
+    )
     await _bring_window_to_front(connection, window, tab)
 
     return GlobalSpawnResult(
