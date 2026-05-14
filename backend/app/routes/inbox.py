@@ -24,6 +24,7 @@ from app.services import worktree as wt_svc
 from app.services.gh_cli import GhFailed, GhNotFound, run_gh_json
 from app.services.inbox_poll import InboxCache, InboxPr
 from app.services.inbox_search import configured_repos_index, lookup_configured_repo
+from app.services.iterm_spawn import spawn_global_claude_window
 
 log = logging.getLogger(__name__)
 
@@ -133,26 +134,16 @@ async def _fetch_pr_ref(
         )
 
 
-@router.post(
-    "/inbox/{pr_repo:path}/{pr_number}/pull-down",
-    response_model=PullDownResponse,
-)
-async def pull_down(
-    pr_repo: str, pr_number: int, request: Request
+async def _perform_pull_down(
+    pr_repo: str, pr_number: int, *, cache: InboxCache | None
 ) -> PullDownResponse:
-    """Fetch the PR's branch into the configured local repo (handling
-    same-repo and fork PRs) and create a worktree for it.
+    """Pure pull-down logic, independent of any HTTP request object.
 
-    Refuses when:
-
-    - The PR isn't in the most recent inbox poll (404). Prevents pulling
-      down something the user wasn't actually looking at.
-    - The PR's repo doesn't match any configured ``RepoConfig`` (400).
-      The frontend uses ``repo_configured`` to disable the button, but
-      the backend re-checks since config could have changed between
-      the poll and the click.
+    Raises :class:`HTTPException` for the same conditions as the
+    request handler so the configure-and-pull-down follow-up can log
+    a structured failure. Callers in a background context catch broad
+    Exception around this; the inbox-route caller lets it bubble.
     """
-    cache: InboxCache | None = getattr(request.app.state, "inbox", None)
     if cache is None or not any(
         p.pr_repo == pr_repo and p.pr_number == pr_number for p in cache.prs
     ):
@@ -245,3 +236,126 @@ async def pull_down(
     )
 
     return PullDownResponse(repo=repo.name, name=worktree.name)
+
+
+@router.post(
+    "/inbox/{pr_repo:path}/{pr_number}/pull-down",
+    response_model=PullDownResponse,
+)
+async def pull_down(
+    pr_repo: str, pr_number: int, request: Request
+) -> PullDownResponse:
+    """Fetch the PR's branch into the configured local repo (handling
+    same-repo and fork PRs) and create a worktree for it.
+
+    Refuses when:
+
+    - The PR isn't in the most recent inbox poll (404). Prevents pulling
+      down something the user wasn't actually looking at.
+    - The PR's repo doesn't match any configured ``RepoConfig`` (400).
+      The frontend uses ``repo_configured`` to disable the button, but
+      the backend re-checks since config could have changed between
+      the poll and the click.
+    """
+    cache: InboxCache | None = getattr(request.app.state, "inbox", None)
+    return await _perform_pull_down(pr_repo, pr_number, cache=cache)
+
+
+# --- configure-and-pull-down --------------------------------------------
+
+
+class ConfigureAndPullDownResponse(BaseModel):
+    """Returned immediately after spawning the Claude session. The
+    worktree creation itself happens asynchronously once Claude POSTs
+    its proposed_entry back to /api/repos/onboard/complete."""
+
+    session_id: str
+
+
+@router.post(
+    "/inbox/{pr_repo:path}/{pr_number}/configure-and-pull-down",
+    response_model=ConfigureAndPullDownResponse,
+)
+async def configure_and_pull_down(
+    pr_repo: str, pr_number: int, request: Request
+) -> ConfigureAndPullDownResponse:
+    """Spawn Claude at ``config.development_root`` with a clone-and-
+    inspect prompt for ``pr_repo``. When Claude POSTs the proposed
+    config entry back, ``onboard_complete`` saves it and auto-fires the
+    inbox pull-down for ``pr_number`` — no second click needed.
+
+    Refuses when:
+
+    - The PR isn't in the most recent inbox poll (404).
+    - The repo IS already configured (409) — the regular pull-down
+      endpoint covers that case.
+    - iTerm2 isn't connected (503).
+    """
+    cache: InboxCache | None = getattr(request.app.state, "inbox", None)
+    if cache is None or not any(
+        p.pr_repo == pr_repo and p.pr_number == pr_number for p in cache.prs
+    ):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"PR {pr_repo}#{pr_number} not in inbox cache",
+        )
+
+    config = load_config()
+    if lookup_configured_repo(pr_repo, configured_repos_index(config.repos)):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"repo {pr_repo} is already configured — use the regular pull-down",
+        )
+
+    iterm = getattr(request.app.state, "iterm", None)
+    if iterm is None or iterm.connection is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "iTerm2 not connected. Check Preferences → Magic → Enable Python "
+            "API and approve the first-connection auth dialog.",
+        )
+
+    dev_root = Path(str(config.development_root)).expanduser()
+    if not dev_root.is_dir():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"development_root does not exist on disk: {dev_root}",
+        )
+
+    # pr_repo is `owner/name`. Clone target is `<development_root>/<name>`.
+    # We pass this to Claude via the prompt; Claude is responsible for
+    # checking "directory exists & is a git repo? use it; else clone".
+    target = dev_root / pr_repo.split("/", 1)[1]
+
+    # Delayed import to dodge a circular dependency between this module
+    # and routes/repos.py.
+    from app.routes.repos import mint_onboard_session
+
+    session_id, inspection_prompt = await mint_onboard_session(
+        target,
+        follow_up={
+            "kind": "pull_down",
+            "pr_repo": pr_repo,
+            "pr_number": pr_number,
+        },
+    )
+
+    prompt = (
+        f"First: ensure a local clone of `https://github.com/{pr_repo}` "
+        f"exists at `{target}`. If `{target}` is already a git repo, "
+        "use it as-is (it may be an existing clone CDH didn't know "
+        "about); otherwise run `gh repo clone "
+        f"{pr_repo} {target}` (or `git clone` if `gh` isn't available).\n\n"
+        + inspection_prompt
+    )
+
+    try:
+        await spawn_global_claude_window(
+            iterm.connection, dev_root, config.iterm2.default_window, prompt
+        )
+    except Exception as e:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, f"iTerm2 spawn failed: {e}"
+        ) from e
+
+    return ConfigureAndPullDownResponse(session_id=session_id)
