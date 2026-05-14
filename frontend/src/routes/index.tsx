@@ -11,6 +11,7 @@ import { GlobalSkillsTile } from "../components/GlobalSkillsTile";
 import { InboxList } from "../components/InboxList";
 import { RepoList } from "../components/RepoList";
 import { TokenUsageTile } from "../components/TokenUsageTile";
+import { Tooltip } from "../components/Tooltip";
 import { WorkspaceList } from "../components/WorkspaceList";
 
 export const Route = createFileRoute("/")({
@@ -62,13 +63,15 @@ export function HubPage() {
                 Workspaces
               </h2>
               {repos.length > 0 && (
-                <Button
-                  variant="secondary"
-                  onClick={() => sync.mutate()}
-                  disabled={sync.isPending}
-                >
-                  {sync.isPending ? "Syncing…" : "Sync worktrees"}
-                </Button>
+                <Tooltip text="Reconcile workspaces with `git worktree list`: import new ones, drop rows whose worktree was removed outside CDH.">
+                  <Button
+                    variant="secondary"
+                    onClick={() => sync.mutate()}
+                    disabled={sync.isPending}
+                  >
+                    {sync.isPending ? "Syncing…" : "Sync worktrees"}
+                  </Button>
+                </Tooltip>
               )}
             </div>
             {sync.isSuccess && sync.data && (
