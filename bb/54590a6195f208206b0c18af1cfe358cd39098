@@ -1,0 +1,41 @@
+backend/app/routes/repos.py
+  s_d128a241c2e116::t_3d4337cb381603 346-349,380-391,396-421
+  s_d128a241c2e116::t_59a7beea8b0f82 54-60,62-79,87
+  s_d128a241c2e116::t_90a572ee300e25 99-126
+  s_d128a241c2e116::t_9677bbdbac2da6 25
+  s_d128a241c2e116::t_7a08bc35b1d1b5 38-43
+frontend/src/api/inbox.ts
+  s_d128a241c2e116::t_346bc63b74c1ae 18-27
+backend/tests/test_inbox.py
+  s_d128a241c2e116::t_9dbda8251f0122 810-811,819-820,850-860
+  s_d128a241c2e116::t_0048b97161eb25 678-809,812-818,821-849,861-862
+frontend/src/components/InboxList.tsx
+  s_d128a241c2e116::t_e90531b50c1769 4
+  s_d128a241c2e116::t_7d9316ea99ff7c 231-232,235-236,242-254,256-266,272-273
+backend/app/routes/inbox.py
+  s_d128a241c2e116::t_92c7808533184a 262-361
+  s_d128a241c2e116::t_8015f10f60bb95 27
+  s_d128a241c2e116::t_2be08ebf3bb3f5 137-138,140,142-145,239-261
+frontend/src/components/InboxList.test.tsx
+  s_d128a241c2e116::t_0396f438f9e012 167,171-204
+  s_d128a241c2e116::t_d9e94688c66756 49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "bb54590a6195f208206b0c18af1cfe358cd39098",
+  "prompts": {},
+  "sessions": {
+    "s_d128a241c2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6a9c603-8a9f-47c5-a234-1b418c8994f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
