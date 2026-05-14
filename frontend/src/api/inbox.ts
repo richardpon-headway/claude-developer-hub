@@ -15,3 +15,13 @@ export const pullDownPr = (prRepo: string, prNumber: number) =>
     `/api/inbox/${prRepo}/${prNumber}/pull-down`,
     {},
   );
+
+export interface ConfigureAndPullDownResponse {
+  session_id: string;
+}
+
+export const configureAndPullDown = (prRepo: string, prNumber: number) =>
+  apiPost<ConfigureAndPullDownResponse>(
+    `/api/inbox/${prRepo}/${prNumber}/configure-and-pull-down`,
+    {},
+  );
