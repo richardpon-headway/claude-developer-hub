@@ -74,7 +74,7 @@ def _build_fake_window(
     claude_session_id: str = "S-claude",
     shell_session_id: str = "S-shell",
 ) -> MagicMock:
-    """Construct the nested mock structure that spawn_worktree_window
+    """Construct the nested mock structure that spawn_two_tab_window
     walks: window → current_tab → current_session, plus async_create_tab
     → tab → current_session."""
     claude_session = MagicMock(session_id=claude_session_id)
@@ -93,10 +93,10 @@ def _build_fake_window(
     return window
 
 
-# --- spawn_worktree_window unit test -------------------------------------
+# --- spawn_two_tab_window unit test -------------------------------------
 
 
-def test_spawn_worktree_window_calls_iterm_api(
+def test_spawn_two_tab_window_calls_iterm_api(
     monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
 ) -> None:
     import iterm2
@@ -116,7 +116,7 @@ def test_spawn_worktree_window_calls_iterm_api(
     worktree_path.mkdir()
 
     result = asyncio.run(
-        iterm_spawn.spawn_worktree_window(fake_conn, worktree_path, frame)
+        iterm_spawn.spawn_two_tab_window(fake_conn, worktree_path, frame)
     )
 
     assert result.window_id == "W1"

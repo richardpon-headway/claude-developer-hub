@@ -32,7 +32,7 @@ from pydantic import BaseModel, Field
 
 from app.config.loader import load_config, save_config
 from app.config.schema import RepoConfig
-from app.services.iterm_spawn import spawn_worktree_window
+from app.services.iterm_spawn import spawn_two_tab_window
 
 router = APIRouter(prefix="/api/repos", tags=["repos"])
 
@@ -351,7 +351,7 @@ async def spawn_repo_iterm(name: str, request: Request) -> SpawnRepoItermRespons
 
     frame = config.iterm2.default_window
     try:
-        result = await spawn_worktree_window(iterm.connection, repo_path, frame)
+        result = await spawn_two_tab_window(iterm.connection, repo_path, frame)
     except Exception as e:
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY, f"iTerm2 spawn failed: {e}"
