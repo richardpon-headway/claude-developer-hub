@@ -217,7 +217,7 @@ def test_spawn_global_claude_window_sends_correct_keystrokes(
 
     result = asyncio.run(
         iterm_spawn.spawn_global_claude_window(
-            fake_conn, tmp_path, "/pr-check-action-required", frame
+            fake_conn, tmp_path, frame, "/pr-check-action-required"
         )
     )
     assert result.window_id == "W7"

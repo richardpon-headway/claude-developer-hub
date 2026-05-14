@@ -83,7 +83,7 @@ async def run_global_skill(
     frame = config.iterm2.default_window
     try:
         result = await spawn_global_claude_window(
-            iterm.connection, cwd, f"/{skill.name}", frame
+            iterm.connection, cwd, frame, f"/{skill.name}"
         )
     except Exception as e:
         raise HTTPException(

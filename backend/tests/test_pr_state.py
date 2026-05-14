@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from app import db
 from app.main import app
-from app.services import pr_state
+from app.services import gh_cli, pr_state
 from app.services.pr_state import (
     BOT_LOGIN_PATTERN,
     PrChecks,
@@ -419,7 +419,7 @@ def test_fetch_pr_summary_parses_gh_json(
     fake_proc.communicate = AsyncMock(return_value=(gh_json, b""))
     fake_proc.returncode = 0
     monkeypatch.setattr(
-        pr_state.asyncio, "create_subprocess_exec", AsyncMock(return_value=fake_proc)
+        gh_cli.asyncio, "create_subprocess_exec", AsyncMock(return_value=fake_proc)
     )
 
     summary = asyncio.run(pr_state.fetch_pr_summary(_isolate["dev_root"]))
@@ -437,7 +437,7 @@ def test_fetch_pr_summary_returns_no_pr_on_gh_not_found(
     fake_proc.communicate = AsyncMock(return_value=(b"", b"no pull requests found for branch foo"))
     fake_proc.returncode = 1
     monkeypatch.setattr(
-        pr_state.asyncio, "create_subprocess_exec", AsyncMock(return_value=fake_proc)
+        gh_cli.asyncio, "create_subprocess_exec", AsyncMock(return_value=fake_proc)
     )
     summary = asyncio.run(pr_state.fetch_pr_summary(_isolate["dev_root"]))
     assert summary.headline == "no_pr"
@@ -451,9 +451,9 @@ def test_fetch_pr_summary_raises_on_gh_missing(
     fake_proc.communicate = AsyncMock(return_value=(b"", b"command not found: gh"))
     fake_proc.returncode = 127
     monkeypatch.setattr(
-        pr_state.asyncio, "create_subprocess_exec", AsyncMock(return_value=fake_proc)
+        gh_cli.asyncio, "create_subprocess_exec", AsyncMock(return_value=fake_proc)
     )
-    with pytest.raises(pr_state.GhUnavailable):
+    with pytest.raises(gh_cli.GhNotFound):
         asyncio.run(pr_state.fetch_pr_summary(_isolate["dev_root"]))
 
 
