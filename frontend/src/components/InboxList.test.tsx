@@ -1,6 +1,11 @@
-import { render, screen, cleanup, within } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { afterEach, describe, expect, test } from "vitest";
+import * as RadixTooltip from "@radix-ui/react-tooltip";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+vi.mock("../api/inbox");
+
+import * as inboxApi from "../api/inbox";
 
 import { InboxList } from "./InboxList";
 import type { InboxPr } from "../api/types";
@@ -11,7 +16,9 @@ function renderInbox(prs: InboxPr[]) {
   });
   return render(
     <QueryClientProvider client={client}>
-      <InboxList inboxOverride={{ prs, checked_at: "2026-05-14T00:00:00Z" }} />
+      <RadixTooltip.Provider>
+        <InboxList inboxOverride={{ prs, checked_at: "2026-05-14T00:00:00Z" }} />
+      </RadixTooltip.Provider>
     </QueryClientProvider>,
   );
 }
@@ -36,6 +43,10 @@ function pr(overrides: Partial<InboxPr> = {}): InboxPr {
     ...overrides,
   };
 }
+
+beforeEach(() => {
+  vi.mocked(inboxApi.pullDownPr).mockReset();
+});
 
 afterEach(() => {
   cleanup();
@@ -150,5 +161,40 @@ describe("InboxList", () => {
     renderInbox([pr({ pr_number: 7, title: "lone PR" })]);
     expect(screen.queryByRole("link", { name: /Graphite/ })).not.toBeInTheDocument();
     expect(screen.getByText("lone PR")).toBeInTheDocument();
+  });
+
+  test("Pull-down button is disabled when repo isn't configured", () => {
+    renderInbox([
+      pr({ pr_number: 1, title: "unconfigured PR", repo_configured: false }),
+    ]);
+    const btn = screen.getByRole("button", { name: /configure first/i });
+    expect(btn).toBeDisabled();
+  });
+
+  test("Pull-down click fires the API and disables the button on success", async () => {
+    vi.mocked(inboxApi.pullDownPr).mockResolvedValue({
+      repo: "myapp",
+      name: "feat_x",
+    });
+    renderInbox([
+      pr({
+        pr_repo: "acme/myapp",
+        pr_number: 42,
+        title: "ready PR",
+        repo_configured: true,
+      }),
+    ]);
+    const btn = screen.getByRole("button", { name: /^pull down$/i });
+    expect(btn).toBeEnabled();
+    fireEvent.click(btn);
+
+    await waitFor(() => {
+      expect(inboxApi.pullDownPr).toHaveBeenCalledWith("acme/myapp", 42);
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /pulled/i }),
+      ).toBeDisabled();
+    });
   });
 });

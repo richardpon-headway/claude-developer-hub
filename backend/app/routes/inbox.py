@@ -1,18 +1,31 @@
-"""``GET /api/inbox`` — read the latest cached inbox poll result.
+"""Inbox HTTP endpoints.
+
+- ``GET /api/inbox`` — read the latest cached inbox poll result.
+- ``POST /api/inbox/{pr_repo}/{pr_number}/pull-down`` — fetch the
+  PR's branch and create a local worktree for it.
 
 The poll loop in :mod:`app.services.inbox_poll` runs every 60s and
-writes to ``app.state.inbox``. This endpoint just serializes that.
-
-If the first poll hasn't completed yet (or ``gh`` was missing on the
-first attempt), responses come back with ``prs=[]`` and
-``checked_at=null`` — the frontend renders a quiet loading state.
+writes to ``app.state.inbox``. The read endpoint just serializes that;
+if the first poll hasn't completed yet, ``prs=[]`` / ``checked_at=null``
+is returned and the frontend renders a quiet loading state.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+import asyncio
+import logging
+import re
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
+from app.config.loader import load_config
+from app.services import worktree as wt_svc
+from app.services.gh_cli import GhFailed, GhNotFound, run_gh_json
 from app.services.inbox_poll import InboxCache, InboxPr
+from app.services.inbox_search import configured_repos_index, lookup_configured_repo
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["inbox"])
 
@@ -69,3 +82,166 @@ async def get_inbox(request: Request) -> InboxResponse:
         prs=[_to_payload(p) for p in cache.prs],
         checked_at=cache.checked_at,
     )
+
+
+# --- pull-down ----------------------------------------------------------
+
+
+class PullDownResponse(BaseModel):
+    """The new worktree's identifiers, so the frontend can route to its
+    workspace page (or invalidate the worktrees query for the hub)."""
+
+    repo: str
+    name: str
+
+
+# Git branch names allow most printable characters; we sanitize only
+# what would break a shell argument or filesystem path. The PR ref's
+# head_ref is GitHub-provided, so the surface area is small.
+_BRANCH_SAFE = re.compile(r"^[A-Za-z0-9_./-]+$")
+
+
+def _local_branch_for_fork_pr(pr_number: int, head_ref: str) -> str:
+    """For fork PRs we fetch ``refs/pull/<n>/head`` into a local branch
+    whose name embeds the PR number. Same-repo PRs just check out the
+    upstream branch by its existing name. The ``cdh-pr-`` prefix makes
+    these branches easy to identify and prune later."""
+    return f"cdh-pr-{pr_number}-{head_ref}"
+
+
+async def _fetch_pr_ref(
+    repo_path: Path, pr_number: int, local_branch: str
+) -> None:
+    """``git fetch origin pull/<n>/head:<local_branch>`` inside the
+    configured repo's checkout. Raises HTTPException 502 on failure."""
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        "fetch",
+        "origin",
+        f"pull/{pr_number}/head:{local_branch}",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=str(repo_path),
+    )
+    _, stderr_b = await proc.communicate()
+    if proc.returncode != 0:
+        stderr = stderr_b.decode("utf-8", errors="replace")
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            f"git fetch pull/{pr_number}/head failed: "
+            f"{stderr.strip() or 'unknown error'}",
+        )
+
+
+@router.post(
+    "/inbox/{pr_repo:path}/{pr_number}/pull-down",
+    response_model=PullDownResponse,
+)
+async def pull_down(
+    pr_repo: str, pr_number: int, request: Request
+) -> PullDownResponse:
+    """Fetch the PR's branch into the configured local repo (handling
+    same-repo and fork PRs) and create a worktree for it.
+
+    Refuses when:
+
+    - The PR isn't in the most recent inbox poll (404). Prevents pulling
+      down something the user wasn't actually looking at.
+    - The PR's repo doesn't match any configured ``RepoConfig`` (400).
+      The frontend uses ``repo_configured`` to disable the button, but
+      the backend re-checks since config could have changed between
+      the poll and the click.
+    """
+    cache: InboxCache | None = getattr(request.app.state, "inbox", None)
+    if cache is None or not any(
+        p.pr_repo == pr_repo and p.pr_number == pr_number for p in cache.prs
+    ):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"PR {pr_repo}#{pr_number} not in inbox cache",
+        )
+
+    config = load_config()
+    repo = lookup_configured_repo(pr_repo, configured_repos_index(config.repos))
+    if repo is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"repo not configured: {pr_repo}"
+        )
+
+    repo_path = Path(str(repo.path)).expanduser()
+    if not repo_path.is_dir():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"configured repo path missing on disk: {repo_path}",
+        )
+
+    # Resolve the PR's head branch + fork-ness from gh (authoritative —
+    # the inbox cache is up to 60s stale and the fork bit can flip via
+    # a PR re-target).
+    try:
+        data = await run_gh_json(
+            [
+                "pr",
+                "view",
+                str(pr_number),
+                "--repo",
+                pr_repo,
+                "--json",
+                "headRefName,isCrossRepository",
+            ],
+            swallow_errors=False,
+        )
+    except GhNotFound as e:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "`gh` CLI not found on PATH. Install GitHub CLI to enable pull-down.",
+        ) from e
+    except GhFailed as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
+
+    if not isinstance(data, dict):
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            f"`gh pr view {pr_number}` returned no payload — does this PR exist?",
+        )
+
+    head_ref = data.get("headRefName")
+    if not isinstance(head_ref, str) or not _BRANCH_SAFE.match(head_ref):
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            f"`gh pr view` returned an unexpected headRefName: {head_ref!r}",
+        )
+    is_fork = bool(data.get("isCrossRepository"))
+
+    if is_fork:
+        branch_to_check_out = _local_branch_for_fork_pr(pr_number, head_ref)
+        await _fetch_pr_ref(repo_path, pr_number, branch_to_check_out)
+    else:
+        # create_worktree's built-in `git fetch origin --prune` covers
+        # the same-repo case; the verify-remote step accepts
+        # origin/<head_ref> so we don't need a pre-fetch.
+        branch_to_check_out = head_ref
+
+    try:
+        worktree = await wt_svc.create_worktree(repo.name, branch_to_check_out)
+    except wt_svc.WorktreeCreationError as e:
+        msg = str(e)
+        code = (
+            status.HTTP_409_CONFLICT
+            if "already exists" in msg
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(code, msg) from e
+
+    # Set pr_number + pr_repo on the new worktree row so the inbox dedup
+    # filter applies on the next poll (and so the PR-URL button on the
+    # hub can short-circuit without re-shelling `gh pr view`).
+    await asyncio.to_thread(
+        wt_svc.update_worktree_pr_sync,
+        repo.name,
+        worktree.name,
+        pr_number,
+        pr_repo,
+    )
+
+    return PullDownResponse(repo=repo.name, name=worktree.name)
