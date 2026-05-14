@@ -203,25 +203,55 @@ def filter_out_worktree_prs(
     return [p for p in prs if (p.pr_repo, p.pr_number) not in tracked]
 
 
-def configured_repos_index(
-    repos: list[Any],
-) -> dict[str, Any]:
-    """Index ``config.repos[]`` by the GitHub ``owner/name`` we expect
-    a PR's ``pr_repo`` to match.
+@dataclass
+class ReposIndex:
+    """Resolved lookup tables for matching an inbox PR's ``pr_repo`` to
+    a configured :class:`RepoConfig`. Built once per poll tick.
 
-    Slice 1 uses a coarse heuristic: ``RepoConfig.name == <repo basename>``
-    means a PR in ``<any-owner>/<basename>`` is considered "configured".
-    Slice 2 makes this explicit via a new ``RepoConfig.github_repo``
-    field; that will replace this heuristic. Returns a dict keyed by
-    basename → RepoConfig so a caller can do ``index.get(basename)``.
+    - ``by_github_repo``: explicit ``owner/name`` mapping for repos
+      that declare ``github_repo``. Authoritative when present.
+    - ``by_basename``: fallback mapping keyed on ``RepoConfig.name``
+      (which usually equals the GitHub repo basename). Lets configs
+      that haven't been retrofitted with ``github_repo`` still
+      participate in inbox matching.
     """
-    return {repo.name: repo for repo in repos}
+
+    by_github_repo: dict[str, Any]
+    by_basename: dict[str, Any]
 
 
-def is_repo_configured(pr_repo: str, repos_by_basename: dict[str, Any]) -> bool:
-    """Slice-1 heuristic. ``pr_repo`` is ``owner/name``; we match on
-    the ``name`` half against ``RepoConfig.name``."""
+def configured_repos_index(repos: list[Any]) -> ReposIndex:
+    by_github_repo: dict[str, Any] = {}
+    by_basename: dict[str, Any] = {}
+    for repo in repos:
+        if getattr(repo, "github_repo", None):
+            by_github_repo[repo.github_repo] = repo
+        by_basename[repo.name] = repo
+    return ReposIndex(by_github_repo=by_github_repo, by_basename=by_basename)
+
+
+def lookup_configured_repo(pr_repo: str, index: ReposIndex) -> Any | None:
+    """Return the :class:`RepoConfig` matching ``pr_repo``, preferring
+    the explicit ``github_repo`` mapping, falling back to a basename
+    match against ``RepoConfig.name`` ONLY for repos that haven't
+    declared ``github_repo``. Returns ``None`` if nothing matches.
+
+    Excluding repos that have ``github_repo`` set from the basename
+    fallback prevents a misleading "configured" match: if the user
+    explicitly told CDH "this repo is ``corp/myapp``", a PR from
+    ``acme/myapp`` shouldn't piggy-back on that config — the user
+    opted into precision when they set the field.
+    """
+    if pr_repo in index.by_github_repo:
+        return index.by_github_repo[pr_repo]
     parts = pr_repo.split("/", 1)
     if len(parts) != 2:
-        return False
-    return parts[1] in repos_by_basename
+        return None
+    candidate = index.by_basename.get(parts[1])
+    if candidate is None or getattr(candidate, "github_repo", None) is not None:
+        return None
+    return candidate
+
+
+def is_repo_configured(pr_repo: str, index: ReposIndex) -> bool:
+    return lookup_configured_repo(pr_repo, index) is not None

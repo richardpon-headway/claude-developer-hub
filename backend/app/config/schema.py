@@ -83,6 +83,15 @@ class RepoConfig(BaseModel):
     worktree_path_template: str = "{development_root}/{repo}_worktree_{short}"
     setup_steps: list[SetupStep] = Field(default_factory=list)
     ticket_pattern: str | None = None
+    # GitHub ``owner/name`` for this repo, used by the inbox to match a
+    # remote PR to a local checkout. Optional: when None, the inbox
+    # falls back to matching the basename portion of ``pr_repo`` against
+    # ``RepoConfig.name``. Onboarding (slice 3) will detect and populate
+    # this via ``gh repo view --json nameWithOwner``.
+    github_repo: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+    )
 
 
 class ITermWindow(BaseModel):

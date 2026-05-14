@@ -191,10 +191,12 @@ def test_stack_annotation_does_not_cross_repos() -> None:
     assert ann[("o/y", 2)].stack_size == 1
 
 
-# --- repo configuration matching (slice 1 heuristic) --------------------
+# --- repo configuration matching ---------------------------------------
 
 
-def test_is_repo_configured_matches_on_basename() -> None:
+def test_is_repo_configured_matches_on_basename_fallback() -> None:
+    """When ``github_repo`` isn't set, fall back to matching the basename
+    portion of ``pr_repo`` against ``RepoConfig.name``."""
     from app.config.schema import RepoConfig
 
     repos = [RepoConfig(name="myapp", path=Path("/tmp/myapp"))]
@@ -202,6 +204,26 @@ def test_is_repo_configured_matches_on_basename() -> None:
     assert is_repo_configured("acme/myapp", idx) is True
     assert is_repo_configured("acme/other", idx) is False
     assert is_repo_configured("just-a-string", idx) is False
+
+
+def test_explicit_github_repo_excludes_basename_collisions() -> None:
+    """When ``github_repo`` is set, only the explicit owner/name matches.
+    A different-owner PR with the same basename does NOT piggy-back on
+    the basename fallback — the user opted into precision."""
+    from app.config.schema import RepoConfig
+    from app.services.inbox_search import lookup_configured_repo
+
+    repos = [
+        RepoConfig(
+            name="myapp",
+            path=Path("/tmp/myapp"),
+            github_repo="corp/myapp",
+        )
+    ]
+    idx = configured_repos_index(repos)
+    assert lookup_configured_repo("corp/myapp", idx) is not None
+    assert lookup_configured_repo("acme/myapp", idx) is None
+    assert lookup_configured_repo("corp/other", idx) is None
 
 
 # --- dedup pull from worktree + pr_state --------------------------------
@@ -429,3 +451,227 @@ def test_tick_dedup_against_worktree(
 
     # #42 dropped (already a worktree), #43 surfaces.
     assert [p.pr_number for p in state.inbox.prs] == [43]
+
+
+# --- POST /api/inbox/.../pull-down --------------------------------------
+
+
+def _seed_inbox_cache(*prs: InboxPr) -> InboxCache:
+    return InboxCache(prs=list(prs), checked_at="2026-05-14T00:00:00Z")
+
+
+def _enriched(
+    *,
+    pr_repo: str,
+    pr_number: int,
+    repo_configured: bool = True,
+    head_ref: str = "feat/x",
+) -> InboxPr:
+    return InboxPr(
+        pr_repo=pr_repo,
+        pr_number=pr_number,
+        title=f"PR #{pr_number}",
+        author_login="me",
+        head_ref=head_ref,
+        base_ref="main",
+        is_draft=False,
+        url=f"https://github.com/{pr_repo}/pull/{pr_number}",
+        updated_at="2026-05-14T00:00:00Z",
+        ci_status="pass",
+        source="author",
+        stack_top_pr_number=None,
+        stack_size=1,
+        stack_position=1,
+        repo_configured=repo_configured,
+    )
+
+
+def _write_repo_config(
+    config_path: Path,
+    *,
+    repo_name: str,
+    repo_path: Path,
+    github_repo: str | None = None,
+    development_root: Path | None = None,
+) -> None:
+    entry: dict[str, Any] = {
+        "name": repo_name,
+        "path": str(repo_path),
+        "default_branch": "main",
+        "setup_steps": [],
+        "ticket_pattern": None,
+    }
+    if github_repo is not None:
+        entry["github_repo"] = github_repo
+    cfg: dict[str, Any] = {"repos": [entry]}
+    if development_root is not None:
+        cfg["development_root"] = str(development_root)
+    config_path.write_text(yaml.safe_dump(cfg))
+
+
+def test_pull_down_404_when_pr_not_in_cache(_isolate: dict[str, Path]) -> None:
+    _write_minimal_config(_isolate["config_path"])
+    with TestClient(app) as client:
+        client.app.state.inbox = _seed_inbox_cache()
+        r = client.post("/api/inbox/o/r/42/pull-down")
+    assert r.status_code == 404
+
+
+def test_pull_down_400_when_repo_not_configured(_isolate: dict[str, Path]) -> None:
+    _write_minimal_config(_isolate["config_path"])
+    with TestClient(app) as client:
+        client.app.state.inbox = _seed_inbox_cache(
+            _enriched(pr_repo="acme/other", pr_number=42, repo_configured=False)
+        )
+        r = client.post("/api/inbox/acme/other/42/pull-down")
+    assert r.status_code == 400
+    assert "not configured" in r.json()["detail"]
+
+
+def test_pull_down_400_when_repo_path_missing_on_disk(
+    _isolate: dict[str, Path],
+) -> None:
+    bogus = _isolate["db_path"].parent / "nope"
+    _write_repo_config(
+        _isolate["config_path"],
+        repo_name="myapp",
+        repo_path=bogus,
+        github_repo="acme/myapp",
+    )
+    with TestClient(app) as client:
+        client.app.state.inbox = _seed_inbox_cache(
+            _enriched(pr_repo="acme/myapp", pr_number=42)
+        )
+        r = client.post("/api/inbox/acme/myapp/42/pull-down")
+    assert r.status_code == 400
+    assert "missing on disk" in r.json()["detail"]
+
+
+def test_pull_down_same_repo_happy_path(
+    _isolate: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same-repo PR: no pre-fetch needed; create_worktree's built-in
+    fetch handles it. Verify the worktree is created with the head_ref
+    branch and the pr_number/pr_repo columns are populated."""
+    import subprocess
+
+    # Init a real local repo so create_worktree's git invocations work
+    # against a non-mock filesystem.
+    repo_path = tmp_path / "myapp"
+    repo_path.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo_path, check=True)
+    subprocess.run(["git", "-C", str(repo_path), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(repo_path), "config", "user.name", "t"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_path), "commit", "--allow-empty", "-m", "init", "-q"],
+        check=True,
+    )
+    subprocess.run(["git", "-C", str(repo_path), "branch", "feat/x"], check=True)
+    _write_repo_config(
+        _isolate["config_path"],
+        repo_name="myapp",
+        repo_path=repo_path,
+        github_repo="acme/myapp",
+        development_root=tmp_path,
+    )
+
+    # Mock `gh pr view` (same-repo)
+    from app.routes import inbox as inbox_route
+
+    async def fake_run_gh_json(args: list, **kwargs: Any) -> dict:
+        return {"headRefName": "feat/x", "isCrossRepository": False}
+
+    monkeypatch.setattr(inbox_route, "run_gh_json", fake_run_gh_json)
+
+    fetch_called = {"n": 0}
+
+    async def fake_fetch_pr_ref(*a: Any, **kw: Any) -> None:
+        fetch_called["n"] += 1
+
+    monkeypatch.setattr(inbox_route, "_fetch_pr_ref", fake_fetch_pr_ref)
+
+    with TestClient(app) as client:
+        client.app.state.inbox = _seed_inbox_cache(
+            _enriched(pr_repo="acme/myapp", pr_number=42, head_ref="feat/x")
+        )
+        r = client.post("/api/inbox/acme/myapp/42/pull-down")
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["repo"] == "myapp"
+    # Same-repo: no fork-ref fetch
+    assert fetch_called["n"] == 0
+
+    # pr_number + pr_repo persisted on the new worktree row
+    conn = sqlite3.connect(_isolate["db_path"])
+    try:
+        row = conn.execute(
+            "SELECT pr_number, pr_repo FROM worktree WHERE repo=?",
+            ("myapp",),
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row == (42, "acme/myapp")
+
+
+def test_pull_down_fork_pr_fetches_pull_ref(
+    _isolate: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fork PR: must pre-fetch refs/pull/<n>/head into a local branch
+    before create_worktree runs (otherwise verify-remote fails since
+    the head ref doesn't live on origin)."""
+    import subprocess
+
+    repo_path = tmp_path / "myapp"
+    repo_path.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo_path, check=True)
+    subprocess.run(["git", "-C", str(repo_path), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(repo_path), "config", "user.name", "t"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_path), "commit", "--allow-empty", "-m", "init", "-q"],
+        check=True,
+    )
+    _write_repo_config(
+        _isolate["config_path"],
+        repo_name="myapp",
+        repo_path=repo_path,
+        github_repo="acme/myapp",
+        development_root=tmp_path,
+    )
+
+    from app.routes import inbox as inbox_route
+
+    async def fake_run_gh_json(args: list, **kwargs: Any) -> dict:
+        return {"headRefName": "feat/forked", "isCrossRepository": True}
+
+    fetch_args_seen: list[tuple[Any, ...]] = []
+
+    async def fake_fetch_pr_ref(repo_p: Path, pr_n: int, local_b: str) -> None:
+        fetch_args_seen.append((repo_p, pr_n, local_b))
+        # Simulate the fork-ref fetch creating the local branch (so
+        # create_worktree's verify-local step passes). Async-spawned
+        # to keep ruff's ASYNC221 happy.
+        import asyncio as _asyncio
+
+        proc = await _asyncio.create_subprocess_exec(
+            "git", "-C", str(repo_p), "branch", local_b,
+            stdout=_asyncio.subprocess.PIPE,
+            stderr=_asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+
+    monkeypatch.setattr(inbox_route, "run_gh_json", fake_run_gh_json)
+    monkeypatch.setattr(inbox_route, "_fetch_pr_ref", fake_fetch_pr_ref)
+
+    with TestClient(app) as client:
+        client.app.state.inbox = _seed_inbox_cache(
+            _enriched(pr_repo="acme/myapp", pr_number=58, head_ref="feat/forked")
+        )
+        r = client.post("/api/inbox/acme/myapp/58/pull-down")
+
+    assert r.status_code == 200, r.text
+    # Pre-fetch was invoked with the expected branch name
+    assert len(fetch_args_seen) == 1
+    _, pr_n, local_b = fetch_args_seen[0]
+    assert pr_n == 58
+    assert local_b == "cdh-pr-58-feat/forked"

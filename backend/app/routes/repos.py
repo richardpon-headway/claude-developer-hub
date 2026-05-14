@@ -78,7 +78,11 @@ def _build_inspection_prompt(path: Path, session_id: str, callback_url: str) -> 
         "  - `ticket_pattern`: from recent commit subjects, look for a recurring "
         "ticket-key regex (e.g. `[A-Z]+-\\d+`). Default `null` if none found.\n"
         "  - `default_branch`: `git symbolic-ref refs/remotes/origin/HEAD` (strip "
-        "the `refs/remotes/origin/` prefix), or `main` as a fallback.\n\n"
+        "the `refs/remotes/origin/` prefix), or `main` as a fallback.\n"
+        "  - `github_repo`: `gh repo view --json nameWithOwner -q .nameWithOwner` "
+        "in the repo path. Returns `owner/name` (e.g. `acme/acme`). "
+        "Default `null` if the repo isn't on GitHub or `gh` isn't available. "
+        "Used by the inbox to match a remote PR to this local checkout.\n\n"
         "When done, POST your proposal as JSON to:\n"
         f"  {callback_url}\n\n"
         "Body shape:\n"
@@ -91,7 +95,8 @@ def _build_inspection_prompt(path: Path, session_id: str, callback_url: str) -> 
         '    "default_branch": "main",\n'
         '    "branch_prefix": "",\n'
         '    "setup_steps": [{"cmd": "...", "cwd": "..."}],\n'
-        '    "ticket_pattern": null\n'
+        '    "ticket_pattern": null,\n'
+        '    "github_repo": "owner/name"\n'
         '  }\n'
         "}\n"
         "```\n"
