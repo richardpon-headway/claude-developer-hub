@@ -54,9 +54,14 @@ afterEach(() => {
 });
 
 describe("InboxList", () => {
-  test("renders nothing when there are no PRs", () => {
-    const { container } = renderInbox([]);
-    expect(container.firstChild).toBeNull();
+  test("renders the empty-state when there are no PRs", () => {
+    renderInbox([]);
+    // Section header is visible so the feature is discoverable even
+    // when the inbox is empty.
+    expect(screen.getByText(/^Inbox$/)).toBeInTheDocument();
+    expect(screen.getByText(/no prs need your attention/i)).toBeInTheDocument();
+    // Hint references inbox.teams config
+    expect(screen.getByText(/inbox\.teams/i)).toBeInTheDocument();
   });
 
   test("groups by source: authored vs reviewer subsections", () => {

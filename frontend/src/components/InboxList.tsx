@@ -59,8 +59,6 @@ export function InboxList({ inboxOverride }: Props = {}) {
   }
 
   const prs = data.prs;
-  if (prs.length === 0) return null;
-
   const authored = prs.filter((p) => p.source === "author");
   const reviewer = prs.filter((p) => p.source !== "author");
 
@@ -70,14 +68,28 @@ export function InboxList({ inboxOverride }: Props = {}) {
         Inbox
         <span className="ml-2 text-zinc-600">· {prs.length}</span>
       </h2>
-      <div className="mt-3 space-y-6">
-        {authored.length > 0 && (
-          <Subsection label="You authored" prs={authored} />
-        )}
-        {reviewer.length > 0 && (
-          <Subsection label="Reviewer" prs={reviewer} />
-        )}
-      </div>
+      {prs.length === 0 ? (
+        <div className="mt-3 rounded-lg border border-dashed border-zinc-700 p-6 text-center">
+          <p className="text-sm text-zinc-400">
+            No PRs need your attention.
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            Open PRs you authored, that you've been directly review-requested
+            on, or that a team in <code className="text-zinc-400">inbox.teams</code>{" "}
+            was review-requested on (and don't already have a local worktree)
+            will appear here.
+          </p>
+        </div>
+      ) : (
+        <div className="mt-3 space-y-6">
+          {authored.length > 0 && (
+            <Subsection label="You authored" prs={authored} />
+          )}
+          {reviewer.length > 0 && (
+            <Subsection label="Reviewer" prs={reviewer} />
+          )}
+        </div>
+      )}
     </section>
   );
 }
