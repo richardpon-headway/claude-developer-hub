@@ -9,10 +9,9 @@ so a user (or Claude) can write ``~/development`` in YAML without surprise.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Annotated, Any, Literal
-
-import re
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 

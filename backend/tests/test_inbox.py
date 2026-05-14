@@ -5,7 +5,6 @@ import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 import yaml
@@ -24,7 +23,6 @@ from app.services.inbox_search import (
     is_repo_configured,
 )
 from app.services.inbox_stack import annotate_stacks
-
 
 # --- fixtures ------------------------------------------------------------
 

@@ -102,7 +102,10 @@ def _row_from_gh(entry: dict, *, source: str) -> InboxPrRaw | None:
     title = entry.get("title")
     url = entry.get("url")
     repo = entry.get("repository") or {}
-    repo_owner = (repo.get("owner") or {}).get("login") or repo.get("nameWithOwner", "").split("/")[0]
+    owner_field = (repo.get("owner") or {}).get("login")
+    if not owner_field:
+        owner_field = repo.get("nameWithOwner", "").split("/")[0]
+    repo_owner = owner_field
     repo_name = repo.get("name")
     head_ref = entry.get("headRefName")
     base_ref = entry.get("baseRefName")
