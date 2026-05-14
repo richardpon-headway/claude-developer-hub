@@ -30,7 +30,6 @@ Headline priority (first match wins, matching the skill):
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
@@ -39,6 +38,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.db import get_db_path, open_db
+from app.services.gh_cli import run_gh_json
 
 log = logging.getLogger(__name__)
 
@@ -252,44 +252,24 @@ def summarize_gh_payload(payload: dict | None) -> PrSummary:
 # ---------------------------------------------------------------------
 
 
-class GhUnavailable(Exception):
-    """The ``gh`` CLI isn't on PATH (or isn't authed). Caller decides
-    whether to bubble this to the user (manual refresh endpoint) or
-    swallow it (polling task)."""
-
-
 async def fetch_pr_summary(worktree_path: Path) -> PrSummary:
     """Run ``gh pr view --json …`` inside ``worktree_path`` and return
     a classified summary. Returns ``PrSummary(headline='no_pr')`` if
     gh reports no PR for the current branch — that's the normal
     "branch hasn't been pushed yet" case, not an error.
+
+    Raises :class:`app.services.gh_cli.GhNotFound` if ``gh`` isn't on
+    PATH; the polling loop catches that and quiets per-row warnings.
     """
-    proc = await asyncio.create_subprocess_exec(
-        "gh", "pr", "view", "--json", _GH_JSON_FIELDS,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=str(worktree_path),
+    payload = await run_gh_json(
+        ["pr", "view", "--json", _GH_JSON_FIELDS],
+        cwd=worktree_path,
+        swallow_errors=True,
     )
-    stdout_b, stderr_b = await proc.communicate()
-    stderr = stderr_b.decode("utf-8", errors="replace")
-
-    if proc.returncode != 0:
-        lower = stderr.lower()
-        if "no pull requests found" in lower or "no pr found" in lower:
-            return PrSummary(headline="no_pr")
-        if "executable file not found" in lower or "command not found" in lower:
-            raise GhUnavailable("gh CLI not on PATH")
-        # Any other failure: treat as no signal rather than crash the loop.
-        log.info("gh pr view failed in %s: %s", worktree_path, stderr.strip()[:200])
+    if payload is None:
         return PrSummary(headline="no_pr")
-
-    try:
-        payload = json.loads(stdout_b.decode("utf-8", errors="replace"))
-    except json.JSONDecodeError as e:
-        log.warning("could not parse `gh pr view` output for %s: %s", worktree_path, e)
-        return PrSummary(headline="no_pr")
-
-    return summarize_gh_payload(payload)
+    # gh pr view returns a dict; the cast is for type-narrowing only.
+    return summarize_gh_payload(payload if isinstance(payload, dict) else None)
 
 
 # ---------------------------------------------------------------------

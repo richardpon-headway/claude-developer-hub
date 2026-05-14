@@ -18,8 +18,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from app.services.gh_cli import GhNotFound
 from app.services.pr_state import (
-    GhUnavailable,
     fetch_pr_summary,
     upsert_pr_state_sync,
 )
@@ -68,7 +68,7 @@ async def _fetch_one(row: Any, sem: asyncio.Semaphore) -> None:
             await asyncio.to_thread(
                 upsert_pr_state_sync, row.repo, row.name, summary
             )
-        except GhUnavailable:
+        except GhNotFound:
             # gh missing → log once-per-tick is enough; suppress per-row.
             log.info("gh CLI not on PATH; skipping pr_state poll for %s/%s", row.repo, row.name)
         except Exception as e:
