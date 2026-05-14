@@ -675,3 +675,188 @@ def test_pull_down_fork_pr_fetches_pull_ref(
     _, pr_n, local_b = fetch_args_seen[0]
     assert pr_n == 58
     assert local_b == "cdh-pr-58-feat/forked"
+
+
+# --- POST /api/inbox/.../configure-and-pull-down -------------------------
+
+
+def test_configure_and_pull_down_404_when_pr_not_in_cache(
+    _isolate: dict[str, Path],
+) -> None:
+    _write_minimal_config(_isolate["config_path"])
+    with TestClient(app) as client:
+        client.app.state.inbox = _seed_inbox_cache()
+        client.app.state.iterm = SimpleNamespace(connection=object())
+        r = client.post("/api/inbox/acme/myapp/42/configure-and-pull-down")
+    assert r.status_code == 404
+
+
+def test_configure_and_pull_down_409_when_repo_already_configured(
+    _isolate: dict[str, Path], tmp_path: Path
+) -> None:
+    repo_path = tmp_path / "myapp"
+    repo_path.mkdir()
+    _write_repo_config(
+        _isolate["config_path"],
+        repo_name="myapp",
+        repo_path=repo_path,
+        github_repo="acme/myapp",
+        development_root=tmp_path,
+    )
+    with TestClient(app) as client:
+        client.app.state.inbox = _seed_inbox_cache(
+            _enriched(pr_repo="acme/myapp", pr_number=42)
+        )
+        client.app.state.iterm = SimpleNamespace(connection=object())
+        r = client.post("/api/inbox/acme/myapp/42/configure-and-pull-down")
+    assert r.status_code == 409
+    assert "already configured" in r.json()["detail"]
+
+
+def test_configure_and_pull_down_503_when_iterm_disconnected(
+    _isolate: dict[str, Path], tmp_path: Path
+) -> None:
+    _write_minimal_config(_isolate["config_path"])
+    (tmp_path / "dev").mkdir()
+    config_with_devroot = {"repos": [], "development_root": str(tmp_path / "dev")}
+    _isolate["config_path"].write_text(yaml.safe_dump(config_with_devroot))
+
+    with TestClient(app) as client:
+        client.app.state.inbox = _seed_inbox_cache(
+            _enriched(pr_repo="acme/myapp", pr_number=42, repo_configured=False)
+        )
+        client.app.state.iterm = SimpleNamespace(connection=None)
+        r = client.post("/api/inbox/acme/myapp/42/configure-and-pull-down")
+    assert r.status_code == 503
+
+
+def test_configure_and_pull_down_spawns_iterm_returns_session_id(
+    _isolate: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Happy path: mock the iTerm2 spawn, assert the prompt includes a
+    clone instruction and that an onboard session is minted with a
+    pull_down follow_up."""
+    dev_root = tmp_path / "dev"
+    dev_root.mkdir()
+    _isolate["config_path"].write_text(
+        yaml.safe_dump({"repos": [], "development_root": str(dev_root)})
+    )
+
+    from app.routes import inbox as inbox_route
+    from app.routes import repos as repos_route
+
+    spawn_args_seen: dict[str, Any] = {}
+
+    async def fake_spawn(connection, cwd, frame, prompt):  # type: ignore[no-untyped-def]
+        spawn_args_seen["cwd"] = cwd
+        spawn_args_seen["prompt"] = prompt
+        return SimpleNamespace(window_id="W1", claude_session_id="S1")
+
+    monkeypatch.setattr(inbox_route, "spawn_global_claude_window", fake_spawn)
+
+    with TestClient(app) as client:
+        client.app.state.inbox = _seed_inbox_cache(
+            _enriched(pr_repo="acme/myapp", pr_number=42, repo_configured=False)
+        )
+        client.app.state.iterm = SimpleNamespace(connection=object())
+        r = client.post("/api/inbox/acme/myapp/42/configure-and-pull-down")
+
+    assert r.status_code == 200, r.text
+    session_id = r.json()["session_id"]
+    assert session_id
+
+    # Prompt has the clone instruction + the standard inspection body
+    assert "Ensure a local clone".lower() in spawn_args_seen["prompt"].lower()
+    assert "acme/myapp" in spawn_args_seen["prompt"]
+    assert str(dev_root / "myapp") in spawn_args_seen["prompt"]
+    assert spawn_args_seen["cwd"] == dev_root
+
+    # The session in the in-memory store carries the follow_up
+    session = repos_route._sessions[session_id]
+    assert session.follow_up == {
+        "kind": "pull_down",
+        "pr_repo": "acme/myapp",
+        "pr_number": 42,
+    }
+
+
+def test_onboard_complete_fires_follow_up_pull_down(
+    _isolate: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When onboard_complete saves a config entry whose session carries
+    a pull_down follow_up, the inbox's _perform_pull_down should be
+    invoked in the background with the stored pr_repo + pr_number."""
+    import subprocess
+
+    dev_root = tmp_path / "dev"
+    dev_root.mkdir()
+    repo_path = dev_root / "myapp"
+    repo_path.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo_path, check=True)
+    _isolate["config_path"].write_text(
+        yaml.safe_dump({"repos": [], "development_root": str(dev_root)})
+    )
+
+    from app.routes import inbox as inbox_route
+    from app.routes import repos as repos_route
+
+    # Skip the iTerm2 spawn — we just want to mint a session.
+    async def fake_spawn(*args: Any, **kwargs: Any) -> Any:
+        return SimpleNamespace(window_id="W1", claude_session_id="S1")
+
+    monkeypatch.setattr(inbox_route, "spawn_global_claude_window", fake_spawn)
+
+    # Stub _perform_pull_down so the test doesn't depend on real gh +
+    # git network operations. The task fires in the TestClient's event
+    # loop; the test thread polls a shared dict for its side effect.
+    pull_down_call: dict[str, Any] = {}
+
+    async def fake_pull_down(pr_repo, pr_number, *, cache):  # type: ignore[no-untyped-def]
+        pull_down_call["args"] = (pr_repo, pr_number)
+        return SimpleNamespace(repo="myapp", name="feat_x")
+
+    monkeypatch.setattr(inbox_route, "_perform_pull_down", fake_pull_down)
+
+    import time as _time
+
+    with TestClient(app) as client:
+        client.app.state.inbox = _seed_inbox_cache(
+            _enriched(pr_repo="acme/myapp", pr_number=42, repo_configured=False)
+        )
+        client.app.state.iterm = SimpleNamespace(connection=object())
+
+        # 1. Kick off configure-and-pull-down (mints session + follow_up).
+        r1 = client.post("/api/inbox/acme/myapp/42/configure-and-pull-down")
+        assert r1.status_code == 200
+        session_id = r1.json()["session_id"]
+
+        # 2. Simulate Claude POSTing the proposed_entry back.
+        r2 = client.post(
+            "/api/repos/onboard/complete",
+            json={
+                "session_id": session_id,
+                "proposed_entry": {
+                    "name": "myapp",
+                    "path": str(repo_path),
+                    "default_branch": "main",
+                    "setup_steps": [],
+                    "ticket_pattern": None,
+                    "github_repo": "acme/myapp",
+                },
+            },
+        )
+        assert r2.status_code == 200, r2.text
+
+        # 3. The follow-up task was scheduled in the TestClient's event
+        # loop before onboard_complete returned. Fire one more no-op
+        # request — TestClient runs the loop until the response arrives,
+        # which gives the create_task'd follow-up a chance to drain.
+        for _ in range(20):
+            client.get("/api/health")
+            if "args" in pull_down_call:
+                break
+            _time.sleep(0.05)
+
+    assert pull_down_call.get("args") == ("acme/myapp", 42)
+    # Session is marked saved
+    assert repos_route._sessions[session_id].state == "saved"
