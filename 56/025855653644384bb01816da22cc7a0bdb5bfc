@@ -1,0 +1,53 @@
+frontend/src/routes/index.tsx
+  s_d128a241c2e116::t_b7b8402bad71e1 58
+  s_d128a241c2e116::t_959e3469d6e2da 11
+frontend/src/components/InboxList.test.tsx
+  s_d128a241c2e116::t_5a76fae47b5425 1-154
+backend/app/services/inbox_poll.py
+  s_d128a241c2e116::t_889c5d574075c3 1-193
+backend/app/config/schema.py
+  s_d128a241c2e116::t_c0bd7319535fe7 139-152
+  s_d128a241c2e116::t_a108f3e8a73e0f 15-17
+  s_d128a241c2e116::t_90ebf64e3221eb 127-138,153-154,168
+backend/app/services/inbox_search.py
+  s_d128a241c2e116::t_de4fb60b35f82b 1-224
+backend/app/services/pr_state_poll.py
+  s_d128a241c2e116::t_700f97e7bd7121 21
+  s_d128a241c2e116::t_6bfc8bc410e5ae 64-67,69
+backend/tests/test_inbox.py
+  s_d128a241c2e116::t_d5b01ea565603f 1-433
+frontend/src/api/types.ts
+  s_d128a241c2e116::t_aadfc224976c06 189-215
+frontend/src/components/InboxList.tsx
+  s_d128a241c2e116::t_edabfdcaf153c9 1-220
+frontend/src/routes/index.test.tsx
+  s_d128a241c2e116::t_8d645210a489e2 22,25
+  s_d128a241c2e116::t_97a42de5531185 64-68
+backend/app/routes/inbox.py
+  s_d128a241c2e116::t_25bc3c361da15e 1-71
+backend/app/main.py
+  s_d128a241c2e116::t_e7470297466957 16-25,35-36,40,42,57
+backend/app/services/inbox_stack.py
+  s_d128a241c2e116::t_3be8e0e5b07212 1-91
+frontend/src/api/inbox.ts
+  s_d128a241c2e116::t_5b13165e9022e4 1-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "56025855653644384bb01816da22cc7a0bdb5bfc",
+  "prompts": {},
+  "sessions": {
+    "s_d128a241c2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6a9c603-8a9f-47c5-a234-1b418c8994f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
