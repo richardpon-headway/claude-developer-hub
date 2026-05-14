@@ -8,6 +8,7 @@ import { listWorktrees, syncWorktrees } from "../api/worktrees";
 import { AddRepoModal } from "../components/AddRepoModal";
 import { Button } from "../components/Button";
 import { GlobalSkillsTile } from "../components/GlobalSkillsTile";
+import { InboxList } from "../components/InboxList";
 import { RepoList } from "../components/RepoList";
 import { TokenUsageTile } from "../components/TokenUsageTile";
 import { WorkspaceList } from "../components/WorkspaceList";
@@ -54,6 +55,7 @@ export function HubPage() {
 
       <div className="mt-8 grid grid-cols-3 gap-6">
         <div className="col-span-2 space-y-8">
+          <InboxList />
           <section>
             <div className="flex items-baseline justify-between">
               <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">

@@ -18,11 +18,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from app.services import pr_state
 from app.services.gh_cli import GhNotFound
-from app.services.pr_state import (
-    fetch_pr_summary,
-    upsert_pr_state_sync,
-)
 from app.services.worktree import list_worktrees_sync
 
 log = logging.getLogger(__name__)
@@ -64,9 +61,12 @@ async def _fetch_one(row: Any, sem: asyncio.Semaphore) -> None:
                 # place; the user will see stale data flagged by status
                 # going 'stale' elsewhere.
                 return
-            summary = await fetch_pr_summary(wt_path)
+            # Look up via the module rather than a local import so
+            # tests can monkeypatch pr_state.fetch_pr_summary and have
+            # the polling loop see it too.
+            summary = await pr_state.fetch_pr_summary(wt_path)
             await asyncio.to_thread(
-                upsert_pr_state_sync, row.repo, row.name, summary
+                pr_state.upsert_pr_state_sync, row.repo, row.name, summary
             )
         except GhNotFound:
             # gh missing → log once-per-tick is enough; suppress per-row.

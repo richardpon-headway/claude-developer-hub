@@ -186,6 +186,33 @@ export interface PrUrlResponse {
   url: string;
 }
 
+export type InboxCiStatus = "pass" | "fail" | "pending" | "none";
+
+export interface InboxPr {
+  pr_repo: string;
+  pr_number: number;
+  title: string;
+  author_login: string;
+  head_ref: string;
+  base_ref: string;
+  is_draft: boolean;
+  url: string;
+  updated_at: string;
+  ci_status: InboxCiStatus;
+  // "author" | "reviewer" | "team:<owner/slug>"
+  source: string;
+  stack_top_pr_number: number | null;
+  stack_size: number;
+  // 1 = bottom of stack (closest to main); stack_size = top of stack
+  stack_position: number;
+  repo_configured: boolean;
+}
+
+export interface InboxResponse {
+  prs: InboxPr[];
+  checked_at: string | null;
+}
+
 export interface GlobalSkill {
   name: string;
   label: string;
