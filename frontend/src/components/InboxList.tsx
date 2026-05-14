@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError } from "../api/client";
-import { getInbox, pullDownPr } from "../api/inbox";
+import { configureAndPullDown, getInbox, pullDownPr } from "../api/inbox";
 import type { InboxCiStatus, InboxPr } from "../api/types";
 import { Tooltip } from "./Tooltip";
 
@@ -228,33 +228,49 @@ interface PullDownButtonProps {
 
 function PullDownButton({ pr }: PullDownButtonProps) {
   const queryClient = useQueryClient();
-  const mutation = useMutation({
+
+  const pullDownMutation = useMutation({
     mutationFn: () => pullDownPr(pr.pr_repo, pr.pr_number),
     onSuccess: () => {
-      // The new worktree's pr_number/pr_repo dedup will hide this row
-      // on the next poll, but invalidate both queries now for snappy UX.
+      // The new worktree's pr_number/pr_repo dedup hides this row on
+      // the next poll, but invalidate both queries now for snappy UX.
       queryClient.invalidateQueries({ queryKey: ["worktrees"] });
       queryClient.invalidateQueries({ queryKey: ["inbox"] });
     },
   });
 
-  const disabled =
-    !pr.repo_configured || mutation.isPending || mutation.isSuccess;
+  const configureMutation = useMutation({
+    mutationFn: () => configureAndPullDown(pr.pr_repo, pr.pr_number),
+    // Note: success here means iTerm2 has been spawned and an onboard
+    // session minted. The worktree appears later, after Claude POSTs
+    // the proposed_entry back and the auto-fired pull-down runs. The
+    // inbox + worktrees queries refetch on their poll cadence; no
+    // optimistic invalidation here.
+  });
 
-  const label = mutation.isPending
-    ? "Pulling…"
-    : mutation.isSuccess
-      ? "Pulled"
-      : pr.repo_configured
-        ? "Pull down"
-        : "Configure first";
+  const isConfigureFlow = !pr.repo_configured;
+  const mutation = isConfigureFlow ? configureMutation : pullDownMutation;
+
+  const disabled = mutation.isPending || mutation.isSuccess;
+
+  const label = isConfigureFlow
+    ? configureMutation.isPending
+      ? "Spawning…"
+      : configureMutation.isSuccess
+        ? "Claude opened"
+        : "Configure repo + pull down"
+    : pullDownMutation.isPending
+      ? "Pulling…"
+      : pullDownMutation.isSuccess
+        ? "Pulled"
+        : "Pull down";
 
   const tooltip = mutation.error
     ? mutation.error instanceof ApiError
       ? mutation.error.detail
       : String(mutation.error)
-    : !pr.repo_configured
-      ? `${pr.pr_repo} isn't in config.repos[] — onboard it first (slice 3 wires this up automatically).`
+    : isConfigureFlow
+      ? `Opens Claude in your development_root to onboard ${pr.pr_repo}, then automatically pulls this PR into a worktree once onboarding completes.`
       : "Fetch this PR's branch and create a local worktree";
 
   return (

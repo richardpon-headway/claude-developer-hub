@@ -46,6 +46,7 @@ function pr(overrides: Partial<InboxPr> = {}): InboxPr {
 
 beforeEach(() => {
   vi.mocked(inboxApi.pullDownPr).mockReset();
+  vi.mocked(inboxApi.configureAndPullDown).mockReset();
 });
 
 afterEach(() => {
@@ -163,12 +164,44 @@ describe("InboxList", () => {
     expect(screen.getByText("lone PR")).toBeInTheDocument();
   });
 
-  test("Pull-down button is disabled when repo isn't configured", () => {
+  test("Configure-and-pull-down button shows when repo isn't configured", () => {
     renderInbox([
       pr({ pr_number: 1, title: "unconfigured PR", repo_configured: false }),
     ]);
-    const btn = screen.getByRole("button", { name: /configure first/i });
-    expect(btn).toBeDisabled();
+    const btn = screen.getByRole("button", {
+      name: /configure repo \+ pull down/i,
+    });
+    expect(btn).toBeEnabled();
+  });
+
+  test("Configure-and-pull-down click fires the API and shows opened state", async () => {
+    vi.mocked(inboxApi.configureAndPullDown).mockResolvedValue({
+      session_id: "sess-abc",
+    });
+    renderInbox([
+      pr({
+        pr_repo: "acme/myapp",
+        pr_number: 42,
+        title: "unconfigured PR",
+        repo_configured: false,
+      }),
+    ]);
+    const btn = screen.getByRole("button", {
+      name: /configure repo \+ pull down/i,
+    });
+    fireEvent.click(btn);
+
+    await waitFor(() => {
+      expect(inboxApi.configureAndPullDown).toHaveBeenCalledWith(
+        "acme/myapp",
+        42,
+      );
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /claude opened/i }),
+      ).toBeDisabled();
+    });
   });
 
   test("Pull-down click fires the API and disables the button on success", async () => {
