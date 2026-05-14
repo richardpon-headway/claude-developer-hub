@@ -1,7 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { getInbox } from "../api/inbox";
+import { ApiError } from "../api/client";
+import { getInbox, pullDownPr } from "../api/inbox";
 import type { InboxCiStatus, InboxPr } from "../api/types";
+import { Tooltip } from "./Tooltip";
 
 const CI_STYLE: Record<InboxCiStatus, { label: string; cls: string }> = {
   pass: { label: "ci ✓", cls: "border-emerald-800 bg-emerald-900/40 text-emerald-300" },
@@ -215,6 +217,56 @@ function PrRow({ pr, inStack = false }: PrRowProps) {
       <span className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">
         {sourceChipLabel(pr.source)}
       </span>
+      <PullDownButton pr={pr} />
     </div>
+  );
+}
+
+interface PullDownButtonProps {
+  pr: InboxPr;
+}
+
+function PullDownButton({ pr }: PullDownButtonProps) {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: () => pullDownPr(pr.pr_repo, pr.pr_number),
+    onSuccess: () => {
+      // The new worktree's pr_number/pr_repo dedup will hide this row
+      // on the next poll, but invalidate both queries now for snappy UX.
+      queryClient.invalidateQueries({ queryKey: ["worktrees"] });
+      queryClient.invalidateQueries({ queryKey: ["inbox"] });
+    },
+  });
+
+  const disabled =
+    !pr.repo_configured || mutation.isPending || mutation.isSuccess;
+
+  const label = mutation.isPending
+    ? "Pulling…"
+    : mutation.isSuccess
+      ? "Pulled"
+      : pr.repo_configured
+        ? "Pull down"
+        : "Configure first";
+
+  const tooltip = mutation.error
+    ? mutation.error instanceof ApiError
+      ? mutation.error.detail
+      : String(mutation.error)
+    : !pr.repo_configured
+      ? `${pr.pr_repo} isn't in config.repos[] — onboard it first (slice 3 wires this up automatically).`
+      : "Fetch this PR's branch and create a local worktree";
+
+  return (
+    <Tooltip text={tooltip}>
+      <button
+        type="button"
+        onClick={() => mutation.mutate()}
+        disabled={disabled}
+        className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-2.5 py-0.5 text-[11px] text-zinc-200 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {label}
+      </button>
+    </Tooltip>
   );
 }
