@@ -3,6 +3,9 @@ import type { InboxResponse } from "./types";
 
 export const getInbox = () => apiGet<InboxResponse>("/api/inbox");
 
+export const refreshInbox = () =>
+  apiPost<InboxResponse>("/api/inbox/refresh", {});
+
 export interface PullDownResponse {
   repo: string;
   name: string;
