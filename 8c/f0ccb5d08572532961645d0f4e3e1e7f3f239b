@@ -1,0 +1,65 @@
+backend/app/models/worktree.py
+  s_d128a241c2e116::t_bfc216b362382c 55-60,65
+backend/app/services/pr_state.py
+  s_d128a241c2e116::t_4e4357c99613e5 194-195,198-202,204
+  s_d128a241c2e116::t_47110ede01f5fb 135,145,148-161,170-181,184,186,188-192,197,203,205,207-239
+  s_d128a241c2e116::t_2681de41fd99d9 136-144,146-147
+  s_d128a241c2e116::t_0937f7204582ea 91-95,110
+  s_d128a241c2e116::t_ca811ed1ff953d 289,298,309-310
+backend/tests/test_inbox.py
+  s_d128a241c2e116::t_a79ddde7810be6 369-373,393-394
+  s_d128a241c2e116::t_fb2f66cab34e1a 67
+  s_d128a241c2e116::t_98254d0852f64b 484
+  s_d128a241c2e116::t_270d0f66f775ee 137
+  s_d128a241c2e116::t_ff6ec6e4105316 334,349
+backend/tests/test_pr_state.py
+  s_d128a241c2e116::t_20f336ca9bf51d 24
+  s_d128a241c2e116::t_6f66b13b0ab4fc 243-310
+backend/app/services/inbox_poll.py
+  s_d128a241c2e116::t_455c02cf83408f 148
+  s_d128a241c2e116::t_aab5c54a1b566b 45-49,61
+frontend/src/api/types.ts
+  s_d128a241c2e116::t_126dd51f64ff23 87-90
+  s_d128a241c2e116::t_589251bceedcab 206-209
+frontend/src/components/InboxList.tsx
+  s_d128a241c2e116::t_39092934433fd6 15-17,28-32
+  s_d128a241c2e116::t_b1da2d9b371382 236-243
+  s_d128a241c2e116::t_c7d6d7e2ed44a1 66-70
+frontend/src/components/InboxList.test.tsx
+  s_d128a241c2e116::t_aa2b9033527058 104-115
+  s_d128a241c2e116::t_f534e6bd69a3bb 38
+  s_d128a241c2e116::t_f41d24d448e075 69,73,85,89,95,140,150,160
+backend/app/services/worktree.py
+  s_d128a241c2e116::t_c5a1d3ee4fc9fa 87-91
+frontend/src/components/WorkspaceList.test.tsx
+  s_d128a241c2e116::t_d8f003cc560d4a 1-144
+frontend/src/components/WorkspaceList.tsx
+  s_d128a241c2e116::t_4a8d17f8fd6689 161,165-184
+  s_d128a241c2e116::t_b318b2350067c4 62-78,81-91,95-97,105-110,113,116,124,129-130,135,142-146
+backend/app/services/inbox_search.py
+  s_d128a241c2e116::t_a58b8bcb6602c2 178-187,197-206
+  s_d128a241c2e116::t_10c89f51f375db 106-109,143
+  s_d128a241c2e116::t_07a373fe18edbc 47-53,65
+backend/app/routes/inbox.py
+  s_d128a241c2e116::t_dc0857c631264e 45
+  s_d128a241c2e116::t_4d8a410cdca16c 69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "8cf0ccb5d08572532961645d0f4e3e1e7f3f239b",
+  "prompts": {},
+  "sessions": {
+    "s_d128a241c2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6a9c603-8a9f-47c5-a234-1b418c8994f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
