@@ -80,20 +80,27 @@ export function GlobalSkillsTile() {
         >
           Ask Claude
         </label>
-        <div className="mt-2 flex gap-2">
-          <input
+        <div className="mt-2 flex items-start gap-2">
+          <textarea
             id="global-freeform-prompt"
-            type="text"
             value={freeformInput}
             onChange={(e) => setFreeformInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") onFreeformSubmit();
+              // Multi-line input: Enter inserts a newline (default
+              // textarea behavior). Cmd+Enter (macOS) or Ctrl+Enter
+              // (cross-platform) submits, matching the chat-input
+              // convention in most modern apps.
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                onFreeformSubmit();
+              }
             }}
             disabled={freeformMutation.isPending}
-            placeholder="What should we work on?"
-            className="min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
+            rows={3}
+            placeholder="What should we work on?  (⌘↵ to send)"
+            className="min-w-0 flex-1 resize-y rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
           />
-          <Tooltip text="Opens iTerm2 in your development_root with `claude '<your input>'` as the first message.">
+          <Tooltip text="Opens iTerm2 in your development_root with `claude '<your input>'` as the first message. ⌘↵ to submit from the textarea.">
             <Button
               variant="secondary"
               onClick={onFreeformSubmit}
