@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 
 from app.config.loader import load_config
@@ -75,17 +76,27 @@ class InboxCache:
     checked_at: str | None = None
 
 
+_PR_URL_RE = re.compile(r"^https?://github\.com/([^/]+)/([^/]+)/pull/(\d+)")
+
+
 def _tracked_pr_keys_sync() -> set[tuple[str, int]]:
     """Build the dedup set from BOTH source-of-truth columns:
 
     - ``worktree.pr_repo`` + ``worktree.pr_number`` (lazy-populated on
       first PR-button click).
-    - ``pr_state.payload`` parsed for ``pr_number`` (polled).
+    - ``pr_state.payload`` parsed for the PR's URL (polled).
 
     The two sources can disagree on which workspaces have a known PR
     (one is lazy, the other is polled). Accepting matches from either
     means a PR that's been pulled down — by whichever path — disappears
     from the inbox.
+
+    The pr_state path extracts ``(owner/name, pr_number)`` from the
+    payload's ``url`` field rather than joining through worktree to
+    recover ``pr_repo``. That join used to require ``worktree.pr_repo
+    IS NOT NULL``, which silently dropped PRs whose worktree had never
+    had its PR button clicked (a common case after creating a worktree
+    + waiting for pr_state polling to find the PR).
     """
     db_path = get_db_path()
     conn = open_db(db_path)
@@ -97,26 +108,27 @@ def _tracked_pr_keys_sync() -> set[tuple[str, int]]:
         ):
             if repo_ and isinstance(n, int):
                 keys.add((repo_, n))
-        # pr_state has the PR number inside the JSON payload. We also
-        # need the (owner/name) — that's not stored directly anywhere on
-        # pr_state, so we join through worktree to recover it. A PR with
-        # a pr_state row but no pr_repo on its worktree slips through;
-        # that's acceptable since pr_repo gets populated on first
-        # button-click and the redundancy will heal on the next poll.
-        for repo_, payload_json in conn.execute(
-            "SELECT w.pr_repo, ps.payload FROM pr_state ps "
-            "JOIN worktree w ON w.repo = ps.repo AND w.name = ps.worktree_name "
-            "WHERE w.pr_repo IS NOT NULL"
+        # pr_state stores PR data as JSON; the `url` field is
+        # ``https://github.com/<owner>/<name>/pull/<n>`` and is the
+        # authoritative source for owner/name. Parse it directly so
+        # the dedup works even when the worktree row hasn't been
+        # populated with pr_repo yet.
+        for (payload_json,) in conn.execute(
+            "SELECT payload FROM pr_state WHERE payload IS NOT NULL"
         ):
-            if not repo_:
-                continue
             try:
                 payload = json.loads(payload_json)
-                n = payload.get("pr_number")
-                if isinstance(n, int):
-                    keys.add((repo_, n))
             except (TypeError, ValueError):
                 continue
+            url = payload.get("url")
+            n = payload.get("pr_number")
+            if not isinstance(url, str) or not isinstance(n, int):
+                continue
+            m = _PR_URL_RE.match(url)
+            if m is None:
+                continue
+            owner, name = m.group(1), m.group(2)
+            keys.add((f"{owner}/{name}", n))
     finally:
         conn.close()
     return keys

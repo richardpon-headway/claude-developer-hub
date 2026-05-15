@@ -262,7 +262,11 @@ def _seed_worktree_row(
 
 
 def _seed_pr_state(
-    db_path: Path, repo: str, name: str, pr_number: int
+    db_path: Path,
+    repo: str,
+    name: str,
+    pr_number: int,
+    pr_repo: str = "o/myapp",
 ) -> None:
     import json
 
@@ -275,7 +279,12 @@ def _seed_pr_state(
                 repo,
                 name,
                 "ready_to_merge",
-                json.dumps({"pr_number": pr_number}),
+                json.dumps(
+                    {
+                        "pr_number": pr_number,
+                        "url": f"https://github.com/{pr_repo}/pull/{pr_number}",
+                    }
+                ),
                 "2026-05-14T00:00:00Z",
             ),
         )
@@ -292,15 +301,48 @@ def test_tracked_keys_reads_from_worktree_columns(_isolate: dict[str, Path]) -> 
     assert keys == {("o/myapp", 7)}
 
 
-def test_tracked_keys_reads_from_pr_state_too(_isolate: dict[str, Path]) -> None:
-    # Worktree has pr_repo set (so we can join to recover owner/name)
-    # but pr_number is NULL — pr_state should still surface a match.
+def test_tracked_keys_reads_from_pr_state_url(_isolate: dict[str, Path]) -> None:
+    """pr_state's payload carries the PR URL. Dedup must extract
+    owner/name from there directly — it can't rely on a worktree row
+    having pr_repo set, since pr_repo is only populated lazily on
+    PR-button click."""
+    # Worktree exists but has no pr_repo (the common case after
+    # creating a worktree + waiting for pr_state polling).
     _seed_worktree_row(
-        _isolate["db_path"], "myapp", "feat1", pr_repo="o/myapp", pr_number=None
+        _isolate["db_path"], "myapp", "feat1", pr_repo=None, pr_number=None
     )
-    _seed_pr_state(_isolate["db_path"], "myapp", "feat1", pr_number=99)
+    _seed_pr_state(
+        _isolate["db_path"], "myapp", "feat1", pr_number=99, pr_repo="o/myapp"
+    )
     keys = inbox_poll._tracked_pr_keys_sync()
     assert keys == {("o/myapp", 99)}
+
+
+def test_tracked_keys_handles_pr_state_with_malformed_url(
+    _isolate: dict[str, Path],
+) -> None:
+    """A pr_state row whose payload URL isn't a github.com PR URL
+    shouldn't crash dedup — just gets skipped."""
+    import json
+
+    _seed_worktree_row(_isolate["db_path"], "myapp", "feat1")
+    conn = sqlite3.connect(_isolate["db_path"])
+    try:
+        conn.execute(
+            "INSERT INTO pr_state (repo, worktree_name, headline, payload, checked_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                "myapp",
+                "feat1",
+                "no_pr",
+                json.dumps({"pr_number": None, "url": None}),
+                "2026-05-14T00:00:00Z",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    assert inbox_poll._tracked_pr_keys_sync() == set()
 
 
 # --- endpoint ------------------------------------------------------------
