@@ -42,7 +42,7 @@ class InboxPrPayload(BaseModel):
     url: str
     updated_at: str
     ci_status: str
-    source: str
+    sources: list[str]
     stack_top_pr_number: int | None = None
     stack_size: int
     stack_position: int
@@ -66,7 +66,7 @@ def _to_payload(pr: InboxPr) -> InboxPrPayload:
         url=pr.url,
         updated_at=pr.updated_at,
         ci_status=pr.ci_status,
-        source=pr.source,
+        sources=list(pr.sources),
         stack_top_pr_number=pr.stack_top_pr_number,
         stack_size=pr.stack_size,
         stack_position=pr.stack_position,

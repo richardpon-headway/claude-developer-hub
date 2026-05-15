@@ -42,7 +42,11 @@ POLL_INTERVAL_SECONDS = 60.0
 class InboxPr:
     """One enriched inbox row: raw fields from ``gh`` + stack
     annotation + repo-configured flag. This is what the API returns
-    after the polling tick processes raw search rows."""
+    after the polling tick processes raw search rows.
+
+    ``sources`` is priority-ordered so ``sources[0]`` is the highest-
+    priority signal (used by the frontend to decide which subsection
+    the row belongs to)."""
 
     pr_repo: str
     pr_number: int
@@ -54,7 +58,7 @@ class InboxPr:
     url: str
     updated_at: str
     ci_status: str
-    source: str
+    sources: list[str]
     stack_top_pr_number: int | None
     stack_size: int
     stack_position: int
@@ -141,7 +145,7 @@ def _enrich(raw: list[InboxPrRaw]) -> list[InboxPr]:
                 url=r.url,
                 updated_at=r.updated_at,
                 ci_status=r.ci_status,
-                source=r.source,
+                sources=list(r.sources),
                 stack_top_pr_number=ann.stack_top_pr_number,
                 stack_size=ann.stack_size,
                 stack_position=ann.stack_position,

@@ -44,7 +44,13 @@ _GH_SEARCH_JSON_FIELDS = (
 @dataclass
 class InboxPrRaw:
     """One PR row as it comes back from the inbox search, before stack
-    annotation or repo-configured matching."""
+    annotation or repo-configured matching.
+
+    ``sources`` accumulates *every* reason the PR is in the inbox —
+    a PR matching both author and team queries carries both. The list
+    is priority-ordered (``author > reviewer > team:*``) so
+    ``sources[0]`` is the primary signal used for subsection placement.
+    """
 
     pr_repo: str  # "owner/name"
     pr_number: int
@@ -56,7 +62,7 @@ class InboxPrRaw:
     url: str
     updated_at: str
     ci_status: str  # "pass" | "fail" | "pending" | "none"
-    source: str  # "author" | "reviewer" | "team:<slug>"
+    sources: list[str]
 
 
 def _ci_status_from_rollup(rollup: list | None) -> str:
@@ -97,6 +103,10 @@ def _row_from_gh(entry: dict, *, source: str) -> InboxPrRaw | None:
     Returns ``None`` if a required field is missing — defensive against
     schema drift across ``gh`` versions; the alternative is the whole
     poll crashing on one malformed row.
+
+    Each call seeds ``sources`` with a single entry; the merge logic in
+    :func:`fetch_inbox_prs` accumulates additional sources when the
+    same PR comes back from a later search query.
     """
     number = entry.get("number")
     title = entry.get("title")
@@ -130,7 +140,7 @@ def _row_from_gh(entry: dict, *, source: str) -> InboxPrRaw | None:
         url=url,
         updated_at=updated,
         ci_status=_ci_status_from_rollup(entry.get("statusCheckRollup")),
-        source=source,
+        sources=[source],
     )
 
 
@@ -165,8 +175,16 @@ async def _search(query: str, *, source: str) -> list[InboxPrRaw]:
 
 
 async def fetch_inbox_prs(teams: list[str]) -> list[InboxPrRaw]:
-    """Run the three (or 2 + N-teams) search queries and dedupe with
-    author > reviewer > team priority.
+    """Run the three (or 2 + N-teams) search queries and merge.
+
+    Unlike a priority-dedup, this accumulates *every* source a PR
+    matches — so a PR returned by both ``author:@me`` and
+    ``team-review-requested:<team>`` carries both labels. The first
+    row for a given ``(pr_repo, pr_number)`` is kept as the carrier
+    of the immutable fields (title, head_ref, etc.); subsequent
+    matches just append to its ``sources`` list. Call order
+    (``author`` → ``reviewer`` → ``team:*``) defines the priority,
+    so ``sources[0]`` is the primary signal.
 
     Raises :class:`app.services.gh_cli.GhNotFound` if ``gh`` is missing —
     callers (the polling loop) catch and log once.
@@ -176,8 +194,16 @@ async def fetch_inbox_prs(teams: list[str]) -> list[InboxPrRaw]:
     def _absorb(rows: list[InboxPrRaw]) -> None:
         for r in rows:
             key = (r.pr_repo, r.pr_number)
-            # First write wins (priority order is the call order).
-            seen.setdefault(key, r)
+            existing = seen.get(key)
+            if existing is None:
+                seen[key] = r
+                continue
+            # Same PR seen earlier under a higher-priority query.
+            # Append this row's sources to the prior one's, preserving
+            # priority order + skipping duplicates.
+            for s in r.sources:
+                if s not in existing.sources:
+                    existing.sources.append(s)
 
     try:
         _absorb(await _search("author:@me", source="author"))

@@ -12,20 +12,24 @@ const CI_STYLE: Record<InboxCiStatus, { label: string; cls: string }> = {
   none: { label: "no ci", cls: "border-zinc-700 bg-zinc-800 text-zinc-400" },
 };
 
-// Map source tag → short chip label. "author" gets "me" (matches the
-// authored subsection header so the chip stays informative; per-row
-// chips otherwise just duplicate the section). "reviewer" stays "me"
-// since the chip's job is "why is this here for me" — and "me" answers
-// that whether direct or team-routed reviews land alongside.
+// Map source tag → short chip label. "author" and "reviewer" both
+// render as "me" since the chip answers "why is this row here for me?";
+// team-routed sources render with the team name only (without org).
 function sourceChipLabel(source: string): string {
   if (source === "author" || source === "reviewer") return "me";
   if (source.startsWith("team:")) {
     const slug = source.slice(5);
-    // Show just the team half — e.g. "acme/corrections" → "corrections"
     const parts = slug.split("/", 2);
     return parts.length === 2 ? parts[1] : slug;
   }
   return source;
+}
+
+function primarySource(pr: InboxPr): string {
+  // The backend orders sources by priority (author > reviewer > team:*),
+  // so sources[0] is the highest-priority signal. Empty fallback exists
+  // only for defensive guards against malformed payloads.
+  return pr.sources[0] ?? "reviewer";
 }
 
 // graphite.com renders the whole stack regardless of which PR in the
@@ -59,8 +63,11 @@ export function InboxList({ inboxOverride }: Props = {}) {
   }
 
   const prs = data.prs;
-  const authored = prs.filter((p) => p.source === "author");
-  const reviewer = prs.filter((p) => p.source !== "author");
+  // Subsection placement uses the highest-priority source only — a
+  // PR you authored that's also team-review-requested sits under
+  // "You authored", but both chips render on the row.
+  const authored = prs.filter((p) => primarySource(p) === "author");
+  const reviewer = prs.filter((p) => primarySource(p) !== "author");
 
   return (
     <section>
@@ -226,9 +233,14 @@ function PrRow({ pr, inStack = false }: PrRowProps) {
       >
         {ci.label}
       </span>
-      <span className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">
-        {sourceChipLabel(pr.source)}
-      </span>
+      {pr.sources.map((source) => (
+        <span
+          key={source}
+          className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400"
+        >
+          {sourceChipLabel(source)}
+        </span>
+      ))}
       <PullDownButton pr={pr} />
     </div>
   );

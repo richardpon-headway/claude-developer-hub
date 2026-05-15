@@ -52,11 +52,17 @@ class PrComments(BaseModel):
 class PrStateSummary(BaseModel):
     """Hub-row payload describing PR state for a single worktree.
     Mirrors backend/app/services/pr_state.py's PrSummary, plus the
-    ``checked_at`` timestamp from the cache row."""
+    ``checked_at`` timestamp from the cache row.
+
+    ``labels`` lists every applicable signal in priority order — used
+    by the workspace row to render multi-state chips. ``headline``
+    stays for back-compat and equals ``labels[0]``.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     headline: PrHeadline
+    labels: list[PrHeadline] = Field(default_factory=list)
     pr_number: int | None = None
     url: str | None = None
     title: str | None = None
