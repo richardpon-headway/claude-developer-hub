@@ -106,10 +106,21 @@ describe("WorkspaceList", () => {
       wt({ name: "wip", pr_state: prState("draft") }),
       wt({ name: "fresh", pr_state: null }),
     ]);
-    expect(screen.getByText(/Needs your action/i)).toBeInTheDocument();
-    expect(screen.getByText(/Ready to merge/i)).toBeInTheDocument();
-    expect(screen.getByText(/In progress/i)).toBeInTheDocument();
-    expect(screen.getByText(/No PR yet/i)).toBeInTheDocument();
+    // Tier headers are <h3>s. The chip with the same text family
+    // ("Approved - Ready to Merge") is a <span>, so role/heading
+    // narrows the lookup.
+    expect(
+      screen.getByRole("heading", { name: /Needs your action/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /Ready to merge/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /In progress/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /No PR yet/i }),
+    ).toBeInTheDocument();
   });
 
   test("renders all labels as inline chips on a multi-label row", () => {

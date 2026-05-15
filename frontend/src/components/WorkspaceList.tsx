@@ -50,7 +50,11 @@ const TIER_FOR_HEADLINE: Record<PrHeadline, Tier> = {
   no_pr: "no_pr",
 };
 
-const TIER_ORDER: Tier[] = ["needs_action", "ready_to_merge", "in_progress", "no_pr"];
+// Display order on the hub. "Ready to merge" leads because a PR
+// that's approved + green is the cheapest action item: one button
+// click and it's done. "Needs your action" is the next-loudest:
+// real code work required.
+const TIER_ORDER: Tier[] = ["ready_to_merge", "needs_action", "in_progress", "no_pr"];
 
 const TIER_LABEL: Record<Tier, string> = {
   needs_action: "Needs your action",
@@ -70,7 +74,7 @@ const LABEL_CHIP_STYLE: Record<PrHeadline, { label: string; chip: string }> = {
   review_requested:  { label: "re-rev",   chip: "border-amber-800 bg-amber-900/40 text-amber-300" },
   merged:            { label: "merged",   chip: "border-purple-800 bg-purple-900/40 text-purple-300" },
   closed:            { label: "closed",   chip: "border-zinc-700 bg-zinc-800 text-zinc-400" },
-  ready_to_merge:    { label: "ready",    chip: "border-emerald-800 bg-emerald-900/40 text-emerald-300" },
+  ready_to_merge:    { label: "Approved - Ready to Merge", chip: "border-emerald-800 bg-emerald-900/40 text-emerald-300" },
   in_merge_queue:    { label: "queued",   chip: "border-indigo-800 bg-indigo-900/40 text-indigo-300" },
   checks_running:    { label: "checks",   chip: "border-amber-800 bg-amber-900/40 text-amber-300" },
   waiting_on_others: { label: "waiting",  chip: "border-zinc-700 bg-zinc-800 text-zinc-400" },
