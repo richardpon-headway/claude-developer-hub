@@ -1,0 +1,34 @@
+frontend/src/api/inbox.ts
+  s_d128a241c2e116::t_e59fadf74a0cd5 6-8
+backend/tests/test_inbox.py
+  s_d128a241c2e116::t_31f386387e0ec5 366-390
+frontend/src/routes/index.test.tsx
+  s_d128a241c2e116::t_69e610df3a80b5 80,89,93,130,136-140
+  s_d128a241c2e116::t_409007f3133208 69-73
+backend/app/routes/inbox.py
+  s_d128a241c2e116::t_978f462f1169be 89-110
+  s_d128a241c2e116::t_30dc48e049fa68 23
+frontend/src/routes/index.tsx
+  s_d128a241c2e116::t_e281ef4cb85dfd 84,90
+  s_d128a241c2e116::t_e94ce696f5fff0 47-61
+  s_d128a241c2e116::t_7313560fe725f6 6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "24ba2b01d8492ed1577890ca174bb653b089c6f3",
+  "prompts": {},
+  "sessions": {
+    "s_d128a241c2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6a9c603-8a9f-47c5-a234-1b418c8994f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
