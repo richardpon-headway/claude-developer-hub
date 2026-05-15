@@ -64,7 +64,7 @@ def _raw(
         url=f"https://github.com/{repo}/pull/{number}",
         updated_at="2026-05-14T00:00:00Z",
         ci_status="pass",
-        source=source,
+        sources=[source],
     )
 
 
@@ -134,7 +134,7 @@ def test_row_from_gh_parses_typical_entry() -> None:
     assert row.pr_number == 42
     assert row.head_ref == "feat/x"
     assert row.ci_status == "pass"
-    assert row.source == "author"
+    assert row.sources == ["author"]
 
 
 def test_row_from_gh_returns_none_on_missing_fields() -> None:
@@ -331,7 +331,7 @@ def test_endpoint_returns_cached_after_poll(_isolate: dict[str, Path]) -> None:
                 url="https://github.com/o/r/pull/1",
                 updated_at="2026-05-14T00:00:00Z",
                 ci_status="pass",
-                source="author",
+                sources=["author"],
                 stack_top_pr_number=None,
                 stack_size=1,
                 stack_position=1,
@@ -346,7 +346,7 @@ def test_endpoint_returns_cached_after_poll(_isolate: dict[str, Path]) -> None:
     body = r.json()
     assert len(body["prs"]) == 1
     assert body["prs"][0]["pr_repo"] == "o/r"
-    assert body["prs"][0]["source"] == "author"
+    assert body["prs"][0]["sources"] == ["author"]
     assert body["checked_at"] == "2026-05-14T00:00:00Z"
 
 
@@ -366,8 +366,11 @@ def test_endpoint_when_state_has_no_inbox_attr(_isolate: dict[str, Path]) -> Non
 # --- source attribution + filter ----------------------------------------
 
 
-def test_source_attribution_priority(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A PR returned by both author + team queries gets source='author'."""
+def test_source_accumulation_across_queries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A PR returned by both author and team queries accumulates both
+    sources, priority-ordered (author first)."""
 
     call_count = {"n": 0}
 
@@ -378,7 +381,6 @@ def test_source_attribution_priority(monkeypatch: pytest.MonkeyPatch) -> None:
         if "review-requested:@me" in query:
             return []
         if "team-review-requested:" in query:
-            # Same PR — should be filtered out by the priority dedup
             return [_raw(repo="o/r", number=42, head="feat/x", source=source)]
         return []
 
@@ -388,7 +390,8 @@ def test_source_attribution_priority(monkeypatch: pytest.MonkeyPatch) -> None:
 
     result = asyncio.run(inbox_search.fetch_inbox_prs(["headway/corrections"]))
     assert len(result) == 1
-    assert result[0].source == "author"
+    # Both sources present, author first (it was the first query hit).
+    assert result[0].sources == ["author", "team:headway/corrections"]
     assert call_count["n"] == 3  # author + reviewer + 1 team
 
 
@@ -478,7 +481,7 @@ def _enriched(
         url=f"https://github.com/{pr_repo}/pull/{pr_number}",
         updated_at="2026-05-14T00:00:00Z",
         ci_status="pass",
-        source="author",
+        sources=["author"],
         stack_top_pr_number=None,
         stack_size=1,
         stack_position=1,
