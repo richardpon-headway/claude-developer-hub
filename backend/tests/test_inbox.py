@@ -116,6 +116,10 @@ def test_ci_status_pass_when_all_success() -> None:
 
 
 def test_row_from_gh_parses_typical_entry() -> None:
+    # Shape matches what `gh search prs --json` actually returns: a
+    # repository object with `name` + `nameWithOwner`, no nested
+    # `owner.login`, and no head/base ref or statusCheckRollup
+    # (those are `gh pr view` fields, unavailable from search).
     entry = {
         "number": 42,
         "title": "feat: do thing",
@@ -123,29 +127,28 @@ def test_row_from_gh_parses_typical_entry() -> None:
         "isDraft": False,
         "updatedAt": "2026-05-14T00:00:00Z",
         "author": {"login": "me"},
-        "headRefName": "feat/x",
-        "baseRefName": "main",
-        "repository": {"name": "r", "owner": {"login": "o"}},
-        "statusCheckRollup": [{"state": "SUCCESS"}],
+        "repository": {"name": "r", "nameWithOwner": "o/r"},
+        "state": "OPEN",
     }
     row = _row_from_gh(entry, source="author")
     assert row is not None
     assert row.pr_repo == "o/r"
     assert row.pr_number == 42
-    assert row.head_ref == "feat/x"
-    assert row.ci_status == "pass"
+    # Placeholders since search doesn't return these fields.
+    assert row.head_ref == ""
+    assert row.ci_status == "none"
     assert row.sources == ["author"]
 
 
 def test_row_from_gh_returns_none_on_missing_fields() -> None:
     assert _row_from_gh({}, source="author") is None
-    # number present but no head/base ref
+    # number present but no repository.nameWithOwner.
     assert _row_from_gh(
         {
             "number": 1,
             "title": "t",
             "url": "https://x",
-            "repository": {"name": "r", "owner": {"login": "o"}},
+            "repository": {"name": "r"},
         },
         source="author",
     ) is None
@@ -394,17 +397,19 @@ def test_refresh_endpoint_runs_tick_and_returns_fresh_cache(
 def test_source_accumulation_across_queries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A PR returned by both author and team queries accumulates both
-    sources, priority-ordered (author first)."""
+    """A PR returned by multiple queries accumulates all sources,
+    priority-ordered by call order (author > reviewer > assignee >
+    mentions > team:*)."""
 
     call_count = {"n": 0}
 
     async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
         call_count["n"] += 1
+        # PR #42 hits author, mentions, AND the team query.
         if "author:@me" in query:
             return [_raw(repo="o/r", number=42, head="feat/x", source="author")]
-        if "review-requested:@me" in query:
-            return []
+        if "mentions:@me" in query:
+            return [_raw(repo="o/r", number=42, head="feat/x", source="mentions")]
         if "team-review-requested:" in query:
             return [_raw(repo="o/r", number=42, head="feat/x", source=source)]
         return []
@@ -415,9 +420,37 @@ def test_source_accumulation_across_queries(
 
     result = asyncio.run(inbox_search.fetch_inbox_prs(["corp/team_name"]))
     assert len(result) == 1
-    # Both sources present, author first (it was the first query hit).
-    assert result[0].sources == ["author", "team:corp/team_name"]
-    assert call_count["n"] == 3  # author + reviewer + 1 team
+    # All three sources accumulated in priority order (call order).
+    assert result[0].sources == [
+        "author",
+        "mentions",
+        "team:corp/team_name",
+    ]
+    # author + reviewer + assignee + mentions + 1 team = 5 queries.
+    assert call_count["n"] == 5
+
+
+def test_assignee_and_mentions_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Confirms the new assignee:@me and mentions:@me queries fire and
+    their results carry the right source tag."""
+
+    async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
+        if "assignee:@me" in query:
+            return [_raw(repo="o/r", number=100, head="feat/a", source=source)]
+        if "mentions:@me" in query:
+            return [_raw(repo="o/r", number=101, head="feat/m", source=source)]
+        return []
+
+    monkeypatch.setattr(inbox_search, "_search", fake_search)
+
+    import asyncio
+
+    result = asyncio.run(inbox_search.fetch_inbox_prs([]))
+    by_number = {p.pr_number: p for p in result}
+    assert by_number[100].sources == ["assignee"]
+    assert by_number[101].sources == ["mentions"]
 
 
 def test_filter_out_worktree_prs_drops_matches() -> None:

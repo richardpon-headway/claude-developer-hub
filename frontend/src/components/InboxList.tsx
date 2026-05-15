@@ -12,11 +12,13 @@ const CI_STYLE: Record<InboxCiStatus, { label: string; cls: string }> = {
   none: { label: "no ci", cls: "border-zinc-700 bg-zinc-800 text-zinc-400" },
 };
 
-// Map source tag → short chip label. "author" and "reviewer" both
-// render as "me" since the chip answers "why is this row here for me?";
-// team-routed sources render with the team name only (without org).
+// Map source tag → short chip label. Each chip answers "why is this
+// row in my inbox?", so we name the relationship rather than the user.
 function sourceChipLabel(source: string): string {
-  if (source === "author" || source === "reviewer") return "me";
+  if (source === "author") return "author";
+  if (source === "reviewer") return "reviewer";
+  if (source === "assignee") return "assignee";
+  if (source === "mentions") return "mention";
   if (source.startsWith("team:")) {
     const slug = source.slice(5);
     const parts = slug.split("/", 2);
@@ -81,10 +83,11 @@ export function InboxList({ inboxOverride }: Props = {}) {
             No PRs need your attention.
           </p>
           <p className="mt-1 text-xs text-zinc-500">
-            Open PRs you authored, that you've been directly review-requested
-            on, or that a team in <code className="text-zinc-400">inbox.teams</code>{" "}
-            was review-requested on (and don't already have a local worktree)
-            will appear here.
+            Open PRs you authored, were assigned to, were directly
+            review-requested on, were @mentioned in, or that a team in{" "}
+            <code className="text-zinc-400">inbox.teams</code> was
+            review-requested on (and don't already have a local
+            worktree) will appear here.
           </p>
         </div>
       ) : (
