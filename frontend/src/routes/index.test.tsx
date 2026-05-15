@@ -66,13 +66,18 @@ beforeEach(() => {
     prs: [],
     checked_at: null,
   });
+  vi.mocked(inboxApi.refreshInbox).mockReset();
+  vi.mocked(inboxApi.refreshInbox).mockResolvedValue({
+    prs: [],
+    checked_at: "2026-05-15T00:00:00Z",
+  });
 });
 
 afterEach(() => {
   cleanup();
 });
 
-describe("Hub — Sync worktrees button", () => {
+describe("Hub — Sync button", () => {
   test("hidden when no repos configured", async () => {
     vi.mocked(reposApi.listRepos).mockResolvedValue([]);
     vi.mocked(worktreesApi.listWorktrees).mockResolvedValue([]);
@@ -81,11 +86,11 @@ describe("Hub — Sync worktrees button", () => {
       expect(screen.getByText(/No repos configured yet/i)).toBeInTheDocument();
     });
     expect(
-      screen.queryByRole("button", { name: /sync worktrees/i }),
+      screen.queryByRole("button", { name: /^sync$/i }),
     ).not.toBeInTheDocument();
   });
 
-  test("shown when repos exist; clicking calls sync and renders summary", async () => {
+  test("shown when repos exist; clicking fires BOTH syncWorktrees and refreshInbox in parallel", async () => {
     vi.mocked(reposApi.listRepos).mockResolvedValue([
       {
         name: "myrepo",
@@ -122,12 +127,17 @@ describe("Hub — Sync worktrees button", () => {
     });
     renderHub();
 
-    const btn = await screen.findByRole("button", { name: /sync worktrees/i });
+    const btn = await screen.findByRole("button", { name: /^sync$/i });
     fireEvent.click(btn);
 
     await waitFor(() => {
       expect(worktreesApi.syncWorktrees).toHaveBeenCalled();
     });
+    // Both endpoints fire on a single click.
+    expect(inboxApi.refreshInbox).toHaveBeenCalled();
+
+    // The summary still reflects the worktrees-sync result (the inbox
+    // refresh updates the inbox list via its own query invalidation).
     await waitFor(() => {
       expect(
         screen.getByText(/imported 1.*removed 1.*skipped 1/i),

@@ -363,6 +363,31 @@ def test_endpoint_when_state_has_no_inbox_attr(_isolate: dict[str, Path]) -> Non
     assert r.json() == {"prs": [], "checked_at": None}
 
 
+def test_refresh_endpoint_runs_tick_and_returns_fresh_cache(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The hub's Sync button hits this endpoint to force an immediate
+    inbox tick. Should run one full tick and return the post-tick cache."""
+    _write_minimal_config(_isolate["config_path"])
+
+    fetched: list[InboxPrRaw] = [_raw(repo="o/r", number=99, head="feat/refresh")]
+
+    async def fake_fetch(teams: list) -> list[InboxPrRaw]:
+        return fetched
+
+    monkeypatch.setattr(inbox_poll, "fetch_inbox_prs", fake_fetch)
+
+    with TestClient(app) as client:
+        client.app.state.inbox = InboxCache()
+        r = client.post("/api/inbox/refresh")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["checked_at"] is not None
+    assert len(body["prs"]) == 1
+    assert body["prs"][0]["pr_number"] == 99
+
+
 # --- source attribution + filter ----------------------------------------
 
 
