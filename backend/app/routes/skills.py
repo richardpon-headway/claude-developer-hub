@@ -1,14 +1,14 @@
-"""Hub-level "global" skill buttons.
+"""Hub-level "global" skill buttons + free-form prompt entry.
 
-Each button maps to a slash-command Claude skill that isn't bound to a
-specific worktree (e.g. ``/pr-check-action-required`` which queries all
-the user's open PRs across every repo). Clicking a button spawns a
-fresh iTerm2 window at the configured ``cwd`` and launches
-``claude /<skill>`` as the initial prompt.
+Two related endpoints live here, both of which spawn an iTerm2 window
+with Claude pre-loaded:
 
-The set of allowed skill names is exactly ``config.global_skills`` —
-the config IS the server-side allow-list, so unknown names get a 404
-without ever reaching the spawn helper.
+- ``POST /api/skills/global`` runs a named skill (a slash command in
+  ``config.global_skills`` — the allow-list lives in user config).
+- ``POST /api/skills/global/freeform`` accepts arbitrary user-typed
+  text and spawns Claude in ``config.development_root`` with that text
+  as Claude's first message. No allow-list: it's the equivalent of
+  opening a terminal and typing ``claude '<prompt>'`` yourself.
 """
 from __future__ import annotations
 
@@ -84,6 +84,60 @@ async def run_global_skill(
     try:
         result = await spawn_global_claude_window(
             iterm.connection, cwd, frame, f"/{skill.name}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, f"iTerm2 spawn failed: {e}"
+        ) from e
+
+    return GlobalSkillResponse(
+        window_id=result.window_id,
+        claude_session_id=result.claude_session_id,
+    )
+
+
+# --- free-form prompt --------------------------------------------------------
+
+
+class FreeformPromptRequest(BaseModel):
+    # Cap the prompt to a reasonable size — the shell-quoted form is
+    # what gets passed to `claude '<prompt>'`, and very large prompts
+    # are better expressed as a file Claude can read.
+    prompt: str = Field(..., min_length=1, max_length=4000)
+
+
+@router.post("/global/freeform", response_model=GlobalSkillResponse)
+async def run_global_freeform(
+    req: FreeformPromptRequest, request: Request
+) -> GlobalSkillResponse:
+    """Open an iTerm2 window at ``config.development_root`` and launch
+    Claude with the user-typed ``prompt`` as the initial input.
+
+    No allow-list — this is the same as the user opening a terminal in
+    their dev root and typing ``claude '<prompt>'`` themselves. The
+    point of the hub button is convenience: one place to fire off ad-hoc
+    questions without leaving CDH.
+    """
+    config = load_config()
+    dev_root = Path(str(config.development_root)).expanduser()
+    if not dev_root.is_dir():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"development_root does not exist on disk: {dev_root}",
+        )
+
+    iterm = getattr(request.app.state, "iterm", None)
+    if iterm is None or iterm.connection is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "iTerm2 not connected. Check Preferences → Magic → Enable Python API "
+            "and approve the first-connection auth dialog, then wait a few seconds.",
+        )
+
+    frame = config.iterm2.default_window
+    try:
+        result = await spawn_global_claude_window(
+            iterm.connection, dev_root, frame, req.prompt
         )
     except Exception as e:
         raise HTTPException(
