@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { getJiraConfig } from "../api/config";
+import { refreshInbox } from "../api/inbox";
 import { listRepos } from "../api/repos";
 import { listWorktrees, syncWorktrees } from "../api/worktrees";
 import { AddRepoModal } from "../components/AddRepoModal";
@@ -43,8 +44,21 @@ export function HubPage() {
   const jira = jiraQuery.data ?? null;
 
   const sync = useMutation({
-    mutationFn: syncWorktrees,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["worktrees"] }),
+    // Fire both reconcile passes in parallel: local worktrees against
+    // git, and the inbox against `gh search prs`. The background inbox
+    // poll keeps running independently every 60s — this just forces an
+    // immediate tick so the user doesn't wait.
+    mutationFn: async () => {
+      const [worktreesResult] = await Promise.all([
+        syncWorktrees(),
+        refreshInbox(),
+      ]);
+      return worktreesResult;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["worktrees"] });
+      queryClient.invalidateQueries({ queryKey: ["inbox"] });
+    },
   });
 
   return (
@@ -67,13 +81,13 @@ export function HubPage() {
                 Workspaces
               </h2>
               {repos.length > 0 && (
-                <Tooltip text="Reconcile workspaces with `git worktree list`: import new ones, drop rows whose worktree was removed outside CDH.">
+                <Tooltip text="Reconcile workspaces with `git worktree list` (import new ones, drop removed ones) AND force an inbox refresh against GitHub. The background inbox poll continues every 60s.">
                   <Button
                     variant="secondary"
                     onClick={() => sync.mutate()}
                     disabled={sync.isPending}
                   >
-                    {sync.isPending ? "Syncing…" : "Sync worktrees"}
+                    {sync.isPending ? "Syncing…" : "Sync"}
                   </Button>
                 </Tooltip>
               )}
