@@ -104,7 +104,7 @@ describe("GlobalSkillsTile", () => {
     });
   });
 
-  test("Enter in the input submits the freeform prompt", async () => {
+  test("plain Enter inserts a newline; Cmd+Enter submits", async () => {
     vi.mocked(configApi.getGlobalSkills).mockResolvedValue([]);
     vi.mocked(configApi.runGlobalFreeform).mockResolvedValue({
       window_id: "W",
@@ -114,10 +114,32 @@ describe("GlobalSkillsTile", () => {
     renderTile();
     const input = await screen.findByLabelText(/ask claude/i);
     fireEvent.change(input, { target: { value: "hello" } });
-    fireEvent.keyDown(input, { key: "Enter" });
 
+    // Plain Enter is a no-op (default textarea newline behavior).
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(configApi.runGlobalFreeform).not.toHaveBeenCalled();
+
+    // Cmd+Enter (macOS) submits.
+    fireEvent.keyDown(input, { key: "Enter", metaKey: true });
     await waitFor(() => {
       expect(configApi.runGlobalFreeform).toHaveBeenCalledWith("hello");
+    });
+  });
+
+  test("Ctrl+Enter also submits (cross-platform)", async () => {
+    vi.mocked(configApi.getGlobalSkills).mockResolvedValue([]);
+    vi.mocked(configApi.runGlobalFreeform).mockResolvedValue({
+      window_id: "W",
+      claude_session_id: "S",
+    });
+
+    renderTile();
+    const input = await screen.findByLabelText(/ask claude/i);
+    fireEvent.change(input, { target: { value: "hi" } });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+
+    await waitFor(() => {
+      expect(configApi.runGlobalFreeform).toHaveBeenCalledWith("hi");
     });
   });
 });
