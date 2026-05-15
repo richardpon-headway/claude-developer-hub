@@ -25,6 +25,7 @@ function renderTile() {
 beforeEach(() => {
   vi.mocked(configApi.getGlobalSkills).mockReset();
   vi.mocked(configApi.runGlobalSkill).mockReset();
+  vi.mocked(configApi.runGlobalFreeform).mockReset();
 });
 
 afterEach(() => {
@@ -32,14 +33,14 @@ afterEach(() => {
 });
 
 describe("GlobalSkillsTile", () => {
-  test("renders nothing when no global skills are configured", async () => {
+  test("renders the tile with the freeform input even when no skills are configured", async () => {
     vi.mocked(configApi.getGlobalSkills).mockResolvedValue([]);
-    const { container } = renderTile();
-    // Give the query a tick to resolve, then assert no tile rendered.
+    renderTile();
     await waitFor(() => {
       expect(configApi.getGlobalSkills).toHaveBeenCalled();
     });
-    expect(container.querySelector("section")).toBeNull();
+    // The freeform "Ask Claude" surface is independent of the skill list.
+    expect(screen.getByLabelText(/ask claude/i)).toBeInTheDocument();
   });
 
   test("renders one button per configured skill and clicking fires the api", async () => {
@@ -64,6 +65,59 @@ describe("GlobalSkillsTile", () => {
       expect(configApi.runGlobalSkill).toHaveBeenCalledWith(
         "pr-check-action-required",
       );
+    });
+  });
+
+  test("freeform Run button is disabled until the user types something", async () => {
+    vi.mocked(configApi.getGlobalSkills).mockResolvedValue([]);
+    renderTile();
+    const input = await screen.findByLabelText(/ask claude/i);
+    const runBtn = screen.getByRole("button", { name: /^run$/i });
+    expect(runBtn).toBeDisabled();
+
+    fireEvent.change(input, { target: { value: "what's up" } });
+    expect(runBtn).toBeEnabled();
+
+    // Whitespace-only re-disables (the trim() check).
+    fireEvent.change(input, { target: { value: "   " } });
+    expect(runBtn).toBeDisabled();
+  });
+
+  test("freeform submit calls the api with the trimmed prompt and clears the input on success", async () => {
+    vi.mocked(configApi.getGlobalSkills).mockResolvedValue([]);
+    vi.mocked(configApi.runGlobalFreeform).mockResolvedValue({
+      window_id: "W",
+      claude_session_id: "S",
+    });
+
+    renderTile();
+    const input = (await screen.findByLabelText(/ask claude/i)) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "  summarize my inbox  " } });
+    fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
+
+    await waitFor(() => {
+      // Trimmed before the API call.
+      expect(configApi.runGlobalFreeform).toHaveBeenCalledWith("summarize my inbox");
+    });
+    await waitFor(() => {
+      expect(input.value).toBe("");
+    });
+  });
+
+  test("Enter in the input submits the freeform prompt", async () => {
+    vi.mocked(configApi.getGlobalSkills).mockResolvedValue([]);
+    vi.mocked(configApi.runGlobalFreeform).mockResolvedValue({
+      window_id: "W",
+      claude_session_id: "S",
+    });
+
+    renderTile();
+    const input = await screen.findByLabelText(/ask claude/i);
+    fireEvent.change(input, { target: { value: "hello" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(configApi.runGlobalFreeform).toHaveBeenCalledWith("hello");
     });
   });
 });
