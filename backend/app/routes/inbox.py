@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
 from app.config.loader import load_config
+from app.services import inbox_poll
 from app.services import worktree as wt_svc
 from app.services.gh_cli import GhFailed, GhNotFound, run_gh_json
 from app.services.inbox_poll import InboxCache, InboxPr
@@ -76,6 +77,28 @@ def _to_payload(pr: InboxPr) -> InboxPrPayload:
 
 @router.get("/inbox", response_model=InboxResponse)
 async def get_inbox(request: Request) -> InboxResponse:
+    cache: InboxCache | None = getattr(request.app.state, "inbox", None)
+    if cache is None:
+        return InboxResponse(prs=[], checked_at=None)
+    return InboxResponse(
+        prs=[_to_payload(p) for p in cache.prs],
+        checked_at=cache.checked_at,
+    )
+
+
+@router.post("/inbox/refresh", response_model=InboxResponse)
+async def refresh_inbox(request: Request) -> InboxResponse:
+    """Force an immediate inbox poll tick. Used by the hub's Sync
+    button so the user doesn't have to wait up to 60s for the next
+    background refresh.
+
+    The background loop in :mod:`app.services.inbox_poll` keeps running
+    independently — this just runs one extra tick on demand. ``gh``
+    failures inside the tick are swallowed by the same handler as the
+    background path, so this endpoint is safe to call even when
+    ``gh`` is misbehaving.
+    """
+    await inbox_poll._tick(request.app.state)
     cache: InboxCache | None = getattr(request.app.state, "inbox", None)
     if cache is None:
         return InboxResponse(prs=[], checked_at=None)
