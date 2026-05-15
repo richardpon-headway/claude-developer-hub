@@ -213,7 +213,7 @@ function WorkspaceRow({ w, jira }: RowProps) {
               {w.path}
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-start gap-2">
             <OpenItermButton repo={w.repo} name={w.name} ready={w.status === "ready"} status={w.status} />
             <PrButton repo={w.repo} name={w.name} />
             <Tooltip text="Workspace actions: run skills, send text, view setup log">
@@ -329,26 +329,57 @@ function OpenItermButton({ repo, name, ready, status }: OpenItermButtonProps) {
       // waiting the full 5s for the workspaces query to re-poll.
       queryClient.invalidateQueries({ queryKey: ["worktrees"] });
     },
+    onError: () => {
+      // A common failure mode here is "worktree path missing on disk"
+      // (user removed the directory outside CDH). Kick the worktrees
+      // query so the next poll re-runs and Sync-worktrees-style cleanup
+      // surfaces — the row should disappear or flip to a stale status
+      // shortly after.
+      queryClient.invalidateQueries({ queryKey: ["worktrees"] });
+    },
   });
+
+  const errorDetail = mutation.error
+    ? mutation.error instanceof ApiError
+      ? mutation.error.detail
+      : String(mutation.error)
+    : null;
 
   const tooltip = !ready
     ? `worktree status is ${status}; nothing to spawn into`
-    : mutation.error
-      ? mutation.error instanceof ApiError
-        ? mutation.error.detail
-        : String(mutation.error)
+    : errorDetail
+      ? errorDetail
       : "Open this workspace in a new iTerm2 window (multiple windows are fine)";
 
   return (
-    <Tooltip text={tooltip}>
-      <button
-        type="button"
-        onClick={() => mutation.mutate()}
-        disabled={mutation.isPending || !ready}
-        className="rounded border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {mutation.isPending ? "Opening…" : "iTerm2"}
-      </button>
-    </Tooltip>
+    <div className="flex flex-col items-end gap-1">
+      <Tooltip text={tooltip}>
+        <button
+          type="button"
+          onClick={() => mutation.mutate()}
+          disabled={mutation.isPending || !ready}
+          className={`rounded border px-3 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50 ${
+            errorDetail
+              ? "border-red-700 bg-red-950/40 text-red-300 hover:bg-red-900/40"
+              : "border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+          }`}
+        >
+          {mutation.isPending
+            ? "Opening…"
+            : errorDetail
+              ? "iTerm2 ✗"
+              : "iTerm2"}
+        </button>
+      </Tooltip>
+      {errorDetail && (
+        <p
+          role="alert"
+          className="max-w-[220px] text-right text-[10px] leading-tight text-red-400"
+          title={errorDetail}
+        >
+          {errorDetail}
+        </p>
+      )}
+    </div>
   );
 }
