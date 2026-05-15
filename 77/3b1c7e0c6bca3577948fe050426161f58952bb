@@ -1,0 +1,33 @@
+frontend/src/components/GlobalSkillsTile.tsx
+  s_d128a241c2e116::t_9782aefe5575e5 1,5
+  s_d128a241c2e116::t_c2836b1f68b84b 29-34,36-43,71-111
+frontend/src/components/GlobalSkillsTile.test.tsx
+  s_d128a241c2e116::t_6da33dd40d05d3 28
+  s_d128a241c2e116::t_86d86961b81931 36,38,42-43,70-120
+backend/app/routes/skills.py
+  s_d128a241c2e116::t_bd2600e4e966e1 1,3-4,6-11
+  s_d128a241c2e116::t_9e473e6ddf0148 97-150
+frontend/src/api/config.ts
+  s_d128a241c2e116::t_73b2dc61949562 19-21
+backend/tests/test_skills.py
+  s_d128a241c2e116::t_a88a4aa84d6f2a 230-299
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "773b1c7e0c6bca3577948fe050426161f58952bb",
+  "prompts": {},
+  "sessions": {
+    "s_d128a241c2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6a9c603-8a9f-47c5-a234-1b418c8994f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
