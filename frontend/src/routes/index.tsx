@@ -48,18 +48,18 @@ export function HubPage() {
   });
 
   return (
-    <main className="mx-auto max-w-5xl p-8">
+    <main className="mx-auto max-w-7xl p-8">
       <header className="flex items-baseline justify-between">
         <h1 className="text-2xl font-semibold">Claude Developer Hub</h1>
         <Button onClick={() => setModalOpen(true)}>Add a repo</Button>
       </header>
 
-      {/* 5-column grid gives the aside 2/5 of the row (40%) instead of
-          the previous 1/3 — enough to keep the tokens tile + global
-          skills + freeform input comfortable without squeezing the
-          workspace cards. */}
-      <div className="mt-8 grid grid-cols-5 gap-6">
-        <div className="col-span-3 space-y-8">
+      {/* 50/50 grid at max-w-7xl: aside ends up roughly 50% wider than
+          the prior 3:2 layout at max-w-5xl. Workspaces stay readable
+          because the wider container offsets the narrower percentage
+          share. */}
+      <div className="mt-8 grid grid-cols-2 gap-6">
+        <div className="space-y-8">
           <InboxList />
           <section>
             <div className="flex items-baseline justify-between">
@@ -146,7 +146,7 @@ export function HubPage() {
           </section>
         </div>
 
-        <aside className="col-span-2 space-y-6">
+        <aside className="space-y-6">
           <TokenUsageTile />
           <GlobalSkillsTile />
         </aside>

@@ -141,7 +141,6 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
             </div>
 
             <SendTextForm
-              hasClaude={hasClaude}
               onSubmit={(text) => sendMutation.mutate(text)}
               isPending={sendMutation.isPending}
             />
@@ -180,12 +179,11 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
 }
 
 interface SendTextFormProps {
-  hasClaude: boolean;
   isPending: boolean;
   onSubmit: (text: string) => void;
 }
 
-function SendTextForm({ hasClaude, isPending, onSubmit }: SendTextFormProps) {
+function SendTextForm({ isPending, onSubmit }: SendTextFormProps) {
   return (
     <form
       onSubmit={(e) => {
@@ -199,17 +197,21 @@ function SendTextForm({ hasClaude, isPending, onSubmit }: SendTextFormProps) {
       className="space-y-2"
     >
       <label className="block text-xs uppercase tracking-wide text-zinc-500">
-        Send text to Claude
+        Ask Claude
       </label>
       <textarea
         name="text"
-        rows={2}
+        rows={3}
         disabled={isPending}
-        placeholder={
-          hasClaude
-            ? "type a message, press Submit to send + Enter"
-            : "type a message — Submit will spawn iTerm2 and pre-load it"
-        }
+        placeholder="What should we work on?  (⌘↵ to send)"
+        onKeyDown={(e) => {
+          // Match the hub's Ask-Claude convention: plain Enter inserts
+          // a newline, Cmd/Ctrl+Enter submits.
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            e.currentTarget.form?.requestSubmit();
+          }
+        }}
         className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none disabled:opacity-50"
       />
       <div className="flex justify-end">
