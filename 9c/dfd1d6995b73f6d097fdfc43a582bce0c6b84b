@@ -1,0 +1,27 @@
+frontend/src/routes/index.tsx
+  s_d128a241c2e116::t_62fac6386a01d3 57-62
+  s_d128a241c2e116::t_4dcda8dd6749f1 51
+  s_d128a241c2e116::t_a73921305c33fa 149
+frontend/src/routes/workspace.$repo.$name.tsx
+  s_d128a241c2e116::t_eff557764e2a49 186
+  s_d128a241c2e116::t_3e9c609669a783 200,204,206-214
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "9cdfd1d6995b73f6d097fdfc43a582bce0c6b84b",
+  "prompts": {},
+  "sessions": {
+    "s_d128a241c2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6a9c603-8a9f-47c5-a234-1b418c8994f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
