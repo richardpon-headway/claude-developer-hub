@@ -227,3 +227,73 @@ def test_spawn_global_claude_window_sends_correct_keystrokes(
     assert sent == f"cd {tmp_path}\nclaude '/pr-check-action-required'\n"
     fake_window.async_set_frame.assert_awaited_once()
     fake_window.async_activate.assert_awaited_once()
+
+
+# --- free-form prompt endpoint ----------------------------------------------
+
+
+def test_freeform_empty_prompt_returns_422(_isolate: dict[str, Path]) -> None:
+    _write_config(_isolate["config_path"], [])
+    with TestClient(app) as client:
+        r = client.post("/api/skills/global/freeform", json={"prompt": ""})
+    assert r.status_code == 422
+
+
+def test_freeform_503_when_iterm_disconnected(_isolate: dict[str, Path]) -> None:
+    _write_config(_isolate["config_path"], [])
+    with TestClient(app) as client:
+        client.app.state.iterm = SimpleNamespace(connection=None)
+        r = client.post(
+            "/api/skills/global/freeform",
+            json={"prompt": "what is the status of PROJ-218?"},
+        )
+    assert r.status_code == 503
+
+
+def test_freeform_400_when_development_root_missing(
+    _isolate: dict[str, Path], tmp_path: Path
+) -> None:
+    bogus = tmp_path / "no-such-dir"
+    _isolate["config_path"].write_text(
+        yaml.safe_dump(
+            {
+                "development_root": str(bogus),
+                "repos": [],
+                "global_skills": [],
+            }
+        )
+    )
+    with TestClient(app) as client:
+        client.app.state.iterm = SimpleNamespace(connection=MagicMock())
+        r = client.post(
+            "/api/skills/global/freeform",
+            json={"prompt": "hi"},
+        )
+    assert r.status_code == 400
+    assert "development_root" in r.json()["detail"]
+
+
+def test_freeform_happy_path_spawns_iterm_with_user_prompt(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End-to-end: the user-typed prompt arrives at iTerm2 as the
+    initial argument to ``claude '<prompt>'``."""
+    _write_config(_isolate["config_path"], [])
+    fake_window = _build_fake_window(window_id="GW9", session_id="GS9")
+    _stub_iterm2(monkeypatch, fake_window)
+
+    user_prompt = "summarize what changed in the inbox over the last 24h"
+    with TestClient(app) as client:
+        client.app.state.iterm = SimpleNamespace(connection=MagicMock())
+        r = client.post(
+            "/api/skills/global/freeform", json={"prompt": user_prompt}
+        )
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["window_id"] == "GW9"
+    assert body["claude_session_id"] == "GS9"
+
+    sent = fake_window.current_tab.current_session.async_send_text.await_args.args[0]
+    # The keystroke shape: cd into development_root, then `claude '<prompt>'`.
+    assert f"claude '{user_prompt}'" in sent

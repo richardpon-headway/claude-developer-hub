@@ -16,3 +16,6 @@ export const getWorkspaceSkills = () =>
 
 export const runGlobalSkill = (skill: string) =>
   apiPost<GlobalSkillResponse>("/api/skills/global", { skill });
+
+export const runGlobalFreeform = (prompt: string) =>
+  apiPost<GlobalSkillResponse>("/api/skills/global/freeform", { prompt });
