@@ -1,0 +1,27 @@
+frontend/src/components/GlobalSkillsTile.test.tsx
+  s_d128a241c2e116::t_873fe2047f6e5b 107,117-118,120,122-123,128-142
+frontend/src/routes/index.tsx
+  s_d128a241c2e116::t_d6659d70b1625e 57-62
+  s_d128a241c2e116::t_4c9e6e4b76e274 149
+frontend/src/components/GlobalSkillsTile.tsx
+  s_d128a241c2e116::t_aec42c6ba3df3a 83-84,89-96,99-101,103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "3b2a731cf2280643d3368ec5cc6ade70212528f9",
+  "prompts": {},
+  "sessions": {
+    "s_d128a241c2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6a9c603-8a9f-47c5-a234-1b418c8994f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
