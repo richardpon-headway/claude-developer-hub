@@ -54,8 +54,12 @@ export function HubPage() {
         <Button onClick={() => setModalOpen(true)}>Add a repo</Button>
       </header>
 
-      <div className="mt-8 grid grid-cols-3 gap-6">
-        <div className="col-span-2 space-y-8">
+      {/* 5-column grid gives the aside 2/5 of the row (40%) instead of
+          the previous 1/3 — enough to keep the tokens tile + global
+          skills + freeform input comfortable without squeezing the
+          workspace cards. */}
+      <div className="mt-8 grid grid-cols-5 gap-6">
+        <div className="col-span-3 space-y-8">
           <InboxList />
           <section>
             <div className="flex items-baseline justify-between">
@@ -142,7 +146,7 @@ export function HubPage() {
           </section>
         </div>
 
-        <aside className="space-y-6">
+        <aside className="col-span-2 space-y-6">
           <TokenUsageTile />
           <GlobalSkillsTile />
         </aside>
