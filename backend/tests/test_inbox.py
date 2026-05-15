@@ -453,6 +453,176 @@ def test_assignee_and_mentions_sources(
     assert by_number[101].sources == ["mentions"]
 
 
+# --- reviewer post-filter (drop team-mediated review-requests) ----------
+
+
+def _patch_me_login(monkeypatch: pytest.MonkeyPatch, login: str | None) -> None:
+    """Stub the daemon's @me-login resolver. Setting None simulates
+    `gh api user` being unavailable / unauthed."""
+
+    async def fake_get() -> str | None:
+        return login
+
+    monkeypatch.setattr(inbox_search, "_get_me_login", fake_get)
+
+
+def _patch_review_requests(
+    monkeypatch: pytest.MonkeyPatch,
+    review_requests_by_pr: dict[tuple[str, int], list[dict] | None],
+) -> None:
+    """Stub `_is_directly_review_requested` by intercepting the
+    `gh pr view --json reviewRequests` call. ``None`` for a PR's
+    entry simulates a `gh` failure (fail-open path)."""
+
+    async def fake_is_direct(
+        pr_repo: str, pr_number: int, me_login: str
+    ) -> bool | None:
+        entry = review_requests_by_pr.get((pr_repo, pr_number))
+        if entry is None:
+            return None  # gh failure
+        for r in entry:
+            if r.get("__typename") == "User" and r.get("login") == me_login:
+                return True
+        return False
+
+    monkeypatch.setattr(
+        inbox_search, "_is_directly_review_requested", fake_is_direct
+    )
+
+
+def test_reviewer_filter_keeps_direct_user_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_me_login(monkeypatch, "me")
+    _patch_review_requests(
+        monkeypatch,
+        {
+            ("o/r", 1): [
+                {"__typename": "User", "login": "me"},
+                {"__typename": "Team", "slug": "headway/insurance-platform"},
+            ],
+        },
+    )
+
+    async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
+        if "review-requested:@me" in query:
+            return [_raw(repo="o/r", number=1, head="feat/a", source="reviewer")]
+        return []
+
+    monkeypatch.setattr(inbox_search, "_search", fake_search)
+
+    import asyncio
+
+    result = asyncio.run(inbox_search.fetch_inbox_prs([]))
+    assert len(result) == 1
+    assert result[0].sources == ["reviewer"]
+
+
+def test_reviewer_filter_drops_team_mediated_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A PR matched only via team membership (the user isn't a direct
+    User reviewer) drops the ``reviewer`` source. With no other source
+    left, the row falls out of the inbox entirely."""
+    _patch_me_login(monkeypatch, "me")
+    _patch_review_requests(
+        monkeypatch,
+        {
+            ("o/r", 1): [
+                # 28-team broadcast, no direct user request to @me
+                {"__typename": "Team", "slug": "headway/insurance-platform"},
+                {"__typename": "Team", "slug": "headway/payer"},
+            ],
+        },
+    )
+
+    async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
+        if "review-requested:@me" in query:
+            return [_raw(repo="o/r", number=1, head="feat/a", source="reviewer")]
+        return []
+
+    monkeypatch.setattr(inbox_search, "_search", fake_search)
+
+    import asyncio
+
+    result = asyncio.run(inbox_search.fetch_inbox_prs([]))
+    assert result == []
+
+
+def test_reviewer_filter_strips_reviewer_but_keeps_other_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When a PR matches both author AND a team-mediated reviewer
+    request, the reviewer chip drops but the PR stays under author."""
+    _patch_me_login(monkeypatch, "me")
+    _patch_review_requests(
+        monkeypatch,
+        {
+            ("o/r", 1): [
+                {"__typename": "Team", "slug": "headway/broadcast"},
+            ],
+        },
+    )
+
+    async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
+        if "author:@me" in query:
+            return [_raw(repo="o/r", number=1, head="feat/a", source="author")]
+        if "review-requested:@me" in query:
+            return [_raw(repo="o/r", number=1, head="feat/a", source="reviewer")]
+        return []
+
+    monkeypatch.setattr(inbox_search, "_search", fake_search)
+
+    import asyncio
+
+    result = asyncio.run(inbox_search.fetch_inbox_prs([]))
+    assert len(result) == 1
+    assert result[0].sources == ["author"]
+
+
+def test_reviewer_filter_fail_open_on_gh_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If ``_is_directly_review_requested`` returns ``None`` (gh failed),
+    keep the ``reviewer`` source rather than silently dropping the row."""
+    _patch_me_login(monkeypatch, "me")
+    _patch_review_requests(monkeypatch, {("o/r", 1): None})  # signal: gh failed
+
+    async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
+        if "review-requested:@me" in query:
+            return [_raw(repo="o/r", number=1, head="feat/a", source="reviewer")]
+        return []
+
+    monkeypatch.setattr(inbox_search, "_search", fake_search)
+
+    import asyncio
+
+    result = asyncio.run(inbox_search.fetch_inbox_prs([]))
+    assert len(result) == 1
+    assert result[0].sources == ["reviewer"]
+
+
+def test_reviewer_filter_skipped_when_me_login_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If ``_get_me_login`` returns ``None``, skip the filter and
+    return PRs unchanged (no way to identify @me)."""
+    _patch_me_login(monkeypatch, None)
+
+    async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
+        if "review-requested:@me" in query:
+            return [_raw(repo="o/r", number=1, head="feat/a", source="reviewer")]
+        return []
+
+    monkeypatch.setattr(inbox_search, "_search", fake_search)
+
+    import asyncio
+
+    result = asyncio.run(inbox_search.fetch_inbox_prs([]))
+    assert len(result) == 1
+    assert result[0].sources == ["reviewer"]
+
+
 def test_filter_out_worktree_prs_drops_matches() -> None:
     prs = [
         _raw(repo="o/r", number=1, head="feat/a"),
