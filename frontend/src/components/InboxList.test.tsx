@@ -35,7 +35,7 @@ function pr(overrides: Partial<InboxPr> = {}): InboxPr {
     url: "https://github.com/o/r/pull/1",
     updated_at: "2026-05-14T00:00:00Z",
     ci_status: "pass",
-    source: "author",
+    sources: ["author"],
     stack_top_pr_number: null,
     stack_size: 1,
     stack_position: 1,
@@ -66,11 +66,11 @@ describe("InboxList", () => {
 
   test("groups by source: authored vs reviewer subsections", () => {
     renderInbox([
-      pr({ pr_number: 1, title: "My PR", source: "author" }),
+      pr({ pr_number: 1, title: "My PR", sources: ["author"] }),
       pr({
         pr_number: 2,
         title: "Their PR",
-        source: "team:corp/team_name",
+        sources: ["team:corp/team_name"],
         head_ref: "feat/their",
       }),
     ]);
@@ -82,22 +82,34 @@ describe("InboxList", () => {
 
   test("renders the source chip per row (team name for team:, 'me' otherwise)", () => {
     renderInbox([
-      pr({ pr_number: 1, title: "Authored", source: "author" }),
+      pr({ pr_number: 1, title: "Authored", sources: ["author"] }),
       pr({
         pr_number: 2,
         title: "Team-reviewed",
-        source: "team:corp/team_name",
+        sources: ["team:corp/team_name"],
         head_ref: "feat/y",
       }),
       pr({
         pr_number: 3,
         title: "Direct-reviewed",
-        source: "reviewer",
+        sources: ["reviewer"],
         head_ref: "feat/z",
       }),
     ]);
     // Two "me" chips (author + direct reviewer) + one "corrections"
     expect(screen.getAllByText("me")).toHaveLength(2);
+    expect(screen.getByText("corrections")).toBeInTheDocument();
+  });
+
+  test("renders multiple source chips when a PR matches multiple queries", () => {
+    renderInbox([
+      pr({
+        pr_number: 5,
+        title: "Multi-source PR",
+        sources: ["author", "team:corp/team_name"],
+      }),
+    ]);
+    expect(screen.getByText("me")).toBeInTheDocument();
     expect(screen.getByText("corrections")).toBeInTheDocument();
   });
 
@@ -125,7 +137,7 @@ describe("InboxList", () => {
         stack_top_pr_number: 12,
         stack_size: 3,
         stack_position: 1,
-        source: "reviewer",
+        sources: ["reviewer"],
       }),
       pr({
         pr_number: 11,
@@ -135,7 +147,7 @@ describe("InboxList", () => {
         stack_top_pr_number: 12,
         stack_size: 3,
         stack_position: 2,
-        source: "reviewer",
+        sources: ["reviewer"],
       }),
       pr({
         pr_number: 12,
@@ -145,7 +157,7 @@ describe("InboxList", () => {
         stack_top_pr_number: 12,
         stack_size: 3,
         stack_position: 3,
-        source: "reviewer",
+        sources: ["reviewer"],
       }),
     ];
     renderInbox(stack);
