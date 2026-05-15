@@ -1,0 +1,26 @@
+backend/tests/test_inbox.py
+  s_d128a241c2e116::t_c6d667e99223a8 456-625
+backend/app/services/inbox_search.py
+  s_d128a241c2e116::t_fde6ad2525fee6 357-363
+  s_d128a241c2e116::t_72ae0b832ec322 23,28,33-55
+  s_d128a241c2e116::t_a143e4a1c1b897 217-311
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "53e432f1f4b3defd40d253039974f05a79a522a4",
+  "prompts": {},
+  "sessions": {
+    "s_d128a241c2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6a9c603-8a9f-47c5-a234-1b418c8994f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
