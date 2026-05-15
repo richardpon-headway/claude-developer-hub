@@ -1,0 +1,25 @@
+backend/app/services/inbox_poll.py
+  s_d128a241c2e116::t_0ed859c1ff8c30 21
+  s_d128a241c2e116::t_9b43c9fbe4db2c 79-81,87,93-99,111-117,123-131
+backend/tests/test_inbox.py
+  s_d128a241c2e116::t_90950aaca4cd3c 265-269,282-287,304-310,312-315,321-345
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "5f5538d09f25627717588021a86953d29b95e1ec",
+  "prompts": {},
+  "sessions": {
+    "s_d128a241c2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6a9c603-8a9f-47c5-a234-1b418c8994f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
