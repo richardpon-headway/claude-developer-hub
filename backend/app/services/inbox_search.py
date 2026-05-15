@@ -29,15 +29,23 @@ from app.services.gh_cli import GhNotFound, run_gh_json
 log = logging.getLogger(__name__)
 
 
-# Fields requested from ``gh search prs --json``. statusCheckRollup is
-# documented for ``gh pr view`` and works on ``gh search prs`` as well —
-# the slice 1 spike confirmed it returns the simplified rollup shape
-# (a list of {state, conclusion, status} entries, not the per-check
-# breakdown). Enough to compute a coarse pass/fail/pending headline.
+# Fields ``gh search prs --json`` actually supports.
+#
+# Earlier we asked for ``headRefName``, ``baseRefName``, ``headRepository``,
+# and ``statusCheckRollup`` — those are ``gh pr view`` fields, NOT search
+# fields. ``gh`` rejected the whole call with "Unknown JSON field",
+# ``run_gh_json(swallow_errors=True)`` returned None, and the inbox came
+# back empty. The valid set is from ``gh search prs --json NOPE`` error
+# output: assignees, author, authorAssociation, body, closedAt,
+# commentsCount, createdAt, id, isDraft, isLocked, isPullRequest, labels,
+# number, repository, state, title, updatedAt, url.
+#
+# Consequence: head_ref/base_ref/ci_status/headRepository aren't
+# available at search time. Stack detection collapses (every PR is its
+# own size-1 stack); ci_status defaults to ``none``. A future
+# enhancement can fan out to ``gh pr view`` per PR to re-populate these.
 _GH_SEARCH_JSON_FIELDS = (
-    "number,title,url,isDraft,updatedAt,createdAt,"
-    "author,headRefName,baseRefName,headRepository,repository,"
-    "statusCheckRollup"
+    "number,title,url,isDraft,updatedAt,createdAt,author,repository,state"
 )
 
 
@@ -107,39 +115,45 @@ def _row_from_gh(entry: dict, *, source: str) -> InboxPrRaw | None:
     Each call seeds ``sources`` with a single entry; the merge logic in
     :func:`fetch_inbox_prs` accumulates additional sources when the
     same PR comes back from a later search query.
+
+    ``head_ref``/``base_ref``/``ci_status`` are not available from
+    ``gh search prs`` (those are ``gh pr view`` fields), so they're
+    filled with empty/``none`` placeholders.
     """
     number = entry.get("number")
     title = entry.get("title")
     url = entry.get("url")
     repo = entry.get("repository") or {}
-    owner_field = (repo.get("owner") or {}).get("login")
-    if not owner_field:
-        owner_field = repo.get("nameWithOwner", "").split("/")[0]
-    repo_owner = owner_field
+    # `gh search prs` returns the repository as
+    # ``{name, nameWithOwner, isFork, isPrivate, ...}`` — no nested
+    # ``owner`` object. Use nameWithOwner directly.
+    name_with_owner = repo.get("nameWithOwner")
     repo_name = repo.get("name")
-    head_ref = entry.get("headRefName")
-    base_ref = entry.get("baseRefName")
     author = (entry.get("author") or {}).get("login")
     updated = entry.get("updatedAt") or ""
 
-    if not isinstance(number, int) or not title or not url or not repo_name or not repo_owner:
+    if (
+        not isinstance(number, int)
+        or not title
+        or not url
+        or not repo_name
+        or not isinstance(name_with_owner, str)
+        or "/" not in name_with_owner
+    ):
         log.info("skipping malformed gh search prs row: %s", entry)
-        return None
-    if not isinstance(head_ref, str) or not isinstance(base_ref, str):
-        log.info("skipping gh search prs row without head/base ref: #%s", number)
         return None
 
     return InboxPrRaw(
-        pr_repo=f"{repo_owner}/{repo_name}",
+        pr_repo=name_with_owner,
         pr_number=number,
         title=title,
         author_login=author or "",
-        head_ref=head_ref,
-        base_ref=base_ref,
+        head_ref="",
+        base_ref="",
         is_draft=bool(entry.get("isDraft")),
         url=url,
         updated_at=updated,
-        ci_status=_ci_status_from_rollup(entry.get("statusCheckRollup")),
+        ci_status="none",
         sources=[source],
     )
 
@@ -175,16 +189,17 @@ async def _search(query: str, *, source: str) -> list[InboxPrRaw]:
 
 
 async def fetch_inbox_prs(teams: list[str]) -> list[InboxPrRaw]:
-    """Run the three (or 2 + N-teams) search queries and merge.
+    """Run every per-source search query and merge results.
 
     Unlike a priority-dedup, this accumulates *every* source a PR
-    matches — so a PR returned by both ``author:@me`` and
+    matches — a PR returned by both ``author:@me`` and
     ``team-review-requested:<team>`` carries both labels. The first
     row for a given ``(pr_repo, pr_number)`` is kept as the carrier
-    of the immutable fields (title, head_ref, etc.); subsequent
-    matches just append to its ``sources`` list. Call order
-    (``author`` → ``reviewer`` → ``team:*``) defines the priority,
-    so ``sources[0]`` is the primary signal.
+    of the immutable fields (title etc.); subsequent matches just
+    append to its ``sources`` list.
+
+    Call order defines the source priority (sources[0] = primary):
+    ``author`` → ``reviewer`` → ``assignee`` → ``mentions`` → ``team:*``.
 
     Raises :class:`app.services.gh_cli.GhNotFound` if ``gh`` is missing —
     callers (the polling loop) catch and log once.
@@ -208,6 +223,8 @@ async def fetch_inbox_prs(teams: list[str]) -> list[InboxPrRaw]:
     try:
         _absorb(await _search("author:@me", source="author"))
         _absorb(await _search("review-requested:@me", source="reviewer"))
+        _absorb(await _search("assignee:@me", source="assignee"))
+        _absorb(await _search("mentions:@me", source="mentions"))
         for team in teams:
             _absorb(
                 await _search(f"team-review-requested:{team}", source=f"team:{team}")

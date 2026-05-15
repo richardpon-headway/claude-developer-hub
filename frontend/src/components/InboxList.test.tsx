@@ -80,7 +80,7 @@ describe("InboxList", () => {
     expect(screen.getByText("Their PR")).toBeInTheDocument();
   });
 
-  test("renders the source chip per row (team name for team:, 'me' otherwise)", () => {
+  test("renders the source chip per row (descriptive label per source)", () => {
     renderInbox([
       pr({ pr_number: 1, title: "Authored", sources: ["author"] }),
       pr({
@@ -95,9 +95,23 @@ describe("InboxList", () => {
         sources: ["reviewer"],
         head_ref: "feat/z",
       }),
+      pr({
+        pr_number: 4,
+        title: "Assigned",
+        sources: ["assignee"],
+        head_ref: "feat/a",
+      }),
+      pr({
+        pr_number: 5,
+        title: "Mentioned",
+        sources: ["mentions"],
+        head_ref: "feat/m",
+      }),
     ]);
-    // Two "me" chips (author + direct reviewer) + one "corrections"
-    expect(screen.getAllByText("me")).toHaveLength(2);
+    expect(screen.getByText("author")).toBeInTheDocument();
+    expect(screen.getByText("reviewer")).toBeInTheDocument();
+    expect(screen.getByText("assignee")).toBeInTheDocument();
+    expect(screen.getByText("mention")).toBeInTheDocument();
     expect(screen.getByText("corrections")).toBeInTheDocument();
   });
 
@@ -109,7 +123,7 @@ describe("InboxList", () => {
         sources: ["author", "team:acme/corrections"],
       }),
     ]);
-    expect(screen.getByText("me")).toBeInTheDocument();
+    expect(screen.getByText("author")).toBeInTheDocument();
     expect(screen.getByText("corrections")).toBeInTheDocument();
   });
 
