@@ -21,6 +21,7 @@ from app.services.pr_state import (
     PrComments,
     PrSummary,
     _classify,
+    _compute_labels,
     _count_checks,
     _count_comments,
     get_pr_state_sync,
@@ -237,6 +238,74 @@ def test_classify_waiting_on_others_is_default() -> None:
         comments=_cm(),
     )
     assert h == "waiting_on_others"
+
+
+# --- multi-label emission ---------------------------------------------------
+
+
+def test_compute_labels_emits_multiple_signals() -> None:
+    """A PR with failing CI AND a human comment surfaces BOTH labels —
+    unlike the single-headline classifier which used to suppress the
+    comment under the louder ci_failing signal."""
+    labels = _compute_labels(
+        state=None,
+        is_draft=False,
+        mergeable="MERGEABLE",
+        merge_state_status="CLEAN",
+        review_decision=None,
+        checks=_c(passed=2, fail=1),
+        comments=_cm(human=1),
+    )
+    assert "ci_failing" in labels
+    assert "human_comment" in labels
+
+
+def test_compute_labels_terminal_state_leads_priority_order() -> None:
+    """Merged + ci_failing co-occur, but ``merged`` lands at index 0
+    so the back-compat headline + tier mapping stay correct."""
+    labels = _compute_labels(
+        state="MERGED",
+        is_draft=False,
+        mergeable=None,
+        merge_state_status=None,
+        review_decision="APPROVED",
+        checks=_c(passed=5, fail=1),
+        comments=_cm(human=2),
+    )
+    assert labels[0] == "merged"
+    assert "ci_failing" in labels
+
+
+def test_compute_labels_falls_back_to_waiting_on_others() -> None:
+    labels = _compute_labels(
+        state="OPEN",
+        is_draft=False,
+        mergeable="MERGEABLE",
+        merge_state_status="CLEAN",
+        review_decision=None,
+        checks=_c(passed=5),
+        comments=_cm(),
+    )
+    assert labels == ["waiting_on_others"]
+
+
+def test_summarize_gh_payload_populates_labels() -> None:
+    """End-to-end through the public summarizer: labels list + headline
+    are both present and consistent."""
+    summary = summarize_gh_payload(
+        {
+            "number": 1,
+            "url": "https://x",
+            "title": "t",
+            "isDraft": False,
+            "state": "OPEN",
+            "statusCheckRollup": [{"bucket": "fail"}],
+            "comments": [{"author": {"login": "alice"}}],
+        }
+    )
+    assert summary.headline == "ci_failing"
+    assert summary.labels[0] == "ci_failing"
+    assert "human_comment" in summary.labels
 
 
 # --- check + comment counters ----------------------------------------------

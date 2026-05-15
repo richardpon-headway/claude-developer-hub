@@ -84,6 +84,10 @@ export interface PrComments {
 
 export interface PrStateSummary {
   headline: PrHeadline;
+  // Every signal that applies, priority-ordered (so labels[0] === headline).
+  // Older pr_state rows persisted before the multi-label change may
+  // legitimately omit this — the read path back-fills it from headline.
+  labels: PrHeadline[];
   pr_number: number | null;
   url: string | null;
   title: string | null;
@@ -199,8 +203,10 @@ export interface InboxPr {
   url: string;
   updated_at: string;
   ci_status: InboxCiStatus;
-  // "author" | "reviewer" | "team:<owner/slug>"
-  source: string;
+  // Every reason the PR is in this user's inbox, priority-ordered.
+  // First entry is the primary signal (used for subsection placement).
+  // Values: "author" | "reviewer" | "team:<owner/slug>"
+  sources: string[];
   stack_top_pr_number: number | null;
   stack_size: number;
   // 1 = bottom of stack (closest to main); stack_size = top of stack

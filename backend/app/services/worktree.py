@@ -84,6 +84,11 @@ def _row_to_model(row: tuple) -> WorktreeRow:
         try:
             data = json.loads(payload_json)
             data["checked_at"] = checked_at
+            # Back-compat: rows written before the multi-label change
+            # have no ``labels`` in payload. Fall back to a one-element
+            # list derived from the headline so the frontend renders.
+            if "labels" not in data:
+                data["labels"] = [data["headline"]] if data.get("headline") else []
             pr_state = PrStateSummary.model_validate(data)
         except Exception:
             # Bad JSON in the cache row shouldn't sink the list query —

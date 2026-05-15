@@ -88,7 +88,11 @@ class PrComments:
 class PrSummary:
     """Classified, serialized view of one PR's state. The shape here
     mirrors what the hub frontend reads from /api/worktrees and the
-    refresh endpoint."""
+    refresh endpoint.
+
+    ``labels`` lists every applicable signal in priority order;
+    ``headline`` is kept for back-compat and equals ``labels[0]``.
+    """
 
     headline: str
     pr_number: int | None = None
@@ -103,6 +107,7 @@ class PrSummary:
     base_ref: str | None = None
     head_ref: str | None = None
     updated_at: str | None = None
+    labels: list[str] = field(default_factory=list)
 
     def to_payload(self) -> dict:
         d = asdict(self)
@@ -127,6 +132,88 @@ class PrStateRow:
 # ---------------------------------------------------------------------
 
 
+# Priority order for labels. The hub's tier grouping uses ``labels[0]``
+# to decide which tier a workspace sorts into AND as the back-compat
+# ``headline``, so the order here matters and intentionally mirrors
+# the original first-match-wins classifier:
+#
+# - Terminal states (``merged``/``closed``) lead because once a PR is
+#   done, mid-flow signals like ``ci_failing`` stop being actionable —
+#   the cleanup IS the action.
+# - Within actionable signals, the loudest ones (CI fail, conflict)
+#   lead the calmer ones (review, checks running).
+_LABEL_PRIORITY: tuple[str, ...] = (
+    "merged",
+    "closed",
+    "ci_failing",
+    "merge_conflicts",
+    "human_comment",
+    "review_requested",
+    "ready_to_merge",
+    "in_merge_queue",
+    "checks_running",
+    "waiting_on_others",
+    "draft",
+    "no_pr",
+)
+
+
+def _compute_labels(
+    *,
+    state: str | None,
+    is_draft: bool,
+    mergeable: str | None,
+    merge_state_status: str | None,
+    review_decision: str | None,
+    checks: PrChecks,
+    comments: PrComments,
+) -> list[str]:
+    """Emit every label that applies, ordered by priority.
+
+    Unlike the prior single-headline classifier, signals don't suppress
+    each other — a PR can carry both ``ci_failing`` and ``human_comment``
+    simultaneously, which is the case the labels-UI was designed for.
+    Some labels are still mutually exclusive by their definition
+    (``ready_to_merge`` requires zero fails/pending, so it can't
+    co-occur with ``ci_failing`` or ``checks_running``).
+    """
+    found: set[str] = set()
+
+    state_upper = (state or "").upper()
+    if state_upper == "MERGED":
+        found.add("merged")
+    if state_upper == "CLOSED":
+        found.add("closed")
+    if checks.fail > 0:
+        found.add("ci_failing")
+    if (merge_state_status or "").upper() == "DIRTY" or (
+        mergeable or ""
+    ).upper() == "CONFLICTING":
+        found.add("merge_conflicts")
+    approved = (review_decision or "").upper() == "APPROVED"
+    # `ready_to_merge`'s definition genuinely requires no fails/pending —
+    # those aren't priority suppression, they're part of "ready".
+    if approved and checks.fail == 0 and checks.pending == 0:
+        found.add("ready_to_merge")
+    # Below this point we deliberately drop the cross-signal guards
+    # the old single-headline classifier carried (e.g. "no human_comment
+    # if ci_failing"). Under multi-label semantics each signal stands
+    # on its own; the UI surfaces them all as chips.
+    if comments.human > 0 and not approved:
+        found.add("human_comment")
+    if checks.pending > 0:
+        found.add("checks_running")
+    if is_draft:
+        found.add("draft")
+
+    if not found:
+        found.add("waiting_on_others")
+
+    # Project onto the priority tuple to fix ordering and guarantee
+    # labels[0] is the most-important signal.
+    return [label for label in _LABEL_PRIORITY if label in found]
+
+
 def _classify(
     *,
     state: str | None,
@@ -137,31 +224,19 @@ def _classify(
     checks: PrChecks,
     comments: PrComments,
 ) -> str:
-    """Apply the priority-order rules above to raw gh fields, return
-    the headline."""
-    # Terminal states win over everything — once a PR is merged or
-    # closed, "CI failing" or "human comment" classifications stop being
-    # meaningful, and the row should visibly indicate the PR is done.
-    state_upper = (state or "").upper()
-    if state_upper == "MERGED":
-        return "merged"
-    if state_upper == "CLOSED":
-        return "closed"
-    if checks.fail > 0:
-        return "ci_failing"
-    if (merge_state_status or "").upper() == "DIRTY" or (mergeable or "").upper() == "CONFLICTING":
-        return "merge_conflicts"
-    # in_merge_queue: skipped — no signal in `gh pr view` alone.
-    approved = (review_decision or "").upper() == "APPROVED"
-    if approved and checks.fail == 0 and checks.pending == 0:
-        return "ready_to_merge"
-    if comments.human > 0 and not approved and checks.fail == 0:
-        return "human_comment"
-    if checks.pending > 0 and checks.fail == 0:
-        return "checks_running"
-    if is_draft:
-        return "draft"
-    return "waiting_on_others"
+    """Back-compat shim: return the highest-priority label as a single
+    string. New code should use :func:`_compute_labels` and read
+    ``labels[0]`` directly."""
+    labels = _compute_labels(
+        state=state,
+        is_draft=is_draft,
+        mergeable=mergeable,
+        merge_state_status=merge_state_status,
+        review_decision=review_decision,
+        checks=checks,
+        comments=comments,
+    )
+    return labels[0]
 
 
 def _count_checks(roll: list) -> PrChecks:
@@ -211,7 +286,7 @@ def summarize_gh_payload(payload: dict | None) -> PrSummary:
     """Map a parsed ``gh pr view`` JSON dict into a PrSummary. ``None``
     or empty dict signals "no PR found for this branch"."""
     if not payload:
-        return PrSummary(headline="no_pr")
+        return PrSummary(headline="no_pr", labels=["no_pr"])
 
     is_draft = bool(payload.get("isDraft"))
     mergeable = payload.get("mergeable")
@@ -220,7 +295,7 @@ def summarize_gh_payload(payload: dict | None) -> PrSummary:
     checks = _count_checks(payload.get("statusCheckRollup") or [])
     comments = _count_comments(payload.get("comments") or [])
 
-    headline = _classify(
+    labels = _compute_labels(
         state=payload.get("state"),
         is_draft=is_draft,
         mergeable=mergeable,
@@ -231,7 +306,8 @@ def summarize_gh_payload(payload: dict | None) -> PrSummary:
     )
 
     return PrSummary(
-        headline=headline,
+        headline=labels[0],
+        labels=labels,
         pr_number=payload.get("number"),
         url=payload.get("url"),
         title=payload.get("title"),
