@@ -1,7 +1,7 @@
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 // Stub Link so WorkspaceList renders without a router context.
 vi.mock("@tanstack/react-router", async () => {
@@ -23,6 +23,11 @@ vi.mock("@tanstack/react-router", async () => {
     ),
   };
 });
+
+vi.mock("../api/worktrees");
+
+import * as worktreesApi from "../api/worktrees";
+import { ApiError } from "../api/client";
 
 import { WorkspaceList } from "./WorkspaceList";
 import type { PrHeadline, PrStateSummary, Worktree } from "../api/types";
@@ -79,6 +84,10 @@ function wt(overrides: Partial<Worktree> = {}): Worktree {
     ...overrides,
   };
 }
+
+beforeEach(() => {
+  vi.mocked(worktreesApi.spawnIterm).mockReset();
+});
 
 afterEach(() => {
   cleanup();
@@ -140,5 +149,32 @@ describe("WorkspaceList", () => {
       wt({ name: "old", pr_state: stateWithoutLabels }),
     ]);
     expect(screen.getByText("ci fail")).toBeInTheDocument();
+  });
+
+  test("iTerm2 spawn failure surfaces inline error + flips the button to a red state", async () => {
+    // Reproduces the "underlying worktree was deleted" case: backend
+    // returns 400 with "worktree path missing on disk", and the user
+    // sees nothing happen unless the error is rendered inline.
+    vi.mocked(worktreesApi.spawnIterm).mockRejectedValue(
+      new ApiError(400, "worktree path missing on disk: /tmp/gone"),
+    );
+
+    renderWorkspaces([wt({ name: "ghost" })]);
+
+    const btn = screen.getByRole("button", { name: /^iterm2$/i });
+    fireEvent.click(btn);
+
+    await waitFor(() => {
+      expect(worktreesApi.spawnIterm).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByText(/worktree path missing on disk/i),
+      ).toBeInTheDocument();
+    });
+    // Button visibly flipped to the error state.
+    expect(
+      screen.getByRole("button", { name: /iterm2 ✗/i }),
+    ).toBeInTheDocument();
   });
 });
