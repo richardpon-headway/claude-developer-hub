@@ -38,7 +38,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.db import get_db_path, open_db
-from app.services.gh_cli import run_gh_json
+from app.services.gh_cli import GhNotFound, run_gh_json
 
 log = logging.getLogger(__name__)
 
@@ -108,6 +108,10 @@ class PrSummary:
     head_ref: str | None = None
     updated_at: str | None = None
     labels: list[str] = field(default_factory=list)
+    # Number of PR review threads that are NOT resolved AND NOT
+    # outdated (outdated = superseded by a force-push). Surfaces as
+    # the ``unresolved_comments`` label when > 0.
+    unresolved_threads: int = 0
 
     def to_payload(self) -> dict:
         d = asdict(self)
@@ -147,6 +151,10 @@ _LABEL_PRIORITY: tuple[str, ...] = (
     "closed",
     "ci_failing",
     "merge_conflicts",
+    # Unresolved review threads sit above generic ``human_comment`` —
+    # the count is from GitHub's per-thread isResolved flag, so it's
+    # a strictly more specific signal of "feedback needs addressing".
+    "unresolved_comments",
     "human_comment",
     "review_requested",
     "ready_to_merge",
@@ -167,6 +175,7 @@ def _compute_labels(
     review_decision: str | None,
     checks: PrChecks,
     comments: PrComments,
+    unresolved_threads: int = 0,
 ) -> list[str]:
     """Emit every label that applies, ordered by priority.
 
@@ -199,6 +208,8 @@ def _compute_labels(
     # the old single-headline classifier carried (e.g. "no human_comment
     # if ci_failing"). Under multi-label semantics each signal stands
     # on its own; the UI surfaces them all as chips.
+    if unresolved_threads > 0:
+        found.add("unresolved_comments")
     if comments.human > 0 and not approved:
         found.add("human_comment")
     if checks.pending > 0:
@@ -282,9 +293,17 @@ def _count_comments(comments: list) -> PrComments:
     return out
 
 
-def summarize_gh_payload(payload: dict | None) -> PrSummary:
+def summarize_gh_payload(
+    payload: dict | None, *, unresolved_threads: int = 0
+) -> PrSummary:
     """Map a parsed ``gh pr view`` JSON dict into a PrSummary. ``None``
-    or empty dict signals "no PR found for this branch"."""
+    or empty dict signals "no PR found for this branch".
+
+    ``unresolved_threads`` is the count of un-resolved + un-outdated
+    review threads, fetched separately via GraphQL by the caller; it
+    flows through ``_compute_labels`` to emit the
+    ``unresolved_comments`` label.
+    """
     if not payload:
         return PrSummary(headline="no_pr", labels=["no_pr"])
 
@@ -303,6 +322,7 @@ def summarize_gh_payload(payload: dict | None) -> PrSummary:
         review_decision=review_decision,
         checks=checks,
         comments=comments,
+        unresolved_threads=unresolved_threads,
     )
 
     return PrSummary(
@@ -320,6 +340,7 @@ def summarize_gh_payload(payload: dict | None) -> PrSummary:
         base_ref=payload.get("baseRefName"),
         head_ref=payload.get("headRefName"),
         updated_at=payload.get("updatedAt"),
+        unresolved_threads=unresolved_threads,
     )
 
 
@@ -328,11 +349,73 @@ def summarize_gh_payload(payload: dict | None) -> PrSummary:
 # ---------------------------------------------------------------------
 
 
+_PR_URL_RE = re.compile(r"^https?://github\.com/([^/]+)/([^/]+)/pull/(\d+)")
+
+
+_UNRESOLVED_THREADS_QUERY = """\
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100) {
+        nodes { isResolved, isOutdated }
+      }
+    }
+  }
+}
+"""
+
+
+async def _fetch_unresolved_threads_count(
+    owner: str, name: str, pr_number: int
+) -> int:
+    """GraphQL fetch for the PR's reviewThread isResolved flags.
+
+    Returns the count of threads that are both unresolved AND not
+    outdated. Outdated threads (those superseded by a force-push) are
+    skipped because they're no longer actionable.
+
+    Fail-open: returns 0 on any gh / parse failure so a transient
+    GraphQL hiccup doesn't make a noisy PR look clean… wait, actually
+    returns 0 = "looks clean", which IS a false-negative. The
+    polling loop will retry on the next tick; we accept silent skip
+    over crashing the whole fetch.
+    """
+    try:
+        data = await run_gh_json(
+            [
+                "api",
+                "graphql",
+                "-f",
+                f"query={_UNRESOLVED_THREADS_QUERY}",
+                "-f",
+                f"owner={owner}",
+                "-f",
+                f"name={name}",
+                "-F",
+                f"number={pr_number}",
+            ],
+            swallow_errors=True,
+        )
+    except GhNotFound:
+        return 0
+    if not isinstance(data, dict):
+        return 0
+    nodes = (
+        ((data.get("data") or {}).get("repository") or {})
+        .get("pullRequest") or {}
+    ).get("reviewThreads", {}).get("nodes") or []
+    return sum(
+        1
+        for t in nodes
+        if t.get("isResolved") is False and t.get("isOutdated") is False
+    )
+
+
 async def fetch_pr_summary(worktree_path: Path) -> PrSummary:
-    """Run ``gh pr view --json …`` inside ``worktree_path`` and return
-    a classified summary. Returns ``PrSummary(headline='no_pr')`` if
-    gh reports no PR for the current branch — that's the normal
-    "branch hasn't been pushed yet" case, not an error.
+    """Run ``gh pr view --json …`` inside ``worktree_path``, then
+    fetch unresolved review-thread counts via GraphQL, and return a
+    classified summary. Returns ``PrSummary(headline='no_pr')`` if
+    gh reports no PR for the current branch.
 
     Raises :class:`app.services.gh_cli.GhNotFound` if ``gh`` isn't on
     PATH; the polling loop catches that and quiets per-row warnings.
@@ -344,8 +427,23 @@ async def fetch_pr_summary(worktree_path: Path) -> PrSummary:
     )
     if payload is None:
         return PrSummary(headline="no_pr")
-    # gh pr view returns a dict; the cast is for type-narrowing only.
-    return summarize_gh_payload(payload if isinstance(payload, dict) else None)
+    if not isinstance(payload, dict):
+        return summarize_gh_payload(None)
+
+    # Best-effort second fetch: review-thread resolution status lives
+    # behind GraphQL (not exposed via ``gh pr view --json``). Failure
+    # silently returns 0 — the rest of the summary still surfaces.
+    unresolved = 0
+    url = payload.get("url")
+    if isinstance(url, str):
+        m = _PR_URL_RE.match(url)
+        if m is not None:
+            owner, name, pr_number = m.group(1), m.group(2), int(m.group(3))
+            unresolved = await _fetch_unresolved_threads_count(
+                owner, name, pr_number
+            )
+
+    return summarize_gh_payload(payload, unresolved_threads=unresolved)
 
 
 # ---------------------------------------------------------------------

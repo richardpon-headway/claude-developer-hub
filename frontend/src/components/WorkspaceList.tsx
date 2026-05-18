@@ -48,6 +48,7 @@ const TIER_FOR_HEADLINE: Record<PrHeadline, Tier> = {
   merged: "merged",
   ci_failing: "needs_action",
   merge_conflicts: "needs_action",
+  unresolved_comments: "needs_action",
   human_comment: "needs_action",
   review_requested: "needs_action",
   closed: "needs_action",
@@ -88,6 +89,7 @@ const TIER_LABEL: Record<Tier, string> = {
 const LABEL_CHIP_STYLE: Record<PrHeadline, { label: string; chip: string }> = {
   ci_failing:        { label: "ci fail",  chip: "border-red-800 bg-red-900/40 text-red-300" },
   merge_conflicts:   { label: "conflict", chip: "border-red-800 bg-red-900/40 text-red-300" },
+  unresolved_comments: { label: "unaddressed", chip: "border-amber-800 bg-amber-900/40 text-amber-300" },
   human_comment:     { label: "review",   chip: "border-amber-800 bg-amber-900/40 text-amber-300" },
   review_requested:  { label: "re-rev",   chip: "border-amber-800 bg-amber-900/40 text-amber-300" },
   merged:            { label: "merged",   chip: "border-purple-800 bg-purple-900/40 text-purple-300" },
