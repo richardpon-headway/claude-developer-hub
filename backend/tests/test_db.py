@@ -12,6 +12,15 @@ import pytest
 from app import db
 
 
+@pytest.fixture(autouse=True)
+def _isolate() -> None:
+    """Override the top-level autouse ``_isolate`` fixture from
+    ``conftest.py`` — those tests want a fresh-migrated DB before each
+    test, but this file's tests are testing the migration runner
+    itself and need to control DB creation manually."""
+    return None
+
+
 @pytest.fixture
 def db_path(tmp_path: Path) -> Path:
     return tmp_path / "cdh-test.db"
