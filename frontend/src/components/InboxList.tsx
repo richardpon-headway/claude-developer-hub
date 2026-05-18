@@ -27,6 +27,28 @@ function sourceChipLabel(source: string): string {
   return source;
 }
 
+// Hover tooltip per source chip. Each one answers "why am I seeing
+// this row?" in slightly more detail than the chip label can carry.
+function sourceChipTooltip(source: string): string {
+  if (source === "author") return "You opened this PR.";
+  if (source === "reviewer") {
+    return (
+      "You were directly added as a reviewer (post-filtered — " +
+      "team-mediated review requests are dropped)."
+    );
+  }
+  if (source === "assignee") return "You're an assignee on this PR.";
+  if (source === "mentions") {
+    return "The PR body or comments mention `@you` directly.";
+  }
+  if (source.startsWith("team:")) {
+    return (
+      "This team in your `inbox.teams` config was requested as a reviewer."
+    );
+  }
+  return source;
+}
+
 function primarySource(pr: InboxPr): string {
   // The backend orders sources by priority (author > reviewer > team:*),
   // so sources[0] is the highest-priority signal. Empty fallback exists
@@ -237,12 +259,13 @@ function PrRow({ pr, inStack = false }: PrRowProps) {
         {ci.label}
       </span>
       {pr.sources.map((source) => (
-        <span
-          key={source}
-          className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400"
-        >
-          {sourceChipLabel(source)}
-        </span>
+        <Tooltip key={source} text={sourceChipTooltip(source)}>
+          <span
+            className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400"
+          >
+            {sourceChipLabel(source)}
+          </span>
+        </Tooltip>
       ))}
       <PullDownButton pr={pr} />
     </div>
