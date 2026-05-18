@@ -71,20 +71,87 @@ const TIER_LABEL: Record<Tier, string> = {
 // the color family carries over from what used to be the headline-group
 // container so the visual language stays consistent. Label text is
 // short (lower-case) to fit inline next to the workspace name.
-const LABEL_CHIP_STYLE: Record<PrHeadline, { label: string; chip: string }> = {
-  ci_failing:        { label: "ci fail",  chip: "border-red-800 bg-red-900/40 text-red-300" },
-  merge_conflicts:   { label: "conflict", chip: "border-red-800 bg-red-900/40 text-red-300" },
-  unresolved_comments: { label: "unaddressed_comments", chip: "border-amber-800 bg-amber-900/40 text-amber-300" },
-  human_comment:     { label: "review",   chip: "border-amber-800 bg-amber-900/40 text-amber-300" },
-  review_requested:  { label: "re-rev",   chip: "border-amber-800 bg-amber-900/40 text-amber-300" },
-  merged:            { label: "merged",   chip: "border-purple-800 bg-purple-900/40 text-purple-300" },
-  closed:            { label: "closed",   chip: "border-zinc-700 bg-zinc-800 text-zinc-400" },
-  ready_to_merge:    { label: "Approved - Ready to Merge", chip: "border-emerald-800 bg-emerald-900/40 text-emerald-300" },
-  in_merge_queue:    { label: "queued",   chip: "border-indigo-800 bg-indigo-900/40 text-indigo-300" },
-  checks_running:    { label: "checks",   chip: "border-amber-800 bg-amber-900/40 text-amber-300" },
-  waiting_on_others: { label: "waiting",  chip: "border-zinc-700 bg-zinc-800 text-zinc-400" },
-  draft:             { label: "draft",    chip: "border-zinc-700 bg-zinc-800 text-zinc-400" },
-  no_pr:             { label: "no PR",    chip: "border-zinc-700 bg-zinc-800/60 text-zinc-500" },
+// ``tooltip`` is rendered on hover (~150ms delay via the Tooltip
+// component) and answers "what does this chip mean?" — useful when
+// chip text is ambiguous (`review` vs `unaddressed_comments`) or
+// terse (`queued`, `waiting`).
+const LABEL_CHIP_STYLE: Record<
+  PrHeadline,
+  { label: string; chip: string; tooltip: string }
+> = {
+  ci_failing: {
+    label: "ci fail",
+    chip: "border-red-800 bg-red-900/40 text-red-300",
+    tooltip: "At least one CI check failed. Open the PR to see which.",
+  },
+  merge_conflicts: {
+    label: "conflict",
+    chip: "border-red-800 bg-red-900/40 text-red-300",
+    tooltip:
+      "The branch has merge conflicts against its base. Resolve before this can merge.",
+  },
+  unresolved_comments: {
+    label: "unaddressed_comments",
+    chip: "border-amber-800 bg-amber-900/40 text-amber-300",
+    tooltip:
+      "Per-line review threads are open on this PR (not resolved, not outdated by a force-push).",
+  },
+  human_comment: {
+    label: "review",
+    chip: "border-amber-800 bg-amber-900/40 text-amber-300",
+    tooltip:
+      "A human commented on the PR's Conversation tab and the PR isn't approved yet.",
+  },
+  review_requested: {
+    label: "re-rev",
+    chip: "border-amber-800 bg-amber-900/40 text-amber-300",
+    tooltip:
+      "Reviewer was re-requested. (Placeholder — currently behaves like `review`.)",
+  },
+  merged: {
+    label: "merged",
+    chip: "border-purple-800 bg-purple-900/40 text-purple-300",
+    tooltip:
+      "GitHub PR is merged. Cleanup task — delete the worktree + prune the branch.",
+  },
+  closed: {
+    label: "closed",
+    chip: "border-zinc-700 bg-zinc-800 text-zinc-400",
+    tooltip:
+      "GitHub PR was closed without being merged. Often abandoned work; investigate before cleaning up.",
+  },
+  ready_to_merge: {
+    label: "Approved - Ready to Merge",
+    chip: "border-emerald-800 bg-emerald-900/40 text-emerald-300",
+    tooltip: "Approved and CI is green. One merge click and it's done.",
+  },
+  in_merge_queue: {
+    label: "queued",
+    chip: "border-indigo-800 bg-indigo-900/40 text-indigo-300",
+    tooltip:
+      "Reserved — currently never emitted; GitHub merge queue isn't exposed by `gh pr view`.",
+  },
+  checks_running: {
+    label: "checks",
+    chip: "border-amber-800 bg-amber-900/40 text-amber-300",
+    tooltip: "Status checks are still running. Nothing to do yet.",
+  },
+  waiting_on_others: {
+    label: "waiting",
+    chip: "border-zinc-700 bg-zinc-800 text-zinc-400",
+    tooltip:
+      "PR exists but no other label applies. Usually waiting on reviewer action.",
+  },
+  draft: {
+    label: "draft",
+    chip: "border-zinc-700 bg-zinc-800 text-zinc-400",
+    tooltip: "PR is marked as a draft. Not ready for review yet.",
+  },
+  no_pr: {
+    label: "no PR",
+    chip: "border-zinc-700 bg-zinc-800/60 text-zinc-500",
+    tooltip: "No PR exists for this branch. Push and open one.",
+  },
 };
 
 function labelsForWorktree(w: Worktree): PrHeadline[] {
@@ -193,12 +260,13 @@ function WorkspaceRow({ w, jira }: RowProps) {
             {labels.map((label) => {
               const style = LABEL_CHIP_STYLE[label];
               return (
-                <span
-                  key={label}
-                  className={`rounded border px-1.5 py-0.5 text-[10px] ${style.chip}`}
-                >
-                  {style.label}
-                </span>
+                <Tooltip key={label} text={style.tooltip}>
+                  <span
+                    className={`rounded border px-1.5 py-0.5 text-[10px] ${style.chip}`}
+                  >
+                    {style.label}
+                  </span>
+                </Tooltip>
               );
             })}
           </div>
