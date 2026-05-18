@@ -1,0 +1,38 @@
+backend/tests/test_sidecar.py
+  s_d128a241c2e116::t_1493526304f7b9 212,322
+  s_d128a241c2e116::t_46ed5b4c2d1b58 25
+backend/tests/test_iterm.py
+  s_d128a241c2e116::t_7fc7eec08ac616 67,307,380,411,447
+  s_d128a241c2e116::t_c94c19873172cf 26
+backend/tests/test_skills.py
+  s_d128a241c2e116::t_68735e7cff4ebb 87,125,171,197,280
+  s_d128a241c2e116::t_d7cd705007e273 17
+backend/tests/test_iterm_send.py
+  s_d128a241c2e116::t_d84dda42b0e14b 78-84
+  s_d128a241c2e116::t_bec942878caa81 25
+  s_d128a241c2e116::t_749cef62dd3972 264,266,306,308,455,457
+backend/tests/fixtures/iterm.py
+  s_d128a241c2e116::t_247b53c407a16f 1-92
+backend/tests/test_repos.py
+  s_d128a241c2e116::t_e32aa18b04e57f 17
+  s_d128a241c2e116::t_509c35d6582b39 219-222
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.9",
+  "base_commit_sha": "e5d35fe6fa3fb73428a997499a4fa704cb7260cb",
+  "prompts": {},
+  "sessions": {
+    "s_d128a241c2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6a9c603-8a9f-47c5-a234-1b418c8994f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
