@@ -308,6 +308,57 @@ def test_summarize_gh_payload_populates_labels() -> None:
     assert "human_comment" in summary.labels
 
 
+def test_compute_labels_emits_unresolved_comments_when_threads_open() -> None:
+    """A PR with 2 unresolved review threads gets the
+    ``unresolved_comments`` label, ranked above ``human_comment``."""
+    labels = _compute_labels(
+        state="OPEN",
+        is_draft=False,
+        mergeable="MERGEABLE",
+        merge_state_status="CLEAN",
+        review_decision=None,
+        checks=_c(passed=5),
+        comments=_cm(human=1),
+        unresolved_threads=2,
+    )
+    assert "unresolved_comments" in labels
+    assert "human_comment" in labels
+    # Priority: unresolved_comments before human_comment.
+    assert labels.index("unresolved_comments") < labels.index("human_comment")
+
+
+def test_compute_labels_skips_unresolved_when_count_zero() -> None:
+    labels = _compute_labels(
+        state="OPEN",
+        is_draft=False,
+        mergeable="MERGEABLE",
+        merge_state_status="CLEAN",
+        review_decision=None,
+        checks=_c(passed=5),
+        comments=_cm(),
+        unresolved_threads=0,
+    )
+    assert "unresolved_comments" not in labels
+
+
+def test_summarize_passes_unresolved_threads_through() -> None:
+    """The count flows from the caller into PrSummary + label list."""
+    summary = summarize_gh_payload(
+        {
+            "number": 1,
+            "url": "https://x",
+            "title": "t",
+            "isDraft": False,
+            "state": "OPEN",
+            "statusCheckRollup": [{"bucket": "pass"}],
+            "comments": [],
+        },
+        unresolved_threads=3,
+    )
+    assert summary.unresolved_threads == 3
+    assert "unresolved_comments" in summary.labels
+
+
 # --- check + comment counters ----------------------------------------------
 
 
@@ -524,6 +575,60 @@ def test_fetch_pr_summary_raises_on_gh_missing(
     )
     with pytest.raises(gh_cli.GhNotFound):
         asyncio.run(pr_state.fetch_pr_summary(_isolate["dev_root"]))
+
+
+def test_fetch_unresolved_threads_count_parses_graphql(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Counts reviewThreads where isResolved=False AND isOutdated=False.
+    Resolved threads and outdated threads don't count."""
+    graphql_json = json.dumps(
+        {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {
+                            "nodes": [
+                                {"isResolved": False, "isOutdated": False},  # count
+                                {"isResolved": False, "isOutdated": False},  # count
+                                {"isResolved": True, "isOutdated": False},   # resolved
+                                {"isResolved": False, "isOutdated": True},   # outdated
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    ).encode()
+
+    fake_proc = MagicMock()
+    fake_proc.communicate = AsyncMock(return_value=(graphql_json, b""))
+    fake_proc.returncode = 0
+    monkeypatch.setattr(
+        gh_cli.asyncio, "create_subprocess_exec", AsyncMock(return_value=fake_proc)
+    )
+
+    count = asyncio.run(
+        pr_state._fetch_unresolved_threads_count("o", "r", 42)
+    )
+    assert count == 2
+
+
+def test_fetch_unresolved_threads_count_zero_on_gh_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail-open: any gh hiccup returns 0 rather than crashing the
+    summary fetch."""
+    fake_proc = MagicMock()
+    fake_proc.communicate = AsyncMock(return_value=(b"", b"some random gh error"))
+    fake_proc.returncode = 1
+    monkeypatch.setattr(
+        gh_cli.asyncio, "create_subprocess_exec", AsyncMock(return_value=fake_proc)
+    )
+    count = asyncio.run(
+        pr_state._fetch_unresolved_threads_count("o", "r", 42)
+    )
+    assert count == 0
 
 
 # --- /api/worktree/.../pr-state/refresh endpoint ----------------------------

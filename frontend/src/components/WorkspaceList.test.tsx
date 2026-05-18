@@ -61,6 +61,7 @@ function prState(
     review_decision: null,
     checks: { passed: 0, fail: 0, pending: 0, total: 0 },
     comments: { human: 0, bot: 0, total: 0 },
+    unresolved_threads: 0,
     base_ref: null,
     head_ref: null,
     updated_at: null,
@@ -153,6 +154,23 @@ describe("WorkspaceList", () => {
     ]);
     expect(screen.getByText("ci fail")).toBeInTheDocument();
     expect(screen.getByText("review")).toBeInTheDocument();
+  });
+
+  test("renders the unaddressed chip when unresolved_comments is present", () => {
+    renderWorkspaces([
+      wt({
+        name: "unresolved",
+        pr_state: prState("unresolved_comments", [
+          "unresolved_comments",
+          "human_comment",
+        ]),
+      }),
+    ]);
+    expect(screen.getByText("unaddressed")).toBeInTheDocument();
+    // Sits under Needs your action.
+    expect(
+      screen.getByRole("heading", { name: /Needs your action/i }),
+    ).toBeInTheDocument();
   });
 
   test("tier is determined by labels[0], not by suppressed signals", () => {
