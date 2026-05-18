@@ -29,18 +29,27 @@ const statusTooltip: Record<WorktreeStatus, string> = {
 };
 
 // Bucket headlines into action tiers so the hub answers "where does
-// this worktree need attention" at a glance. Merged/closed live in
-// "Needs your action" because a finished PR with a still-extant
-// worktree is itself a cleanup task (delete the branch, prune the
-// worktree, close the ticket).
-type Tier = "needs_action" | "ready_to_merge" | "in_progress" | "no_pr";
+// this worktree need attention" at a glance.
+//
+// "Merged" gets its own top-of-the-page tier because a merged PR with
+// a still-extant worktree is a pure cleanup task — delete the
+// worktree, prune the branch — and shouldn't sit mixed in with
+// CI-failing / review-feedback rows where the work is "fix something
+// in code". "Closed" stays in "Needs your action" since closed-not-
+// merged is rare and often needs investigation.
+type Tier =
+  | "merged"
+  | "ready_to_merge"
+  | "needs_action"
+  | "in_progress"
+  | "no_pr";
 
 const TIER_FOR_HEADLINE: Record<PrHeadline, Tier> = {
+  merged: "merged",
   ci_failing: "needs_action",
   merge_conflicts: "needs_action",
   human_comment: "needs_action",
   review_requested: "needs_action",
-  merged: "needs_action",
   closed: "needs_action",
   ready_to_merge: "ready_to_merge",
   in_merge_queue: "ready_to_merge",
@@ -50,13 +59,22 @@ const TIER_FOR_HEADLINE: Record<PrHeadline, Tier> = {
   no_pr: "no_pr",
 };
 
-// Display order on the hub. "Ready to merge" leads because a PR
-// that's approved + green is the cheapest action item: one button
-// click and it's done. "Needs your action" is the next-loudest:
-// real code work required.
-const TIER_ORDER: Tier[] = ["ready_to_merge", "needs_action", "in_progress", "no_pr"];
+// Display order on the hub, top to bottom:
+// 1. Merged — easiest to clear (delete worktree, done).
+// 2. Ready to merge — one merge click and it's gone.
+// 3. Needs your action — real code work.
+// 4. In progress — wait state.
+// 5. No PR yet — branch hasn't been pushed.
+const TIER_ORDER: Tier[] = [
+  "merged",
+  "ready_to_merge",
+  "needs_action",
+  "in_progress",
+  "no_pr",
+];
 
 const TIER_LABEL: Record<Tier, string> = {
+  merged: "Merged",
   needs_action: "Needs your action",
   ready_to_merge: "Ready to merge",
   in_progress: "In progress",
@@ -108,8 +126,9 @@ function compareByRepoName(a: Worktree, b: Worktree): number {
 
 function groupByTier(worktrees: Worktree[]): Record<Tier, Worktree[]> {
   const out: Record<Tier, Worktree[]> = {
-    needs_action: [],
+    merged: [],
     ready_to_merge: [],
+    needs_action: [],
     in_progress: [],
     no_pr: [],
   };
