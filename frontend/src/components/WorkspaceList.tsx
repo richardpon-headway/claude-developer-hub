@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError } from "../api/client";
-import { focusIterm, getPrUrl, spawnIterm } from "../api/worktrees";
+import { focusIterm, getPrUrl, recreateWorktree, spawnIterm } from "../api/worktrees";
 import type { JiraConfig, PrHeadline, Worktree, WorktreeStatus } from "../api/types";
 import { Tooltip } from "./Tooltip";
 
@@ -12,21 +12,6 @@ interface Props {
   jira: JiraConfig | null;
 }
 
-const statusStyle: Record<WorktreeStatus, string> = {
-  ready: "bg-emerald-900/40 text-emerald-300 border-emerald-800",
-  setting_up: "bg-amber-900/40 text-amber-300 border-amber-800",
-  failed: "bg-red-900/40 text-red-300 border-red-800",
-  stale: "bg-zinc-800 text-zinc-400 border-zinc-700",
-  removing: "bg-zinc-800 text-zinc-400 border-zinc-700",
-};
-
-const statusTooltip: Record<WorktreeStatus, string> = {
-  ready: "Worktree setup completed; usable now",
-  setting_up: "git worktree add + setup_steps[] running",
-  failed: "A setup step exited non-zero. Check the setup log on Manage.",
-  stale: "Tracked in DB but the worktree path is missing on disk.",
-  removing: "Deletion in progress.",
-};
 
 // Bucket headlines into action tiers so the hub answers "where does
 // this worktree need attention" at a glance.
@@ -217,18 +202,6 @@ function WorkspaceRow({ w, jira }: RowProps) {
               );
             })}
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Tooltip text={statusTooltip[w.status]}>
-              <span
-                className={`rounded border px-1.5 py-0.5 text-[10px] ${statusStyle[w.status]}`}
-              >
-                {w.status}
-              </span>
-            </Tooltip>
-            {w.has_claude_session && (
-              <ClaudeFocusButton repo={w.repo} name={w.name} />
-            )}
-          </div>
         </div>
         <div className="mt-2 flex items-end justify-between gap-4">
           <div className="min-w-0 flex-1 space-y-0.5 text-xs text-zinc-500">
@@ -243,7 +216,12 @@ function WorkspaceRow({ w, jira }: RowProps) {
             </div>
           </div>
           <div className="flex shrink-0 items-start gap-2">
-            <OpenItermButton repo={w.repo} name={w.name} ready={w.status === "ready"} status={w.status} />
+            <WorkspaceActionButton
+              repo={w.repo}
+              name={w.name}
+              status={w.status}
+              hasClaudeSession={w.has_claude_session}
+            />
             <PrButton repo={w.repo} name={w.name} />
             <Tooltip text="Workspace actions: run skills, send text, view setup log">
               <Link
@@ -342,62 +320,171 @@ function PrButton({ repo, name }: PrButtonProps) {
   );
 }
 
-interface OpenItermButtonProps {
+interface WorkspaceActionButtonProps {
   repo: string;
   name: string;
-  ready: boolean;
   status: WorktreeStatus;
+  hasClaudeSession: boolean;
 }
 
-function OpenItermButton({ repo, name, ready, status }: OpenItermButtonProps) {
+// State-aware primary action for a workspace row. Replaces the prior
+// (status chip + claude chip + iTerm2 button) trio with a single
+// button whose label + behavior reflect (status, hasClaudeSession):
+//
+//   ready + claude session  → Focus iTerm2 (focus-iterm endpoint)
+//   ready + no claude       → iTerm2 (spawn-iterm endpoint, unchanged)
+//   setting_up              → Configuring… (disabled)
+//   failed                  → Setup failed (link to Manage page)
+//   stale                   → Recreate workspace (recreate endpoint)
+//
+// Inline error + red ✗ label apply only to the three mutation states
+// (Focus / iTerm2 / Recreate). Disabled and Link states can't fail.
+function WorkspaceActionButton({
+  repo,
+  name,
+  status,
+  hasClaudeSession,
+}: WorkspaceActionButtonProps) {
   const queryClient = useQueryClient();
-  const mutation = useMutation({
+
+  const spawnMutation = useMutation({
     mutationFn: () => spawnIterm(repo, name),
-    onSuccess: () => {
-      // Pop the claude ● badge as soon as the spawn returns rather than
-      // waiting the full 5s for the workspaces query to re-poll.
-      queryClient.invalidateQueries({ queryKey: ["worktrees"] });
-    },
-    onError: () => {
-      // A common failure mode here is "worktree path missing on disk"
-      // (user removed the directory outside CDH). Kick the worktrees
-      // query so the next poll re-runs and Sync-worktrees-style cleanup
-      // surfaces — the row should disappear or flip to a stale status
-      // shortly after.
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["worktrees"] });
     },
   });
 
-  const errorDetail = mutation.error
-    ? mutation.error instanceof ApiError
-      ? mutation.error.detail
-      : String(mutation.error)
-    : null;
+  const focusMutation = useMutation({
+    mutationFn: () => focusIterm(repo, name),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["worktrees"] });
+    },
+  });
 
-  const tooltip = !ready
-    ? `worktree status is ${status}; nothing to spawn into`
-    : errorDetail
+  const recreateMutation = useMutation({
+    mutationFn: () => recreateWorktree(repo, name),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["worktrees"] });
+    },
+  });
+
+  // failed/setting_up route to navigation/disabled — no mutation.
+  if (status === "failed") {
+    return (
+      <Tooltip text="Setup didn't complete. Click to view the setup log on the Manage page.">
+        <Link
+          to="/workspace/$repo/$name"
+          params={{ repo, name }}
+          className="rounded border border-red-700 bg-red-950/40 px-3 py-1 text-xs text-red-300 hover:bg-red-900/40"
+        >
+          Setup failed
+        </Link>
+      </Tooltip>
+    );
+  }
+
+  if (status === "setting_up") {
+    return (
+      <Tooltip text="Worktree setup is in progress (git worktree add + setup_steps). Check Manage for the live log.">
+        <button
+          type="button"
+          disabled
+          className="rounded border border-amber-800 bg-amber-950/40 px-3 py-1 text-xs text-amber-300 disabled:cursor-not-allowed disabled:opacity-70"
+        >
+          Configuring…
+        </button>
+      </Tooltip>
+    );
+  }
+
+  if (status === "stale") {
+    const errorDetail = mutationError(recreateMutation.error);
+    const tooltip = errorDetail
       ? errorDetail
-      : "Open this workspace in a new iTerm2 window (multiple windows are fine)";
+      : "The on-disk directory is gone. Click to re-run git worktree add + setup_steps[] against the same branch.";
+    return (
+      <ButtonWithError
+        tooltip={tooltip}
+        errorDetail={errorDetail}
+        onClick={() => recreateMutation.mutate()}
+        pending={recreateMutation.isPending}
+        pendingLabel="Recreating…"
+        idleLabel="Recreate workspace"
+      />
+    );
+  }
 
+  // status === "ready" past here.
+  if (hasClaudeSession) {
+    const errorDetail = mutationError(focusMutation.error);
+    const tooltip = errorDetail
+      ? errorDetail
+      : "Bring this worktree's open Claude session in iTerm2 to the front.";
+    return (
+      <ButtonWithError
+        tooltip={tooltip}
+        errorDetail={errorDetail}
+        onClick={() => focusMutation.mutate()}
+        pending={focusMutation.isPending}
+        pendingLabel="Focusing…"
+        idleLabel="Focus iTerm2"
+      />
+    );
+  }
+
+  // status === "ready" + no claude session.
+  const errorDetail = mutationError(spawnMutation.error);
+  const tooltip = errorDetail
+    ? errorDetail
+    : "Open this workspace in a new iTerm2 window (multiple windows are fine).";
+  return (
+    <ButtonWithError
+      tooltip={tooltip}
+      errorDetail={errorDetail}
+      onClick={() => spawnMutation.mutate()}
+      pending={spawnMutation.isPending}
+      pendingLabel="Opening…"
+      idleLabel="iTerm2"
+    />
+  );
+}
+
+function mutationError(err: unknown): string | null {
+  if (!err) return null;
+  return err instanceof ApiError ? err.detail : String(err);
+}
+
+interface ButtonWithErrorProps {
+  tooltip: string;
+  errorDetail: string | null;
+  onClick: () => void;
+  pending: boolean;
+  pendingLabel: string;
+  idleLabel: string;
+}
+
+function ButtonWithError({
+  tooltip,
+  errorDetail,
+  onClick,
+  pending,
+  pendingLabel,
+  idleLabel,
+}: ButtonWithErrorProps) {
   return (
     <div className="flex flex-col items-end gap-1">
       <Tooltip text={tooltip}>
         <button
           type="button"
-          onClick={() => mutation.mutate()}
-          disabled={mutation.isPending || !ready}
+          onClick={onClick}
+          disabled={pending}
           className={`rounded border px-3 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50 ${
             errorDetail
               ? "border-red-700 bg-red-950/40 text-red-300 hover:bg-red-900/40"
               : "border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
           }`}
         >
-          {mutation.isPending
-            ? "Opening…"
-            : errorDetail
-              ? "iTerm2 ✗"
-              : "iTerm2"}
+          {pending ? pendingLabel : errorDetail ? `${idleLabel} ✗` : idleLabel}
         </button>
       </Tooltip>
       {errorDetail && (
@@ -410,43 +497,5 @@ function OpenItermButton({ repo, name, ready, status }: OpenItermButtonProps) {
         </p>
       )}
     </div>
-  );
-}
-
-interface ClaudeFocusButtonProps {
-  repo: string;
-  name: string;
-}
-
-function ClaudeFocusButton({ repo, name }: ClaudeFocusButtonProps) {
-  const queryClient = useQueryClient();
-  const mutation = useMutation({
-    mutationFn: () => focusIterm(repo, name),
-    onSettled: () => {
-      // Either path may change has_claude_session: a 404 with
-      // "window is gone" prunes the iterm_session row server-side,
-      // so the next worktrees poll will drop the pill. Refresh now
-      // so the UI catches up immediately.
-      queryClient.invalidateQueries({ queryKey: ["worktrees"] });
-    },
-  });
-
-  const tooltip = mutation.error
-    ? mutation.error instanceof ApiError
-      ? mutation.error.detail
-      : String(mutation.error)
-    : "Bring this worktree's open Claude session in iTerm2 to the front";
-
-  return (
-    <Tooltip text={tooltip}>
-      <button
-        type="button"
-        onClick={() => mutation.mutate()}
-        disabled={mutation.isPending}
-        className="rounded border border-emerald-800 bg-emerald-900/40 px-1.5 py-0.5 text-[10px] text-emerald-300 hover:bg-emerald-800/60 disabled:opacity-50"
-      >
-        {mutation.isPending ? "claude…" : "claude ●"}
-      </button>
-    </Tooltip>
   );
 }

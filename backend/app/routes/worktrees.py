@@ -65,6 +65,61 @@ async def create_worktree(req: CreateWorktreeRequest) -> WorktreeRow:
         raise HTTPException(code, msg) from e
 
 
+@router.post("/worktree/{repo}/{name}/recreate", response_model=WorktreeRow)
+async def recreate_worktree(repo: str, name: str) -> WorktreeRow:
+    """Drop a stale worktree row + re-run the full create flow against
+    the same branch. Used by the "Recreate workspace" button on rows
+    whose on-disk path was deleted outside CDH.
+
+    Constrained to ``status='stale'`` rows only — a ready/setting_up/
+    failed row has on-disk state we shouldn't blow away without the
+    user thinking about it.
+    """
+    row = await asyncio.to_thread(svc.get_worktree_sync, repo, name)
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"worktree not found: {repo}/{name}"
+        )
+    if row.status != "stale":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"recreate only applies to stale worktrees (this one is "
+            f"'{row.status}'). Investigate or delete it manually first.",
+        )
+
+    # Drop the row (CASCADEs iterm_session + pr_state) before re-running
+    # create_worktree, which inserts a fresh row from scratch.
+    await asyncio.to_thread(svc.delete_worktree_sync, repo, name)
+
+    # If the user did `rm -rf` on the directory without also running
+    # `git worktree prune`, git still tracks the (now-broken)
+    # worktree and a fresh `git worktree add <same path>` would fail
+    # with "already exists" from git. Run prune here so recreate
+    # works whether or not the user cleaned up git's tracking.
+    config = load_config()
+    repo_cfg = next((r for r in config.repos if r.name == repo), None)
+    if repo_cfg is not None:
+        repo_path = Path(str(repo_cfg.path)).expanduser()
+        if repo_path.is_dir():
+            prune = await asyncio.create_subprocess_exec(
+                "git", "-C", str(repo_path), "worktree", "prune",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await prune.wait()
+
+    try:
+        return await svc.create_worktree(repo, row.branch)
+    except svc.WorktreeCreationError as e:
+        msg = str(e)
+        code = (
+            status.HTTP_409_CONFLICT
+            if "already exists" in msg
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(code, msg) from e
+
+
 @router.get("/worktrees", response_model=list[WorktreeRow])
 async def list_worktrees() -> list[WorktreeRow]:
     return await asyncio.to_thread(svc.list_worktrees_sync)
