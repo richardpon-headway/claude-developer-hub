@@ -21,6 +21,7 @@ PrHeadline = Literal[
     "merge_conflicts",
     "in_merge_queue",
     "ready_to_merge",
+    "unresolved_comments",
     "human_comment",
     "review_requested",
     "checks_running",
@@ -76,6 +77,7 @@ class PrStateSummary(BaseModel):
     head_ref: str | None = None
     updated_at: str | None = None
     checked_at: str
+    unresolved_threads: int = 0
 
 
 class WorktreeRow(BaseModel):
