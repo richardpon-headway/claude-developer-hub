@@ -182,14 +182,14 @@ function WorkspaceRow({ w, jira }: RowProps) {
   return (
     <li className="rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-3">
       <div className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <Link
-              to="/workspace/$repo/$name"
-              params={{ repo: w.repo, name: w.name }}
-              className="truncate font-medium text-zinc-100 hover:text-indigo-300"
-            >
-              {w.name}
-            </Link>
+          <Link
+            to="/workspace/$repo/$name"
+            params={{ repo: w.repo, name: w.name }}
+            className="min-w-0 truncate font-medium text-zinc-100 hover:text-indigo-300"
+          >
+            {w.name}
+          </Link>
+          <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
             {labels.map((label) => {
               const style = LABEL_CHIP_STYLE[label];
               return (
