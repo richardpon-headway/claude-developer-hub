@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError } from "../api/client";
-import { getPrUrl, spawnIterm } from "../api/worktrees";
+import { focusIterm, getPrUrl, spawnIterm } from "../api/worktrees";
 import type { JiraConfig, PrHeadline, Worktree, WorktreeStatus } from "../api/types";
 import { Tooltip } from "./Tooltip";
 
@@ -226,13 +226,7 @@ function WorkspaceRow({ w, jira }: RowProps) {
               </span>
             </Tooltip>
             {w.has_claude_session && (
-              <Tooltip text="Claude session is open in iTerm2">
-                <span
-                  className="rounded border border-emerald-800 bg-emerald-900/40 px-1.5 py-0.5 text-[10px] text-emerald-300"
-                >
-                  claude ●
-                </span>
-              </Tooltip>
+              <ClaudeFocusButton repo={w.repo} name={w.name} />
             )}
           </div>
         </div>
@@ -416,5 +410,43 @@ function OpenItermButton({ repo, name, ready, status }: OpenItermButtonProps) {
         </p>
       )}
     </div>
+  );
+}
+
+interface ClaudeFocusButtonProps {
+  repo: string;
+  name: string;
+}
+
+function ClaudeFocusButton({ repo, name }: ClaudeFocusButtonProps) {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: () => focusIterm(repo, name),
+    onSettled: () => {
+      // Either path may change has_claude_session: a 404 with
+      // "window is gone" prunes the iterm_session row server-side,
+      // so the next worktrees poll will drop the pill. Refresh now
+      // so the UI catches up immediately.
+      queryClient.invalidateQueries({ queryKey: ["worktrees"] });
+    },
+  });
+
+  const tooltip = mutation.error
+    ? mutation.error instanceof ApiError
+      ? mutation.error.detail
+      : String(mutation.error)
+    : "Bring this worktree's open Claude session in iTerm2 to the front";
+
+  return (
+    <Tooltip text={tooltip}>
+      <button
+        type="button"
+        onClick={() => mutation.mutate()}
+        disabled={mutation.isPending}
+        className="rounded border border-emerald-800 bg-emerald-900/40 px-1.5 py-0.5 text-[10px] text-emerald-300 hover:bg-emerald-800/60 disabled:opacity-50"
+      >
+        {mutation.isPending ? "claude…" : "claude ●"}
+      </button>
+    </Tooltip>
   );
 }

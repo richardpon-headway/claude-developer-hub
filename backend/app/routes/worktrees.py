@@ -25,7 +25,9 @@ from app.services.iterm_send import (
 from app.services.iterm_spawn import (
     SpawnResult,
     delete_iterm_sessions_sync,
+    focus_iterm_window,
     get_claude_session_id_sync,
+    get_claude_window_and_session_sync,
     set_iterm_session_uuid_sync,
     spawn_two_tab_window,
     upsert_iterm_sessions_sync,
@@ -259,6 +261,61 @@ class SpawnItermResponse(BaseModel):
     # Path to the sidecar file written for the token-monitor (only if
     # session UUID was discovered).
     sidecar_path: str | None = None
+
+
+class FocusItermResponse(BaseModel):
+    focused: bool
+
+
+@router.post("/worktree/{repo}/{name}/focus-iterm", response_model=FocusItermResponse)
+async def focus_iterm(repo: str, name: str, request: Request) -> FocusItermResponse:
+    """Bring this worktree's already-open iTerm2 window to the front.
+
+    Differs from ``spawn-iterm``: this never creates a new window. It
+    only activates an existing one. The frontend uses this for the
+    ``claude ●`` pill so the user can return to a running session
+    without spawning a duplicate window.
+
+    Returns 503 if iTerm2 isn't connected, 404 if no claude session
+    is tracked for this worktree, and 404 (with the stale row pruned)
+    if the tracked window no longer exists in iTerm2.
+    """
+    iterm = getattr(request.app.state, "iterm", None)
+    if iterm is None or iterm.connection is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "iTerm2 not connected. Check Preferences → Magic → Enable Python API.",
+        )
+
+    row = await asyncio.to_thread(
+        get_claude_window_and_session_sync, repo, name
+    )
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"no tracked Claude session for {repo}/{name}",
+        )
+
+    window_id, session_id = row
+    try:
+        ok = await focus_iterm_window(iterm.connection, window_id, session_id)
+    except Exception as e:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, f"iTerm2 focus failed: {e}"
+        ) from e
+
+    if not ok:
+        # Window is gone — the user closed it manually, or iTerm2
+        # restarted. Prune the stale row so the claude ● pill drops
+        # on the next worktrees-poll.
+        await asyncio.to_thread(delete_iterm_sessions_sync, repo, name)
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "tracked iTerm2 window is gone; session row pruned. "
+            "Click iTerm2 to spawn a fresh window.",
+        )
+
+    return FocusItermResponse(focused=True)
 
 
 @router.post("/worktree/{repo}/{name}/spawn-iterm", response_model=SpawnItermResponse)
