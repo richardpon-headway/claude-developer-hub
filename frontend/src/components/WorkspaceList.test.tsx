@@ -156,6 +156,34 @@ describe("WorkspaceList", () => {
     expect(screen.getByText("review")).toBeInTheDocument();
   });
 
+  test("within Needs your action: approval-ready rows sort above blocker-only rows", () => {
+    // PROJ-100 has only unaddressed (blocker), no approval.
+    // PROJ-200 has unaddressed AND ready_to_merge (one comment-resolve
+    // away from merge). The latter should appear first inside the
+    // tier even though "C200" sorts after "C100" alphabetically.
+    renderWorkspaces([
+      wt({
+        name: "PROJ-100_aaa_unaddressed",
+        pr_state: prState("unresolved_comments", ["unresolved_comments"]),
+      }),
+      wt({
+        name: "PROJ-200_zzz_approved_with_unaddressed",
+        pr_state: prState("unresolved_comments", [
+          "unresolved_comments",
+          "ready_to_merge",
+        ]),
+      }),
+    ]);
+    const titles = screen
+      .getAllByRole("link")
+      // Workspace title is rendered as a <Link>; in tests Link is
+      // stubbed to <a>. Its text is the worktree name.
+      .map((a) => a.textContent ?? "")
+      .filter((t) => t.startsWith("PROJ-"));
+    expect(titles[0]).toContain("PROJ-200_zzz_approved_with_unaddressed");
+    expect(titles[1]).toContain("PROJ-100_aaa_unaddressed");
+  });
+
   test("renders the unaddressed chip when unresolved_comments is present", () => {
     renderWorkspaces([
       wt({
