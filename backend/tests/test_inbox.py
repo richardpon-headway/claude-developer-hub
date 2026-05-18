@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
 from app.config.schema import CDHConfig, InboxConfig
