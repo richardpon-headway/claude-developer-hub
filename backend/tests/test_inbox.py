@@ -23,6 +23,7 @@ from app.services.inbox_search import (
     is_repo_configured,
 )
 from app.services.inbox_stack import annotate_stacks
+from tests.fixtures.pr_state import seed_pr_state
 from tests.fixtures.worktree import seed_worktree
 
 # --- fixtures ------------------------------------------------------------
@@ -233,38 +234,6 @@ def test_explicit_github_repo_excludes_basename_collisions() -> None:
 # --- dedup pull from worktree + pr_state --------------------------------
 
 
-def _seed_pr_state(
-    db_path: Path,
-    repo: str,
-    name: str,
-    pr_number: int,
-    pr_repo: str = "o/myapp",
-) -> None:
-    import json
-
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.execute(
-            "INSERT INTO pr_state (repo, worktree_name, headline, payload, checked_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (
-                repo,
-                name,
-                "ready_to_merge",
-                json.dumps(
-                    {
-                        "pr_number": pr_number,
-                        "url": f"https://github.com/{pr_repo}/pull/{pr_number}",
-                    }
-                ),
-                "2026-05-14T00:00:00Z",
-            ),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
 def test_tracked_keys_reads_from_worktree_columns(_isolate: dict[str, Path]) -> None:
     seed_worktree(
         _isolate["db_path"],
@@ -288,7 +257,7 @@ def test_tracked_keys_reads_from_pr_state_url(_isolate: dict[str, Path]) -> None
     seed_worktree(
         _isolate["db_path"], "myapp", "feat1", branch="feat/x"
     )
-    _seed_pr_state(
+    seed_pr_state(
         _isolate["db_path"], "myapp", "feat1", pr_number=99, pr_repo="o/myapp"
     )
     keys = inbox_poll._tracked_pr_keys_sync()
