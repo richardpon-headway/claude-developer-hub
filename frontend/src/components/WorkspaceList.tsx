@@ -121,7 +121,17 @@ function tierForWorktree(w: Worktree): Tier {
   return TIER_FOR_HEADLINE[labelsForWorktree(w)[0]];
 }
 
-function compareByRepoName(a: Worktree, b: Worktree): number {
+// Within-tier sort: approval-ready rows lead, alphabetical as the
+// fallback. A workspace whose labels include ``ready_to_merge`` is
+// "one button away from done" — even if it's currently bucketed
+// into Needs-your-action because of an open ``unresolved_comments``
+// or ``review_requested`` blocker, it's still strictly closer to
+// merge than a row with only the blocker. Promoting approved rows
+// to the top of the tier surfaces the cheapest wins first.
+function compareWithinTier(a: Worktree, b: Worktree): number {
+  const aReady = labelsForWorktree(a).includes("ready_to_merge");
+  const bReady = labelsForWorktree(b).includes("ready_to_merge");
+  if (aReady !== bReady) return aReady ? -1 : 1;
   if (a.repo !== b.repo) return a.repo < b.repo ? -1 : 1;
   return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 }
@@ -138,7 +148,7 @@ function groupByTier(worktrees: Worktree[]): Record<Tier, Worktree[]> {
     out[tierForWorktree(w)].push(w);
   }
   for (const tier of TIER_ORDER) {
-    out[tier].sort(compareByRepoName);
+    out[tier].sort(compareWithinTier);
   }
   return out;
 }
