@@ -4,53 +4,12 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from app import db
 from app.main import app
-
-
-@pytest.fixture(autouse=True)
-def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]:
-    db_path = tmp_path / "cdh-test.db"
-    config_path = tmp_path / "cdh-test.yaml"
-    dev_root = tmp_path / "dev"
-    dev_root.mkdir()
-    monkeypatch.setenv("CDH_DB_PATH", str(db_path))
-    monkeypatch.setenv("CDH_CONFIG_PATH", str(config_path))
-    db.apply_migrations_sync(db_path)
-    return {"db_path": db_path, "config_path": config_path, "dev_root": dev_root}
-
-
-def _write_config(
-    config_path: Path,
-    dev_root: Path,
-    repos: list[dict] | None = None,
-) -> None:
-    config_path.write_text(
-        yaml.safe_dump(
-            {
-                "development_root": str(dev_root),
-                "repos": repos or [],
-                "iterm2": {"default_window": {"width": 800, "height": 600, "x": 0, "y": 0}},
-            }
-        )
-    )
-
-
-def _init_git_repo(path: Path, branches: list[str] | None = None) -> None:
-    path.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=path, check=True)
-    subprocess.run(["git", "-C", str(path), "config", "user.email", "t@t"], check=True)
-    subprocess.run(["git", "-C", str(path), "config", "user.name", "t"], check=True)
-    subprocess.run(
-        ["git", "-C", str(path), "commit", "--allow-empty", "-m", "init", "-q"],
-        check=True,
-    )
-    for branch in branches or []:
-        subprocess.run(["git", "-C", str(path), "branch", branch], check=True)
+from tests.fixtures.config import write_minimal_config
+from tests.fixtures.worktree import init_git_repo
 
 
 def _config_repo_entry(name: str, path: Path) -> dict:
@@ -65,10 +24,10 @@ def _config_repo_entry(name: str, path: Path) -> dict:
 
 def test_lists_git_repos_excludes_plain_dirs(_isolate: dict[str, Path]) -> None:
     dev = _isolate["dev_root"]
-    _init_git_repo(dev / "alpha")
-    _init_git_repo(dev / "beta")
+    init_git_repo(dev / "alpha")
+    init_git_repo(dev / "beta")
     (dev / "not-a-repo").mkdir()
-    _write_config(_isolate["config_path"], dev)
+    write_minimal_config(_isolate["config_path"], dev, iterm2=True)
 
     with TestClient(app) as client:
         r = client.get("/api/repos/candidates")
@@ -83,14 +42,14 @@ def test_excludes_standard_worktrees(_isolate: dict[str, Path]) -> None:
     (gitdir: pointer). It should not appear as a candidate."""
     dev = _isolate["dev_root"]
     parent = dev / "myapp"
-    _init_git_repo(parent, branches=["feature"])
+    init_git_repo(parent, branches=["feature"])
     worktree = dev / "myapp_worktree_feature"
     subprocess.run(
         ["git", "-C", str(parent), "worktree", "add", str(worktree), "feature"],
         check=True,
         capture_output=True,
     )
-    _write_config(_isolate["config_path"], dev)
+    write_minimal_config(_isolate["config_path"], dev, iterm2=True)
 
     with TestClient(app) as client:
         r = client.get("/api/repos/candidates")
@@ -104,7 +63,7 @@ def test_excludes_symlinked_worktree(_isolate: dict[str, Path]) -> None:
     repo's `.git/worktrees/<n>`. Should be excluded."""
     dev = _isolate["dev_root"]
     parent = dev / "myapp"
-    _init_git_repo(parent, branches=["feature"])
+    init_git_repo(parent, branches=["feature"])
     real_worktree = dev / "real_worktree"
     subprocess.run(
         ["git", "-C", str(parent), "worktree", "add", str(real_worktree), "feature"],
@@ -119,7 +78,7 @@ def test_excludes_symlinked_worktree(_isolate: dict[str, Path]) -> None:
     fake_main = dev / "looks-like-a-repo"
     fake_main.mkdir()
     (fake_main / ".git").symlink_to(worktree_gitdir)
-    _write_config(_isolate["config_path"], dev)
+    write_minimal_config(_isolate["config_path"], dev, iterm2=True)
 
     with TestClient(app) as client:
         r = client.get("/api/repos/candidates")
@@ -136,12 +95,12 @@ def test_includes_symlinked_main_checkout(_isolate: dict[str, Path]) -> None:
     dev = _isolate["dev_root"]
     real_repo = _isolate["dev_root"].parent / "external" / "my-repo"
     real_repo.mkdir(parents=True)
-    _init_git_repo(real_repo)
+    init_git_repo(real_repo)
     # Make a dir inside dev_root whose .git symlinks to the external repo's .git
     visible = dev / "visible-repo"
     visible.mkdir()
     (visible / ".git").symlink_to(real_repo / ".git")
-    _write_config(_isolate["config_path"], dev)
+    write_minimal_config(_isolate["config_path"], dev, iterm2=True)
 
     with TestClient(app) as client:
         r = client.get("/api/repos/candidates")
@@ -151,10 +110,10 @@ def test_includes_symlinked_main_checkout(_isolate: dict[str, Path]) -> None:
 
 def test_excludes_hidden_dirs(_isolate: dict[str, Path]) -> None:
     dev = _isolate["dev_root"]
-    _init_git_repo(dev / "ok")
+    init_git_repo(dev / "ok")
     # Hidden dir that happens to be a git repo (e.g., user dotdir) — skip
-    _init_git_repo(dev / ".cache")
-    _write_config(_isolate["config_path"], dev)
+    init_git_repo(dev / ".cache")
+    write_minimal_config(_isolate["config_path"], dev, iterm2=True)
 
     with TestClient(app) as client:
         r = client.get("/api/repos/candidates")
@@ -164,12 +123,13 @@ def test_excludes_hidden_dirs(_isolate: dict[str, Path]) -> None:
 
 def test_already_configured_flag(_isolate: dict[str, Path]) -> None:
     dev = _isolate["dev_root"]
-    _init_git_repo(dev / "configured-one")
-    _init_git_repo(dev / "fresh-one")
-    _write_config(
+    init_git_repo(dev / "configured-one")
+    init_git_repo(dev / "fresh-one")
+    write_minimal_config(
         _isolate["config_path"],
         dev,
         repos=[_config_repo_entry("configured-one", dev / "configured-one")],
+        iterm2=True,
     )
 
     with TestClient(app) as client:
@@ -183,17 +143,18 @@ def test_sort_order_not_configured_first_then_alpha(
     _isolate: dict[str, Path],
 ) -> None:
     dev = _isolate["dev_root"]
-    _init_git_repo(dev / "zeta")
-    _init_git_repo(dev / "alpha")
-    _init_git_repo(dev / "configured-a")
-    _init_git_repo(dev / "configured-z")
-    _write_config(
+    init_git_repo(dev / "zeta")
+    init_git_repo(dev / "alpha")
+    init_git_repo(dev / "configured-a")
+    init_git_repo(dev / "configured-z")
+    write_minimal_config(
         _isolate["config_path"],
         dev,
         repos=[
             _config_repo_entry("ca", dev / "configured-a"),
             _config_repo_entry("cz", dev / "configured-z"),
         ],
+        iterm2=True,
     )
 
     with TestClient(app) as client:

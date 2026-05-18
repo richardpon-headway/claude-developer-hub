@@ -12,7 +12,6 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from app import db
 from app.main import app
 from app.services.iterm_send import (
     SendGateError,
@@ -22,20 +21,8 @@ from app.services.iterm_send import (
     find_session_by_id,
     send_to_session,
 )
-
-# --- fixtures ------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]:
-    db_path = tmp_path / "cdh-test.db"
-    config_path = tmp_path / "cdh-test.yaml"
-    dev_root = tmp_path / "dev"
-    dev_root.mkdir()
-    monkeypatch.setenv("CDH_DB_PATH", str(db_path))
-    monkeypatch.setenv("CDH_CONFIG_PATH", str(config_path))
-    db.apply_migrations_sync(db_path)
-    return {"db_path": db_path, "config_path": config_path, "dev_root": dev_root}
+from tests.fixtures.iterm import seed_iterm_session
+from tests.fixtures.worktree import seed_worktree
 
 
 def _write_minimal_config(
@@ -73,24 +60,13 @@ def _seed_claude_session(
     dev_root: Path,
     claude_sid: str = "S-claude",
 ) -> None:
-    worktree_path = dev_root / name
-    worktree_path.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.execute(
-            "INSERT INTO worktree (repo, name, path, branch, created_at, status) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (repo, name, str(worktree_path), "main", "2026-01-01T00:00:00Z", "ready"),
-        )
-        conn.execute(
-            "INSERT INTO iterm_session "
-            "(repo, worktree_name, role, iterm_window_id, iterm_session_id, spawned_at) "
-            "VALUES (?, ?, 'claude', 'W1', ?, '2026-01-01T00:00:00Z')",
-            (repo, name, claude_sid),
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    """Seed a ready worktree + a matching claude iterm_session row.
+    Wraps the shared fixture helpers — this file's run-skill tests
+    need both rows in lockstep."""
+    seed_worktree(db_path, repo, name, path=dev_root / name)
+    seed_iterm_session(
+        db_path, repo, name, window_id="W1", session_id=claude_sid
+    )
 
 
 def _build_screen_contents(trailing_text: str, prefix_lines: int = 3) -> MagicMock:
@@ -264,13 +240,15 @@ def test_send_text_auto_spawns_when_no_claude_session(
     a fresh iTerm2 window with the user's text as the initial prompt
     (``claude '<text>'``) instead of refusing with a 400."""
     _write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
-    _seed_worktree_only(_isolate["db_path"], "r", "wt", _isolate["dev_root"])
+    seed_worktree(
+        _isolate["db_path"], "r", "wt", path=_isolate["dev_root"] / "wt"
+    )
 
     import iterm2
 
-    from tests.test_iterm import _build_fake_window
+    from tests.fixtures.iterm import build_fake_window
 
-    fake_window = _build_fake_window(
+    fake_window = build_fake_window(
         window_id="WN", claude_session_id="CN", shell_session_id="SHN"
     )
     monkeypatch.setattr(
@@ -310,9 +288,9 @@ def test_send_text_prunes_stale_row_and_respawns(
 
     import iterm2
 
-    from tests.test_iterm import _build_fake_window
+    from tests.fixtures.iterm import build_fake_window
 
-    fake_window = _build_fake_window(
+    fake_window = build_fake_window(
         window_id="WX", claude_session_id="CX", shell_session_id="SHX"
     )
     monkeypatch.setattr(
@@ -442,23 +420,6 @@ def test_run_skill_prefixes_with_slash(
     session.async_send_text.assert_awaited_once_with("/pr-check-action-required\r")
 
 
-def _seed_worktree_only(db_path: Path, repo: str, name: str, dev_root: Path) -> None:
-    """Insert a worktree row WITHOUT an iterm_session row — simulating
-    a worktree that's been discovered/created but never opened in iTerm2."""
-    worktree_path = dev_root / name
-    worktree_path.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.execute(
-            "INSERT INTO worktree (repo, name, path, branch, created_at, status) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (repo, name, str(worktree_path), "main", "2026-01-01T00:00:00Z", "ready"),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
 def test_run_skill_spawns_when_no_session_exists(
     monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
 ) -> None:
@@ -469,14 +430,16 @@ def test_run_skill_spawns_when_no_session_exists(
     _write_minimal_config(
         _isolate["config_path"], _isolate["dev_root"], send_gate_patterns=[]
     )
-    _seed_worktree_only(_isolate["db_path"], "r", "wt", _isolate["dev_root"])
+    seed_worktree(
+        _isolate["db_path"], "r", "wt", path=_isolate["dev_root"] / "wt"
+    )
 
     # Stub the iTerm2 spawn surface so we never touch a real iTerm2.
     import iterm2
 
-    from tests.test_iterm import _build_fake_window
+    from tests.fixtures.iterm import build_fake_window
 
-    fake_window = _build_fake_window(
+    fake_window = build_fake_window(
         window_id="WN", claude_session_id="CN", shell_session_id="SHN"
     )
     monkeypatch.setattr(

@@ -14,6 +14,7 @@ from app.config.loader import save_config
 from app.config.schema import CDHConfig, RepoConfig
 from app.main import app
 from app.routes import repos as repos_module
+from tests.fixtures.iterm import build_fake_window
 
 
 @pytest.fixture(autouse=True)
@@ -184,30 +185,6 @@ def test_onboard_complete_proposed_entry_validates(git_repo: Path) -> None:
 # --- POST /api/repos/{name}/spawn-iterm ---------------------------------
 
 
-def _build_fake_window(
-    window_id: str = "W1",
-    claude_session_id: str = "S-claude",
-    shell_session_id: str = "S-shell",
-) -> MagicMock:
-    """Mirror tests/test_iterm.py's helper — the spawn function walks
-    window.current_tab.current_session for the Claude tab and creates a
-    second tab via async_create_tab for the shell."""
-    claude_session = MagicMock(session_id=claude_session_id)
-    claude_session.async_send_text = AsyncMock()
-    claude_tab = MagicMock(current_session=claude_session)
-    claude_tab.async_select = AsyncMock()
-
-    shell_session = MagicMock(session_id=shell_session_id)
-    shell_session.async_send_text = AsyncMock()
-    shell_tab = MagicMock(current_session=shell_session)
-
-    window = MagicMock(window_id=window_id, current_tab=claude_tab)
-    window.async_set_frame = AsyncMock()
-    window.async_create_tab = AsyncMock(return_value=shell_tab)
-    window.async_activate = AsyncMock()
-    return window
-
-
 def test_spawn_repo_iterm_404_when_unknown_name(git_repo: Path) -> None:
     save_config(CDHConfig(repos=[RepoConfig(name="known", path=git_repo)]))
     with TestClient(app) as client:
@@ -239,8 +216,10 @@ def test_spawn_repo_iterm_happy_path(
 ) -> None:
     save_config(CDHConfig(repos=[RepoConfig(name="known", path=git_repo)]))
 
-    fake_window = _build_fake_window(
-        window_id="W-repo", claude_session_id="C-repo", shell_session_id="SH-repo"
+    fake_window = build_fake_window(
+        window_id="W-repo",
+        claude_session_id="C-repo",
+        shell_session_id="SH-repo",
     )
     import iterm2
 
