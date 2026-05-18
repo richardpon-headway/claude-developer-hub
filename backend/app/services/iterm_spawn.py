@@ -193,6 +193,83 @@ def get_claude_session_id_sync(repo: str, worktree_name: str) -> str | None:
         conn.close()
 
 
+def get_claude_window_and_session_sync(
+    repo: str, worktree_name: str
+) -> tuple[str, str] | None:
+    """Return ``(iterm_window_id, iterm_session_id)`` for the claude
+    tab of a worktree, or ``None`` if no row exists. Used by the
+    focus-iterm endpoint to bring an existing window to the front
+    instead of spawning a new one."""
+    conn = open_db()
+    try:
+        row = conn.execute(
+            "SELECT iterm_window_id, iterm_session_id FROM iterm_session "
+            "WHERE repo = ? AND worktree_name = ? AND role = 'claude'",
+            (repo, worktree_name),
+        ).fetchone()
+        return (row[0], row[1]) if row else None
+    finally:
+        conn.close()
+
+
+async def focus_iterm_window(
+    connection: iterm2.Connection,
+    window_id: str,
+    session_id: str | None = None,
+) -> bool:
+    """Bring the iTerm2 window with ``window_id`` to the front.
+
+    If ``session_id`` is supplied, also select the tab containing
+    that session — otherwise the window's current tab stays selected.
+
+    Returns ``False`` if the target window no longer exists in the
+    running iTerm2 instance — caller should treat this as a stale
+    ``iterm_session`` row and prune it.
+    """
+    import iterm2
+
+    app = await iterm2.async_get_app(connection)
+    if app is None:
+        return False
+
+    target_window: iterm2.Window | None = None
+    target_tab: iterm2.Tab | None = None
+    for window in app.windows:
+        if window.window_id != window_id:
+            continue
+        target_window = window
+        if session_id is None:
+            break
+        # Walk every tab's sessions; pick the tab that owns the
+        # tracked claude session_id so we land focus on the right tab.
+        for tab in window.tabs:
+            for sess in tab.sessions:
+                if sess.session_id == session_id:
+                    target_tab = tab
+                    break
+            if target_tab is not None:
+                break
+        break
+
+    if target_window is None:
+        return False
+
+    if target_tab is not None:
+        try:
+            await target_tab.async_select()
+        except Exception as e:
+            log.warning("iTerm2 tab select failed (non-fatal): %s", e)
+    try:
+        await app.async_activate(raise_all_windows=False)
+    except Exception as e:
+        log.warning("iTerm2 app activate failed (non-fatal): %s", e)
+    try:
+        await target_window.async_activate()
+    except Exception as e:
+        log.warning("iTerm2 window activate failed (non-fatal): %s", e)
+    return True
+
+
 def delete_iterm_sessions_sync(repo: str, worktree_name: str) -> int:
     """Drop both the claude- and shell-role iterm_session rows for a
     worktree. Used to evict stale entries — e.g. when the iTerm2 API
