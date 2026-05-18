@@ -356,8 +356,15 @@ _UNRESOLVED_THREADS_QUERY = """\
 query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
+      author { login }
       reviewThreads(first: 100) {
-        nodes { isResolved, isOutdated }
+        nodes {
+          isResolved
+          isOutdated
+          comments(last: 1) {
+            nodes { author { login } }
+          }
+        }
       }
     }
   }
@@ -365,14 +372,27 @@ query($owner: String!, $name: String!, $number: Int!) {
 """
 
 
+def _last_comment_author(thread: dict) -> str | None:
+    nodes = (thread.get("comments") or {}).get("nodes") or []
+    if not nodes:
+        return None
+    return ((nodes[-1].get("author") or {}).get("login")) or None
+
+
 async def _fetch_unresolved_threads_count(
     owner: str, name: str, pr_number: int
 ) -> int:
     """GraphQL fetch for the PR's reviewThread isResolved flags.
 
-    Returns the count of threads that are both unresolved AND not
-    outdated. Outdated threads (those superseded by a force-push) are
-    skipped because they're no longer actionable.
+    Returns the count of threads that are unresolved, un-outdated, AND
+    whose last comment is NOT by the PR author. The author-reply guard
+    lets the user "address" a thread by replying without having to
+    click *Resolve conversation* — leaving the thread open so the
+    reviewer can re-read the exchange on their next pass. A subsequent
+    reviewer follow-up flips the thread back to unaddressed.
+
+    Outdated threads (those superseded by a force-push) are skipped
+    because they're no longer actionable.
 
     Fail-open: returns 0 on any gh / parse failure so a transient
     GraphQL hiccup doesn't make a noisy PR look clean… wait, actually
@@ -400,14 +420,21 @@ async def _fetch_unresolved_threads_count(
         return 0
     if not isinstance(data, dict):
         return 0
-    nodes = (
-        ((data.get("data") or {}).get("repository") or {})
-        .get("pullRequest") or {}
-    ).get("reviewThreads", {}).get("nodes") or []
+    pr = (
+        ((data.get("data") or {}).get("repository") or {}).get("pullRequest")
+        or {}
+    )
+    pr_author = ((pr.get("author") or {}).get("login")) or None
+    nodes = (pr.get("reviewThreads") or {}).get("nodes") or []
     return sum(
         1
         for t in nodes
-        if t.get("isResolved") is False and t.get("isOutdated") is False
+        if t.get("isResolved") is False
+        and t.get("isOutdated") is False
+        # If we couldn't resolve the PR author, fall back to the old
+        # count-everything-unresolved behavior rather than silently
+        # under-counting.
+        and (pr_author is None or _last_comment_author(t) != pr_author)
     )
 
 

@@ -577,24 +577,87 @@ def test_fetch_pr_summary_raises_on_gh_missing(
         asyncio.run(pr_state.fetch_pr_summary(_isolate["dev_root"]))
 
 
+def _thread(
+    *,
+    resolved: bool,
+    outdated: bool,
+    last_author: str | None,
+) -> dict:
+    comments_nodes = (
+        [{"author": {"login": last_author}}] if last_author is not None else []
+    )
+    return {
+        "isResolved": resolved,
+        "isOutdated": outdated,
+        "comments": {"nodes": comments_nodes},
+    }
+
+
 def test_fetch_unresolved_threads_count_parses_graphql(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Counts reviewThreads where isResolved=False AND isOutdated=False.
-    Resolved threads and outdated threads don't count."""
+    """Counts reviewThreads that are unresolved AND un-outdated AND
+    whose last comment isn't from the PR author. Resolved threads,
+    outdated threads, and threads whose last reply is the author's
+    own all drop out."""
     graphql_json = json.dumps(
         {
             "data": {
                 "repository": {
                     "pullRequest": {
+                        "author": {"login": "octocat"},
                         "reviewThreads": {
                             "nodes": [
-                                {"isResolved": False, "isOutdated": False},  # count
-                                {"isResolved": False, "isOutdated": False},  # count
-                                {"isResolved": True, "isOutdated": False},   # resolved
-                                {"isResolved": False, "isOutdated": True},   # outdated
+                                # count — reviewer last
+                                _thread(resolved=False, outdated=False, last_author="reviewer1"),
+                                # count — reviewer last
+                                _thread(resolved=False, outdated=False, last_author="reviewer2"),
+                                # skip — author replied last
+                                _thread(resolved=False, outdated=False, last_author="octocat"),
+                                # skip — resolved
+                                _thread(resolved=True, outdated=False, last_author="reviewer1"),
+                                # skip — outdated
+                                _thread(resolved=False, outdated=True, last_author="reviewer1"),
                             ]
-                        }
+                        },
+                    }
+                }
+            }
+        }
+    ).encode()
+
+    fake_proc = MagicMock()
+    fake_proc.communicate = AsyncMock(return_value=(graphql_json, b""))
+    fake_proc.returncode = 0
+    monkeypatch.setattr(
+        gh_cli.asyncio, "create_subprocess_exec", AsyncMock(return_value=fake_proc)
+    )
+
+    count = asyncio.run(
+        pr_state._fetch_unresolved_threads_count("o", "r", 42)
+    )
+    assert count == 2
+
+
+def test_fetch_unresolved_threads_count_falls_back_when_author_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If the PR author can't be resolved (deleted GitHub account, weird
+    payload), we fall back to counting every unresolved+un-outdated
+    thread rather than silently under-counting."""
+    graphql_json = json.dumps(
+        {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "author": None,
+                        "reviewThreads": {
+                            "nodes": [
+                                _thread(resolved=False, outdated=False, last_author="octocat"),
+                                _thread(resolved=False, outdated=False, last_author="reviewer1"),
+                                _thread(resolved=True, outdated=False, last_author="reviewer1"),
+                            ]
+                        },
                     }
                 }
             }
