@@ -194,7 +194,7 @@ describe("WorkspaceList", () => {
         ]),
       }),
     ]);
-    expect(screen.getByText("unaddressed")).toBeInTheDocument();
+    expect(screen.getByText("unaddressed_comments")).toBeInTheDocument();
     // Sits under Needs your action.
     expect(
       screen.getByRole("heading", { name: /Needs your action/i }),
