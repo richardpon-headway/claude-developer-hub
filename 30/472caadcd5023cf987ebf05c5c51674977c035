@@ -1,0 +1,38 @@
+backend/tests/test_skills.py
+  s_d128a241c2e116::t_03bbb9eda474b6 74,76-79
+  s_d128a241c2e116::t_905754d04c8d2d 92,94-97
+  s_d128a241c2e116::t_0c480f63491294 126,128-129
+  s_d128a241c2e116::t_aa23f43d9661b9 153,155-156
+  s_d128a241c2e116::t_cefc4b2f8d45c1 176,178-181
+  s_d128a241c2e116::t_d4472d16faca28 16
+  s_d128a241c2e116::t_96153e96a1a518 54-56,65-67,240-242,249-251,289-291
+backend/tests/fixtures/config.py
+  s_d128a241c2e116::t_801f7e8924b0e4 34-35,39-47,49,52-59
+  s_d128a241c2e116::t_f27e960bbe485a 1-33,36-38,48,50-51,60-96
+backend/tests/test_repo_candidates.py
+  s_d128a241c2e116::t_ff1ca265146428 176,183
+  s_d128a241c2e116::t_0c5c49cdee86cd 56,78,107,129,142
+  s_d128a241c2e116::t_dd8b1beeac09f5 13
+  s_d128a241c2e116::t_57fa6884464e2a 154,158
+backend/tests/fixtures/__init__.py
+  s_d128a241c2e116::t_2feebd4964acc0 1-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.9",
+  "base_commit_sha": "30472caadcd5023cf987ebf05c5c51674977c035",
+  "prompts": {},
+  "sessions": {
+    "s_d128a241c2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6a9c603-8a9f-47c5-a234-1b418c8994f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
