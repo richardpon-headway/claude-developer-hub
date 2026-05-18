@@ -1,0 +1,28 @@
+backend/tests/test_workspace.py
+  s_d128a241c2e116::t_5221f30c6c8188 16,23,36,68,73
+backend/tests/test_inbox.py
+  s_d128a241c2e116::t_eff26df893a59d 866,871-872
+  s_d128a241c2e116::t_a38707158c3836 852,854
+  s_d128a241c2e116::t_9bd9c176f85704 913,920,924
+backend/tests/test_skills.py
+  s_d128a241c2e116::t_6a8dc83ede0d24 33,44,54,72,102,106,130,133,156,219,228,268
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.9",
+  "base_commit_sha": "e8c91a5c6a875477335f2d24276f2f72891777a6",
+  "prompts": {},
+  "sessions": {
+    "s_d128a241c2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6a9c603-8a9f-47c5-a234-1b418c8994f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
