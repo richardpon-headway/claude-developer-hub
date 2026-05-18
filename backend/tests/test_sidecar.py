@@ -22,6 +22,7 @@ from app.services.sidecar import (
     encode_project_dir,
     write_sidecar_sync,
 )
+from tests.fixtures.iterm import build_fake_window
 from tests.fixtures.worktree import seed_worktree
 
 # --- fixtures ------------------------------------------------------------
@@ -194,27 +195,6 @@ def test_write_sidecar_atomic(_isolate: dict[str, Path]) -> None:
 # --- spawn endpoint integration ------------------------------------------
 
 
-def _build_fake_window(
-    window_id: str = "W1",
-    claude_session_id: str = "S-claude",
-    shell_session_id: str = "S-shell",
-) -> MagicMock:
-    claude_session = MagicMock(session_id=claude_session_id)
-    claude_session.async_send_text = AsyncMock()
-    claude_tab = MagicMock(current_session=claude_session)
-    claude_tab.async_select = AsyncMock()
-
-    shell_session = MagicMock(session_id=shell_session_id)
-    shell_session.async_send_text = AsyncMock()
-    shell_tab = MagicMock(current_session=shell_session)
-
-    window = MagicMock(window_id=window_id, current_tab=claude_tab)
-    window.async_set_frame = AsyncMock()
-    window.async_create_tab = AsyncMock(return_value=shell_tab)
-    window.async_activate = AsyncMock()
-    return window
-
-
 def test_spawn_endpoint_writes_sidecar(
     monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
 ) -> None:
@@ -229,7 +209,7 @@ def test_spawn_endpoint_writes_sidecar(
         ticket="PROJ-7",
     )
 
-    fake_window = _build_fake_window(
+    fake_window = build_fake_window(
         window_id="W9", claude_session_id="C9", shell_session_id="SH9"
     )
     import iterm2
@@ -339,7 +319,7 @@ def test_spawn_endpoint_succeeds_on_discovery_timeout(
         branch="feature",
     )
 
-    fake_window = _build_fake_window()
+    fake_window = build_fake_window()
     import iterm2
 
     monkeypatch.setattr(

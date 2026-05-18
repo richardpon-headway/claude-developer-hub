@@ -23,6 +23,7 @@ from app.main import app
 from app.services import iterm_spawn
 from app.services import iterm_supervisor as supervisor
 from app.services import worktree as wsvc
+from tests.fixtures.iterm import build_fake_window, seed_iterm_session
 from tests.fixtures.worktree import seed_worktree
 
 # --- fixtures ------------------------------------------------------------
@@ -55,30 +56,6 @@ def _write_minimal_config(config_path: Path, dev_root: Path) -> None:
     )
 
 
-def _build_fake_window(
-    window_id: str = "W1",
-    claude_session_id: str = "S-claude",
-    shell_session_id: str = "S-shell",
-) -> MagicMock:
-    """Construct the nested mock structure that spawn_two_tab_window
-    walks: window → current_tab → current_session, plus async_create_tab
-    → tab → current_session."""
-    claude_session = MagicMock(session_id=claude_session_id)
-    claude_session.async_send_text = AsyncMock()
-    claude_tab = MagicMock(current_session=claude_session)
-    claude_tab.async_select = AsyncMock()
-
-    shell_session = MagicMock(session_id=shell_session_id)
-    shell_session.async_send_text = AsyncMock()
-    shell_tab = MagicMock(current_session=shell_session)
-
-    window = MagicMock(window_id=window_id, current_tab=claude_tab)
-    window.async_set_frame = AsyncMock()
-    window.async_create_tab = AsyncMock(return_value=shell_tab)
-    window.async_activate = AsyncMock()
-    return window
-
-
 # --- spawn_two_tab_window unit test -------------------------------------
 
 
@@ -87,7 +64,7 @@ def test_spawn_two_tab_window_calls_iterm_api(
 ) -> None:
     import iterm2
 
-    fake_window = _build_fake_window()
+    fake_window = build_fake_window()
     # Real API: iterm2.Window.async_create(connection, profile=...) → Window
     monkeypatch.setattr(
         iterm2.Window, "async_create", AsyncMock(return_value=fake_window)
@@ -327,7 +304,7 @@ def test_spawn_endpoint_happy_path(
     repo, name = "r", "wt"
     seed_worktree(_isolate["db_path"], repo, name, path=_isolate["dev_root"] / "wt")
 
-    fake_window = _build_fake_window(
+    fake_window = build_fake_window(
         window_id="W42", claude_session_id="C42", shell_session_id="SH42"
     )
     import iterm2
@@ -395,36 +372,12 @@ def test_spawn_endpoint_502_on_iterm_error(
 # --- POST /api/worktree/{repo}/{name}/focus-iterm ------------------------
 
 
-def _seed_claude_session(
-    db_path: Path,
-    repo: str,
-    name: str,
-    *,
-    window_id: str,
-    session_id: str,
-) -> None:
-    """Insert a claude-role iterm_session row so focus-iterm has
-    something to look up."""
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.execute(
-            "INSERT INTO iterm_session "
-            "(repo, worktree_name, role, iterm_window_id, iterm_session_id, "
-            " claude_session_uuid, spawned_at) "
-            "VALUES (?, ?, 'claude', ?, ?, NULL, ?)",
-            (repo, name, window_id, session_id, "2026-05-18T00:00:00Z"),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
 def test_focus_endpoint_503_when_iterm_disconnected(
     _isolate: dict[str, Path],
 ) -> None:
     _write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
     seed_worktree(_isolate["db_path"], "r", "wt", path=_isolate["dev_root"] / "wt")
-    _seed_claude_session(
+    seed_iterm_session(
         _isolate["db_path"], "r", "wt", window_id="W1", session_id="S1"
     )
 
@@ -455,7 +408,7 @@ def test_focus_endpoint_happy_path(
     select its claude tab."""
     _write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
     seed_worktree(_isolate["db_path"], "r", "wt", path=_isolate["dev_root"] / "wt")
-    _seed_claude_session(
+    seed_iterm_session(
         _isolate["db_path"], "r", "wt", window_id="W42", session_id="S42"
     )
 
@@ -491,7 +444,7 @@ def test_focus_endpoint_404_and_prunes_when_window_missing(
     the stale row and returns 404."""
     _write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
     seed_worktree(_isolate["db_path"], "r", "wt", path=_isolate["dev_root"] / "wt")
-    _seed_claude_session(
+    seed_iterm_session(
         _isolate["db_path"], "r", "wt", window_id="W-gone", session_id="S1"
     )
 
