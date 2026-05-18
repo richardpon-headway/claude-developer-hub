@@ -89,6 +89,7 @@ function wt(overrides: Partial<Worktree> = {}): Worktree {
 beforeEach(() => {
   vi.mocked(worktreesApi.spawnIterm).mockReset();
   vi.mocked(worktreesApi.focusIterm).mockReset();
+  vi.mocked(worktreesApi.recreateWorktree).mockReset();
 });
 
 afterEach(() => {
@@ -230,22 +231,80 @@ describe("WorkspaceList", () => {
     expect(screen.getByText("ci fail")).toBeInTheDocument();
   });
 
-  test("claude pill renders as a button that calls focus-iterm on click", async () => {
+  test("ready + claude session → Focus iTerm2 button calls focus-iterm", async () => {
     vi.mocked(worktreesApi.focusIterm).mockResolvedValue({ focused: true });
-    renderWorkspaces([wt({ name: "with-claude", has_claude_session: true })]);
-    const btn = screen.getByRole("button", { name: /^claude ●$/i });
+    renderWorkspaces([
+      wt({ name: "with-claude", status: "ready", has_claude_session: true }),
+    ]);
+    const btn = screen.getByRole("button", { name: /^focus iterm2$/i });
     expect(btn).toBeEnabled();
     fireEvent.click(btn);
     await waitFor(() => {
-      expect(worktreesApi.focusIterm).toHaveBeenCalledWith("myapp", "with-claude");
+      expect(worktreesApi.focusIterm).toHaveBeenCalledWith(
+        "myapp",
+        "with-claude",
+      );
     });
   });
 
-  test("claude button is hidden when has_claude_session is false", () => {
-    renderWorkspaces([wt({ name: "no-claude", has_claude_session: false })]);
-    expect(
-      screen.queryByRole("button", { name: /^claude ●$/i }),
-    ).not.toBeInTheDocument();
+  test("ready + no claude session → iTerm2 button calls spawn-iterm", async () => {
+    vi.mocked(worktreesApi.spawnIterm).mockResolvedValue({
+      window_id: "W",
+      claude_session_id: "C",
+      shell_session_id: "S",
+      claude_session_uuid: null,
+      sidecar_path: null,
+    });
+    renderWorkspaces([
+      wt({ name: "no-claude", status: "ready", has_claude_session: false }),
+    ]);
+    const btn = screen.getByRole("button", { name: /^iterm2$/i });
+    expect(btn).toBeEnabled();
+    fireEvent.click(btn);
+    await waitFor(() => {
+      expect(worktreesApi.spawnIterm).toHaveBeenCalledWith("myapp", "no-claude");
+    });
+  });
+
+  test("setting_up → Configuring… button is disabled", () => {
+    renderWorkspaces([
+      wt({ name: "wip", status: "setting_up", has_claude_session: false }),
+    ]);
+    const btn = screen.getByRole("button", { name: /^configuring…$/i });
+    expect(btn).toBeDisabled();
+  });
+
+  test("failed → Setup failed renders as link to the workspace Manage page", () => {
+    renderWorkspaces([
+      wt({ name: "broken", status: "failed", has_claude_session: false }),
+    ]);
+    const link = screen.getByRole("link", { name: /^setup failed$/i });
+    // Link is stubbed to <a href={to}> in the router mock at file top.
+    expect(link).toHaveAttribute("href", "/workspace/$repo/$name");
+  });
+
+  test("stale → Recreate workspace button calls recreate endpoint", async () => {
+    vi.mocked(worktreesApi.recreateWorktree).mockResolvedValue({
+      repo: "myapp",
+      name: "gone",
+      path: "/tmp/p",
+      branch: "feat/gone",
+      ticket: null,
+      pr_number: null,
+      pr_repo: null,
+      created_at: "2026-05-18T00:00:00Z",
+      status: "ready",
+      has_claude_session: false,
+      pr_state: null,
+    });
+    renderWorkspaces([
+      wt({ name: "gone", status: "stale", has_claude_session: false }),
+    ]);
+    const btn = screen.getByRole("button", { name: /^recreate workspace$/i });
+    fireEvent.click(btn);
+    await waitFor(() => {
+      expect(worktreesApi.recreateWorktree).toHaveBeenCalledWith("myapp", "gone");
+    });
   });
 
   test("iTerm2 spawn failure surfaces inline error + flips the button to a red state", async () => {
