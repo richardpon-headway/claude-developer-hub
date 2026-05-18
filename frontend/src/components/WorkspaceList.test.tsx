@@ -101,6 +101,7 @@ describe("WorkspaceList", () => {
 
   test("groups by tier (no per-headline sub-boxes)", () => {
     renderWorkspaces([
+      wt({ name: "done", pr_state: prState("merged") }),
       wt({ name: "needs", pr_state: prState("ci_failing") }),
       wt({ name: "ready", pr_state: prState("ready_to_merge") }),
       wt({ name: "wip", pr_state: prState("draft") }),
@@ -109,6 +110,9 @@ describe("WorkspaceList", () => {
     // Tier headers are <h3>s. The chip with the same text family
     // ("Approved - Ready to Merge") is a <span>, so role/heading
     // narrows the lookup.
+    expect(
+      screen.getByRole("heading", { name: /Merged/i }),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: /Needs your action/i }),
     ).toBeInTheDocument();
@@ -121,6 +125,23 @@ describe("WorkspaceList", () => {
     expect(
       screen.getByRole("heading", { name: /No PR yet/i }),
     ).toBeInTheDocument();
+  });
+
+  test("tier order: Merged comes before Ready to merge before Needs your action", () => {
+    renderWorkspaces([
+      wt({ name: "done", pr_state: prState("merged") }),
+      wt({ name: "approved", pr_state: prState("ready_to_merge") }),
+      wt({ name: "failing", pr_state: prState("ci_failing") }),
+    ]);
+    const headings = screen
+      .getAllByRole("heading", { level: 3 })
+      .map((h) => h.textContent ?? "");
+    const mergedIdx = headings.findIndex((t) => /Merged/i.test(t));
+    const readyIdx = headings.findIndex((t) => /Ready to merge/i.test(t));
+    const needsIdx = headings.findIndex((t) => /Needs your action/i.test(t));
+    expect(mergedIdx).toBeGreaterThanOrEqual(0);
+    expect(mergedIdx).toBeLessThan(readyIdx);
+    expect(readyIdx).toBeLessThan(needsIdx);
   });
 
   test("renders all labels as inline chips on a multi-label row", () => {
