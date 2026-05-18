@@ -63,6 +63,7 @@ export type PrHeadline =
   | "merge_conflicts"
   | "in_merge_queue"
   | "ready_to_merge"
+  | "unresolved_comments"
   | "human_comment"
   | "review_requested"
   | "checks_running"
@@ -101,6 +102,9 @@ export interface PrStateSummary {
   head_ref: string | null;
   updated_at: string | null;
   checked_at: string;
+  // Count of unresolved + non-outdated PR review threads.
+  // Drives the `unresolved_comments` label.
+  unresolved_threads: number;
 }
 
 export interface Worktree {
