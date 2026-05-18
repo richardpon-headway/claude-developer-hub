@@ -65,20 +65,7 @@ export function HubPage() {
     <main className="mx-auto max-w-7xl p-8">
       <header className="flex items-baseline justify-between">
         <h1 className="text-2xl font-semibold">Claude Developer Hub</h1>
-        <div className="flex items-baseline gap-2">
-          {repos.length > 0 && (
-            <Tooltip text="Reconcile workspaces with `git worktree list` (import new ones, drop removed ones) AND force an inbox refresh against GitHub. The background inbox poll continues every 60s.">
-              <Button
-                variant="secondary"
-                onClick={() => sync.mutate()}
-                disabled={sync.isPending}
-              >
-                {sync.isPending ? "Syncing…" : "Sync"}
-              </Button>
-            </Tooltip>
-          )}
-          <Button onClick={() => setModalOpen(true)}>Add a repo</Button>
-        </div>
+        <Button onClick={() => setModalOpen(true)}>Add a repo</Button>
       </header>
 
       {/* 50/50 grid at max-w-7xl: aside ends up roughly 50% wider than
@@ -87,6 +74,19 @@ export function HubPage() {
           share. */}
       <div className="mt-8 grid grid-cols-2 gap-6">
         <div className="space-y-8">
+          {repos.length > 0 && (
+            <div className="flex justify-end">
+              <Tooltip text="Reconcile workspaces with `git worktree list` (import new ones, drop removed ones) AND force an inbox refresh against GitHub. The background inbox poll continues every 60s.">
+                <Button
+                  variant="secondary"
+                  onClick={() => sync.mutate()}
+                  disabled={sync.isPending}
+                >
+                  {sync.isPending ? "Syncing…" : "Sync"}
+                </Button>
+              </Tooltip>
+            </div>
+          )}
           <InboxList />
           <section>
             <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
