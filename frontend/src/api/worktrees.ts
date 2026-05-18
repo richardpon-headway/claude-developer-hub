@@ -34,6 +34,9 @@ export interface FocusItermResponse {
 export const focusIterm = (repo: string, name: string) =>
   apiPost<FocusItermResponse>(`${workspacePath(repo, name)}/focus-iterm`, {});
 
+export const recreateWorktree = (repo: string, name: string) =>
+  apiPost<Worktree>(`${workspacePath(repo, name)}/recreate`, {});
+
 export const sendText = (
   repo: string,
   name: string,

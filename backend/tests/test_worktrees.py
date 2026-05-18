@@ -213,6 +213,84 @@ def test_get_worktree_404() -> None:
     assert r.status_code == 404
 
 
+# --- /api/worktree/{repo}/{name}/recreate --------------------------------
+
+
+def test_recreate_404_when_worktree_missing(_isolate: dict[str, Path]) -> None:
+    _write_config(_isolate["config_path"], _isolate["dev_root"], _isolate["dev_root"])
+    with TestClient(app) as client:
+        r = client.post("/api/worktree/myapp/nope/recreate")
+    assert r.status_code == 404
+
+
+def test_recreate_409_when_status_not_stale(_isolate: dict[str, Path]) -> None:
+    """Recreate is intentionally limited to stale rows — for a ready or
+    failed row we'd be destroying on-disk state the user might want
+    to investigate or stash."""
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    _write_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
+
+    with TestClient(app) as client:
+        r1 = client.post(
+            "/api/worktree", json={"repo": "myapp", "branch": "feature"}
+        )
+        assert r1.status_code == 200
+        assert r1.json()["status"] == "ready"
+        r2 = client.post("/api/worktree/myapp/feature/recreate")
+    assert r2.status_code == 409
+    assert "stale" in r2.json()["detail"]
+
+
+def test_recreate_stale_row_drops_and_reinserts(_isolate: dict[str, Path]) -> None:
+    """End-to-end: create a worktree, mark it stale in the DB to
+    simulate "user deleted the directory outside CDH and ran Sync",
+    then click Recreate. The row should be replaced with a fresh
+    ready row pointing at the same branch."""
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    _write_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
+
+    with TestClient(app) as client:
+        r1 = client.post(
+            "/api/worktree", json={"repo": "myapp", "branch": "feature"}
+        )
+        assert r1.status_code == 200, r1.text
+        old_path = r1.json()["path"]
+        old_created_at = r1.json()["created_at"]
+
+        # Simulate: user `rm -rf`d the on-disk directory WITHOUT
+        # running `git worktree prune`. Git still tracks the (now-
+        # broken) worktree as prunable. The recreate endpoint must
+        # prune git's tracking itself before `git worktree add`
+        # can succeed against the same path.
+        import shutil
+
+        shutil.rmtree(old_path)
+        # NOTE: deliberately NOT running `git worktree prune` here —
+        # the endpoint should handle the un-pruned case.
+        conn = db.open_db(_isolate["db_path"])
+        try:
+            conn.execute(
+                "UPDATE worktree SET status='stale' WHERE repo=? AND name=?",
+                ("myapp", "feature"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        # Click Recreate — should re-run create_worktree against the
+        # same branch and return a fresh ready row.
+        r2 = client.post("/api/worktree/myapp/feature/recreate")
+    assert r2.status_code == 200, r2.text
+    body = r2.json()
+    assert body["status"] == "ready"
+    assert body["branch"] == "feature"
+    assert body["name"] == "feature"
+    assert body["created_at"] != old_created_at  # fresh insert
+    assert Path(body["path"]).exists()
+
+
 # --- /api/worktree/{repo}/{name}/pr-url ----------------------------------
 
 
