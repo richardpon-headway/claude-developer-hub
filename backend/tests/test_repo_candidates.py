@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from app import db
 from app.main import app
+from tests.fixtures.config import write_minimal_config
 
 
 @pytest.fixture(autouse=True)
@@ -22,22 +23,6 @@ def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]
     monkeypatch.setenv("CDH_CONFIG_PATH", str(config_path))
     db.apply_migrations_sync(db_path)
     return {"db_path": db_path, "config_path": config_path, "dev_root": dev_root}
-
-
-def _write_config(
-    config_path: Path,
-    dev_root: Path,
-    repos: list[dict] | None = None,
-) -> None:
-    config_path.write_text(
-        yaml.safe_dump(
-            {
-                "development_root": str(dev_root),
-                "repos": repos or [],
-                "iterm2": {"default_window": {"width": 800, "height": 600, "x": 0, "y": 0}},
-            }
-        )
-    )
 
 
 def _init_git_repo(path: Path, branches: list[str] | None = None) -> None:
@@ -68,7 +53,7 @@ def test_lists_git_repos_excludes_plain_dirs(_isolate: dict[str, Path]) -> None:
     _init_git_repo(dev / "alpha")
     _init_git_repo(dev / "beta")
     (dev / "not-a-repo").mkdir()
-    _write_config(_isolate["config_path"], dev)
+    write_minimal_config(_isolate["config_path"], dev, iterm2=True)
 
     with TestClient(app) as client:
         r = client.get("/api/repos/candidates")
@@ -90,7 +75,7 @@ def test_excludes_standard_worktrees(_isolate: dict[str, Path]) -> None:
         check=True,
         capture_output=True,
     )
-    _write_config(_isolate["config_path"], dev)
+    write_minimal_config(_isolate["config_path"], dev, iterm2=True)
 
     with TestClient(app) as client:
         r = client.get("/api/repos/candidates")
@@ -119,7 +104,7 @@ def test_excludes_symlinked_worktree(_isolate: dict[str, Path]) -> None:
     fake_main = dev / "looks-like-a-repo"
     fake_main.mkdir()
     (fake_main / ".git").symlink_to(worktree_gitdir)
-    _write_config(_isolate["config_path"], dev)
+    write_minimal_config(_isolate["config_path"], dev, iterm2=True)
 
     with TestClient(app) as client:
         r = client.get("/api/repos/candidates")
@@ -141,7 +126,7 @@ def test_includes_symlinked_main_checkout(_isolate: dict[str, Path]) -> None:
     visible = dev / "visible-repo"
     visible.mkdir()
     (visible / ".git").symlink_to(real_repo / ".git")
-    _write_config(_isolate["config_path"], dev)
+    write_minimal_config(_isolate["config_path"], dev, iterm2=True)
 
     with TestClient(app) as client:
         r = client.get("/api/repos/candidates")
@@ -154,7 +139,7 @@ def test_excludes_hidden_dirs(_isolate: dict[str, Path]) -> None:
     _init_git_repo(dev / "ok")
     # Hidden dir that happens to be a git repo (e.g., user dotdir) — skip
     _init_git_repo(dev / ".cache")
-    _write_config(_isolate["config_path"], dev)
+    write_minimal_config(_isolate["config_path"], dev, iterm2=True)
 
     with TestClient(app) as client:
         r = client.get("/api/repos/candidates")
@@ -166,10 +151,11 @@ def test_already_configured_flag(_isolate: dict[str, Path]) -> None:
     dev = _isolate["dev_root"]
     _init_git_repo(dev / "configured-one")
     _init_git_repo(dev / "fresh-one")
-    _write_config(
+    write_minimal_config(
         _isolate["config_path"],
         dev,
         repos=[_config_repo_entry("configured-one", dev / "configured-one")],
+        iterm2=True,
     )
 
     with TestClient(app) as client:
@@ -187,13 +173,14 @@ def test_sort_order_not_configured_first_then_alpha(
     _init_git_repo(dev / "alpha")
     _init_git_repo(dev / "configured-a")
     _init_git_repo(dev / "configured-z")
-    _write_config(
+    write_minimal_config(
         _isolate["config_path"],
         dev,
         repos=[
             _config_repo_entry("ca", dev / "configured-a"),
             _config_repo_entry("cz", dev / "configured-z"),
         ],
+        iterm2=True,
     )
 
     with TestClient(app) as client:

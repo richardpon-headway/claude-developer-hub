@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from app import db
 from app.main import app
 from app.services import iterm_spawn
+from tests.fixtures.config import write_minimal_config
 
 
 @pytest.fixture(autouse=True)
@@ -23,18 +24,6 @@ def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]
     monkeypatch.setenv("CDH_CONFIG_PATH", str(config_path))
     db.apply_migrations_sync(db_path)
     return {"db_path": db_path, "config_path": config_path, "tmp": tmp_path}
-
-
-def _write_config(config_path: Path, global_skills: list[dict]) -> None:
-    config_path.write_text(
-        yaml.safe_dump(
-            {
-                "development_root": str(config_path.parent),
-                "repos": [],
-                "global_skills": global_skills,
-            }
-        )
-    )
 
 
 def _build_fake_window(window_id: str = "GW1", session_id: str = "GS1") -> MagicMock:
@@ -62,7 +51,9 @@ def _stub_iterm2(monkeypatch: pytest.MonkeyPatch, fake_window: MagicMock) -> Non
 
 
 def test_unknown_skill_returns_404(_isolate: dict[str, Path]) -> None:
-    _write_config(_isolate["config_path"], [])
+    write_minimal_config(
+        _isolate["config_path"], _isolate["tmp"], global_skills=[]
+    )
     with TestClient(app) as client:
         client.app.state.iterm = SimpleNamespace(connection=MagicMock())
         r = client.post("/api/skills/global", json={"skill": "pr-check-action-required"})
@@ -71,16 +62,21 @@ def test_unknown_skill_returns_404(_isolate: dict[str, Path]) -> None:
 
 
 def test_bad_skill_name_format_returns_422(_isolate: dict[str, Path]) -> None:
-    _write_config(_isolate["config_path"], [])
+    write_minimal_config(
+        _isolate["config_path"], _isolate["tmp"], global_skills=[]
+    )
     with TestClient(app) as client:
         r = client.post("/api/skills/global", json={"skill": ""})
     assert r.status_code == 422
 
 
 def test_iterm2_disconnected_returns_503(_isolate: dict[str, Path]) -> None:
-    _write_config(
+    write_minimal_config(
         _isolate["config_path"],
-        [{"name": "pr-check-action-required", "label": "Check action required"}],
+        _isolate["tmp"],
+        global_skills=[
+            {"name": "pr-check-action-required", "label": "Check action required"}
+        ],
     )
     with TestClient(app) as client:
         # explicitly no iterm connection
@@ -93,9 +89,12 @@ def test_iterm2_disconnected_returns_503(_isolate: dict[str, Path]) -> None:
 def test_happy_path_spawns_in_home(
     monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
 ) -> None:
-    _write_config(
+    write_minimal_config(
         _isolate["config_path"],
-        [{"name": "pr-check-action-required", "label": "Check action required"}],
+        _isolate["tmp"],
+        global_skills=[
+            {"name": "pr-check-action-required", "label": "Check action required"}
+        ],
     )
     fake_window = _build_fake_window(window_id="GW42", session_id="GS42")
     _stub_iterm2(monkeypatch, fake_window)
@@ -124,9 +123,10 @@ def test_custom_cwd_resolves(
 ) -> None:
     target = _isolate["tmp"] / "work"
     target.mkdir()
-    _write_config(
+    write_minimal_config(
         _isolate["config_path"],
-        [
+        _isolate["tmp"],
+        global_skills=[
             {
                 "name": "pr-check-action-required",
                 "label": "Check action required",
@@ -150,9 +150,10 @@ def test_custom_cwd_must_exist(
     monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
 ) -> None:
     bogus = _isolate["tmp"] / "does-not-exist"
-    _write_config(
+    write_minimal_config(
         _isolate["config_path"],
-        [
+        _isolate["tmp"],
+        global_skills=[
             {
                 "name": "pr-check-action-required",
                 "label": "Check action required",
@@ -172,9 +173,12 @@ def test_no_iterm_session_row_written(
 ) -> None:
     """Global spawns must NOT touch the iterm_session table — those rows
     are FK-bound to a worktree, which a global spawn doesn't have."""
-    _write_config(
+    write_minimal_config(
         _isolate["config_path"],
-        [{"name": "pr-check-action-required", "label": "Check action required"}],
+        _isolate["tmp"],
+        global_skills=[
+            {"name": "pr-check-action-required", "label": "Check action required"}
+        ],
     )
     fake_window = _build_fake_window()
     _stub_iterm2(monkeypatch, fake_window)
@@ -233,14 +237,18 @@ def test_spawn_global_claude_window_sends_correct_keystrokes(
 
 
 def test_freeform_empty_prompt_returns_422(_isolate: dict[str, Path]) -> None:
-    _write_config(_isolate["config_path"], [])
+    write_minimal_config(
+        _isolate["config_path"], _isolate["tmp"], global_skills=[]
+    )
     with TestClient(app) as client:
         r = client.post("/api/skills/global/freeform", json={"prompt": ""})
     assert r.status_code == 422
 
 
 def test_freeform_503_when_iterm_disconnected(_isolate: dict[str, Path]) -> None:
-    _write_config(_isolate["config_path"], [])
+    write_minimal_config(
+        _isolate["config_path"], _isolate["tmp"], global_skills=[]
+    )
     with TestClient(app) as client:
         client.app.state.iterm = SimpleNamespace(connection=None)
         r = client.post(
@@ -278,7 +286,9 @@ def test_freeform_happy_path_spawns_iterm_with_user_prompt(
 ) -> None:
     """End-to-end: the user-typed prompt arrives at iTerm2 as the
     initial argument to ``claude '<prompt>'``."""
-    _write_config(_isolate["config_path"], [])
+    write_minimal_config(
+        _isolate["config_path"], _isolate["tmp"], global_skills=[]
+    )
     fake_window = _build_fake_window(window_id="GW9", session_id="GS9")
     _stub_iterm2(monkeypatch, fake_window)
 
