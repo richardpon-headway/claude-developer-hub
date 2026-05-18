@@ -88,6 +88,7 @@ function wt(overrides: Partial<Worktree> = {}): Worktree {
 
 beforeEach(() => {
   vi.mocked(worktreesApi.spawnIterm).mockReset();
+  vi.mocked(worktreesApi.focusIterm).mockReset();
 });
 
 afterEach(() => {
@@ -227,6 +228,24 @@ describe("WorkspaceList", () => {
       wt({ name: "old", pr_state: stateWithoutLabels }),
     ]);
     expect(screen.getByText("ci fail")).toBeInTheDocument();
+  });
+
+  test("claude pill renders as a button that calls focus-iterm on click", async () => {
+    vi.mocked(worktreesApi.focusIterm).mockResolvedValue({ focused: true });
+    renderWorkspaces([wt({ name: "with-claude", has_claude_session: true })]);
+    const btn = screen.getByRole("button", { name: /^claude ●$/i });
+    expect(btn).toBeEnabled();
+    fireEvent.click(btn);
+    await waitFor(() => {
+      expect(worktreesApi.focusIterm).toHaveBeenCalledWith("myapp", "with-claude");
+    });
+  });
+
+  test("claude button is hidden when has_claude_session is false", () => {
+    renderWorkspaces([wt({ name: "no-claude", has_claude_session: false })]);
+    expect(
+      screen.queryByRole("button", { name: /^claude ●$/i }),
+    ).not.toBeInTheDocument();
   });
 
   test("iTerm2 spawn failure surfaces inline error + flips the button to a red state", async () => {
