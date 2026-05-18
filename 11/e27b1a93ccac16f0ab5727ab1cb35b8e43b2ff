@@ -1,0 +1,64 @@
+backend/tests/test_pr_state.py
+  s_d128a241c2e116::t_95228f7a0ad797 471-476,494-499,698-703,745-750
+  s_d128a241c2e116::t_1cce7e7f78f2a4 30
+  s_d128a241c2e116::t_0b01e8000d3be1 776-781
+backend/tests/test_worktrees.py
+  s_d128a241c2e116::t_e3485a7dba5f46 291-292
+  s_d128a241c2e116::t_020f9dc0b7405e 99,124,138,164,185,197,217
+  s_d128a241c2e116::t_b0c10afaf163c9 84,88
+  s_d128a241c2e116::t_4c2e8a7a055ad6 13-14
+  s_d128a241c2e116::t_2358128bea28b4 41-43
+  s_d128a241c2e116::t_022e7cc165f6ba 264,268-269
+  s_d128a241c2e116::t_396eea0c04e8da 345,349-351
+  s_d128a241c2e116::t_b81f90e6d4f30b 327-328
+backend/tests/test_workspace.py
+  s_d128a241c2e116::t_5dbcaebba73b8c 11
+  s_d128a241c2e116::t_8cc86e7f166a4a 47
+  s_d128a241c2e116::t_1f57a22b7c7d40 34
+  s_d128a241c2e116::t_ff62a708e6f2f9 77-79
+backend/tests/test_repo_candidates.py
+  s_d128a241c2e116::t_84b31c580fcf63 14
+  s_d128a241c2e116::t_5697aaf7f83b4e 41-42,59,80,112,127,129,140-141,160-163
+backend/tests/test_iterm.py
+  s_d128a241c2e116::t_c119546fd70c73 132,162,216,250,284,328,377,426,441,457,493
+  s_d128a241c2e116::t_28327ff4912ed7 26
+backend/tests/test_worktree_import.py
+  s_d128a241c2e116::t_127077ad30650b 100,103,112,138,141,151,168,171,180,207,210,219,233,236,245,265,268,284,296-301,315,318,327,374,377,393
+  s_d128a241c2e116::t_1d425608160d3a 96,98-99,132-133,165,167,199,261-262,312,314,368-369,372-373
+  s_d128a241c2e116::t_2ecebec46b8460 15-16
+backend/tests/fixtures/worktree.py
+  s_d128a241c2e116::t_3c148205fca26d 1-25,27-30,36-39,42-95
+  s_d128a241c2e116::t_8afa0e39e7fc9b 26,31-35,40-41
+backend/tests/test_inbox.py
+  s_d128a241c2e116::t_60b04589b625fa 305-307
+  s_d128a241c2e116::t_40e20b868c444e 288-289
+  s_d128a241c2e116::t_5d5c0bdc36b863 685-691
+  s_d128a241c2e116::t_fa38fafbf7e72d 26
+  s_d128a241c2e116::t_fba808cdc2f60c 269-275
+backend/tests/test_sidecar.py
+  s_d128a241c2e116::t_c06cc63ee58246 25
+  s_d128a241c2e116::t_870a91b4117d9f 334-340
+  s_d128a241c2e116::t_0ac816d144e84a 223-230
+backend/tests/test_iterm_send.py
+  s_d128a241c2e116::t_17bf779d111082 25
+  s_d128a241c2e116::t_f21df4b71cbee2 268-270,458-459
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.9",
+  "base_commit_sha": "11e27b1a93ccac16f0ab5727ab1cb35b8e43b2ff",
+  "prompts": {},
+  "sessions": {
+    "s_d128a241c2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6a9c603-8a9f-47c5-a234-1b418c8994f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
