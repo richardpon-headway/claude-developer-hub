@@ -23,6 +23,12 @@ from app.services.inbox_search import (
     is_repo_configured,
 )
 from app.services.inbox_stack import annotate_stacks
+from tests.fixtures.config import write_minimal_config, write_repo_config
+from tests.fixtures.inbox import (
+    build_enriched_pr,
+    build_raw_pr,
+    seed_inbox_cache,
+)
 from tests.fixtures.pr_state import seed_pr_state
 from tests.fixtures.worktree import seed_worktree
 
@@ -39,35 +45,6 @@ def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]
     return {"db_path": db_path, "config_path": config_path}
 
 
-def _write_minimal_config(config_path: Path, teams: list[str] | None = None) -> None:
-    cfg: dict[str, Any] = {"repos": []}
-    if teams is not None:
-        cfg["inbox"] = {"teams": teams}
-    config_path.write_text(yaml.safe_dump(cfg))
-
-
-def _raw(
-    *,
-    repo: str,
-    number: int,
-    head: str,
-    base: str = "main",
-    source: str = "author",
-    title: str | None = None,
-) -> InboxPrRaw:
-    return InboxPrRaw(
-        pr_repo=repo,
-        pr_number=number,
-        title=title or f"PR #{number}",
-        author_login="me",
-        head_ref=head,
-        base_ref=base,
-        is_draft=False,
-        url=f"https://github.com/{repo}/pull/{number}",
-        updated_at="2026-05-14T00:00:00Z",
-        ci_status="pass",
-        sources=[source],
-    )
 
 
 # --- config schema -------------------------------------------------------
@@ -160,7 +137,7 @@ def test_row_from_gh_returns_none_on_missing_fields() -> None:
 
 
 def test_stack_annotation_single_pr() -> None:
-    prs = [_raw(repo="o/r", number=1, head="feat/a")]
+    prs = [build_raw_pr(repo="o/r", number=1, head="feat/a")]
     ann = annotate_stacks(prs)
     a = ann[("o/r", 1)]
     assert a.stack_size == 1
@@ -172,9 +149,9 @@ def test_stack_annotation_three_pr_chain() -> None:
     # Stack: A (head=feat/a, base=main) → B (head=feat/b, base=feat/a)
     # → C (head=feat/c, base=feat/b). C is the top.
     prs = [
-        _raw(repo="o/r", number=1, head="feat/a", base="main"),
-        _raw(repo="o/r", number=2, head="feat/b", base="feat/a"),
-        _raw(repo="o/r", number=3, head="feat/c", base="feat/b"),
+        build_raw_pr(repo="o/r", number=1, head="feat/a", base="main"),
+        build_raw_pr(repo="o/r", number=2, head="feat/b", base="feat/a"),
+        build_raw_pr(repo="o/r", number=3, head="feat/c", base="feat/b"),
     ]
     ann = annotate_stacks(prs)
     assert ann[("o/r", 1)].stack_top_pr_number == 3
@@ -188,8 +165,8 @@ def test_stack_annotation_does_not_cross_repos() -> None:
     # A PR in repo X with base_ref matching a head_ref in repo Y must
     # NOT form a stack — stacks are repo-local.
     prs = [
-        _raw(repo="o/x", number=1, head="feat/shared"),
-        _raw(repo="o/y", number=2, head="feat/top", base="feat/shared"),
+        build_raw_pr(repo="o/x", number=1, head="feat/shared"),
+        build_raw_pr(repo="o/y", number=2, head="feat/top", base="feat/shared"),
     ]
     ann = annotate_stacks(prs)
     assert ann[("o/x", 1)].stack_size == 1
@@ -297,7 +274,7 @@ def test_tracked_keys_handles_pr_state_with_malformed_url(
 
 
 def test_endpoint_returns_empty_before_first_poll(_isolate: dict[str, Path]) -> None:
-    _write_minimal_config(_isolate["config_path"])
+    write_minimal_config(_isolate["config_path"])
     with TestClient(app) as client:
         # Force the cache to a known-empty state (lifespan would have
         # initialized it via the poll loop; we replace it here).
@@ -310,7 +287,7 @@ def test_endpoint_returns_empty_before_first_poll(_isolate: dict[str, Path]) -> 
 
 
 def test_endpoint_returns_cached_after_poll(_isolate: dict[str, Path]) -> None:
-    _write_minimal_config(_isolate["config_path"])
+    write_minimal_config(_isolate["config_path"])
     cached = InboxCache(
         prs=[
             InboxPr(
@@ -346,7 +323,7 @@ def test_endpoint_returns_cached_after_poll(_isolate: dict[str, Path]) -> None:
 def test_endpoint_when_state_has_no_inbox_attr(_isolate: dict[str, Path]) -> None:
     """If the route fires before the lifespan poller has initialized
     the cache, return empty rather than 500."""
-    _write_minimal_config(_isolate["config_path"])
+    write_minimal_config(_isolate["config_path"])
     with TestClient(app) as client:
         # Remove the attribute that lifespan set up.
         if hasattr(client.app.state, "inbox"):
@@ -361,9 +338,9 @@ def test_refresh_endpoint_runs_tick_and_returns_fresh_cache(
 ) -> None:
     """The hub's Sync button hits this endpoint to force an immediate
     inbox tick. Should run one full tick and return the post-tick cache."""
-    _write_minimal_config(_isolate["config_path"])
+    write_minimal_config(_isolate["config_path"])
 
-    fetched: list[InboxPrRaw] = [_raw(repo="o/r", number=99, head="feat/refresh")]
+    fetched: list[InboxPrRaw] = [build_raw_pr(repo="o/r", number=99, head="feat/refresh")]
 
     async def fake_fetch(teams: list) -> list[InboxPrRaw]:
         return fetched
@@ -397,11 +374,11 @@ def test_source_accumulation_across_queries(
         call_count["n"] += 1
         # PR #42 hits author, mentions, AND the team query.
         if "author:@me" in query:
-            return [_raw(repo="o/r", number=42, head="feat/x", source="author")]
+            return [build_raw_pr(repo="o/r", number=42, head="feat/x", source="author")]
         if "mentions:@me" in query:
-            return [_raw(repo="o/r", number=42, head="feat/x", source="mentions")]
+            return [build_raw_pr(repo="o/r", number=42, head="feat/x", source="mentions")]
         if "team-review-requested:" in query:
-            return [_raw(repo="o/r", number=42, head="feat/x", source=source)]
+            return [build_raw_pr(repo="o/r", number=42, head="feat/x", source=source)]
         return []
 
     monkeypatch.setattr(inbox_search, "_search", fake_search)
@@ -428,9 +405,9 @@ def test_assignee_and_mentions_sources(
 
     async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
         if "assignee:@me" in query:
-            return [_raw(repo="o/r", number=100, head="feat/a", source=source)]
+            return [build_raw_pr(repo="o/r", number=100, head="feat/a", source=source)]
         if "mentions:@me" in query:
-            return [_raw(repo="o/r", number=101, head="feat/m", source=source)]
+            return [build_raw_pr(repo="o/r", number=101, head="feat/m", source=source)]
         return []
 
     monkeypatch.setattr(inbox_search, "_search", fake_search)
@@ -496,7 +473,7 @@ def test_reviewer_filter_keeps_direct_user_request(
 
     async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
         if "review-requested:@me" in query:
-            return [_raw(repo="o/r", number=1, head="feat/a", source="reviewer")]
+            return [build_raw_pr(repo="o/r", number=1, head="feat/a", source="reviewer")]
         return []
 
     monkeypatch.setattr(inbox_search, "_search", fake_search)
@@ -528,7 +505,7 @@ def test_reviewer_filter_drops_team_mediated_only(
 
     async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
         if "review-requested:@me" in query:
-            return [_raw(repo="o/r", number=1, head="feat/a", source="reviewer")]
+            return [build_raw_pr(repo="o/r", number=1, head="feat/a", source="reviewer")]
         return []
 
     monkeypatch.setattr(inbox_search, "_search", fake_search)
@@ -556,9 +533,9 @@ def test_reviewer_filter_strips_reviewer_but_keeps_other_sources(
 
     async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
         if "author:@me" in query:
-            return [_raw(repo="o/r", number=1, head="feat/a", source="author")]
+            return [build_raw_pr(repo="o/r", number=1, head="feat/a", source="author")]
         if "review-requested:@me" in query:
-            return [_raw(repo="o/r", number=1, head="feat/a", source="reviewer")]
+            return [build_raw_pr(repo="o/r", number=1, head="feat/a", source="reviewer")]
         return []
 
     monkeypatch.setattr(inbox_search, "_search", fake_search)
@@ -580,7 +557,7 @@ def test_reviewer_filter_fail_open_on_gh_error(
 
     async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
         if "review-requested:@me" in query:
-            return [_raw(repo="o/r", number=1, head="feat/a", source="reviewer")]
+            return [build_raw_pr(repo="o/r", number=1, head="feat/a", source="reviewer")]
         return []
 
     monkeypatch.setattr(inbox_search, "_search", fake_search)
@@ -601,7 +578,7 @@ def test_reviewer_filter_skipped_when_me_login_unknown(
 
     async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
         if "review-requested:@me" in query:
-            return [_raw(repo="o/r", number=1, head="feat/a", source="reviewer")]
+            return [build_raw_pr(repo="o/r", number=1, head="feat/a", source="reviewer")]
         return []
 
     monkeypatch.setattr(inbox_search, "_search", fake_search)
@@ -615,8 +592,8 @@ def test_reviewer_filter_skipped_when_me_login_unknown(
 
 def test_filter_out_worktree_prs_drops_matches() -> None:
     prs = [
-        _raw(repo="o/r", number=1, head="feat/a"),
-        _raw(repo="o/r", number=2, head="feat/b"),
+        build_raw_pr(repo="o/r", number=1, head="feat/a"),
+        build_raw_pr(repo="o/r", number=2, head="feat/b"),
     ]
     out = inbox_search.filter_out_worktree_prs(prs, tracked={("o/r", 1)})
     assert [p.pr_number for p in out] == [2]
@@ -628,9 +605,9 @@ def test_filter_out_worktree_prs_drops_matches() -> None:
 def test_tick_populates_cache(
     _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _write_minimal_config(_isolate["config_path"])
+    write_minimal_config(_isolate["config_path"])
 
-    raw_rows = [_raw(repo="o/r", number=42, head="feat/x")]
+    raw_rows = [build_raw_pr(repo="o/r", number=42, head="feat/x")]
 
     async def fake_fetch(teams: list[str]) -> list[InboxPrRaw]:
         return raw_rows
@@ -650,7 +627,7 @@ def test_tick_populates_cache(
 def test_tick_dedup_against_worktree(
     _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _write_minimal_config(_isolate["config_path"])
+    write_minimal_config(_isolate["config_path"])
     seed_worktree(
         _isolate["db_path"],
         "myapp",
@@ -661,8 +638,8 @@ def test_tick_dedup_against_worktree(
     )
 
     raw_rows = [
-        _raw(repo="o/r", number=42, head="feat/x"),
-        _raw(repo="o/r", number=43, head="feat/y"),
+        build_raw_pr(repo="o/r", number=42, head="feat/x"),
+        build_raw_pr(repo="o/r", number=43, head="feat/y"),
     ]
 
     async def fake_fetch(teams: list[str]) -> list[InboxPrRaw]:
@@ -682,72 +659,19 @@ def test_tick_dedup_against_worktree(
 # --- POST /api/inbox/.../pull-down --------------------------------------
 
 
-def _seed_inbox_cache(*prs: InboxPr) -> InboxCache:
-    return InboxCache(prs=list(prs), checked_at="2026-05-14T00:00:00Z")
-
-
-def _enriched(
-    *,
-    pr_repo: str,
-    pr_number: int,
-    repo_configured: bool = True,
-    head_ref: str = "feat/x",
-) -> InboxPr:
-    return InboxPr(
-        pr_repo=pr_repo,
-        pr_number=pr_number,
-        title=f"PR #{pr_number}",
-        author_login="me",
-        head_ref=head_ref,
-        base_ref="main",
-        is_draft=False,
-        url=f"https://github.com/{pr_repo}/pull/{pr_number}",
-        updated_at="2026-05-14T00:00:00Z",
-        ci_status="pass",
-        sources=["author"],
-        stack_top_pr_number=None,
-        stack_size=1,
-        stack_position=1,
-        repo_configured=repo_configured,
-    )
-
-
-def _write_repo_config(
-    config_path: Path,
-    *,
-    repo_name: str,
-    repo_path: Path,
-    github_repo: str | None = None,
-    development_root: Path | None = None,
-) -> None:
-    entry: dict[str, Any] = {
-        "name": repo_name,
-        "path": str(repo_path),
-        "default_branch": "main",
-        "setup_steps": [],
-        "ticket_pattern": None,
-    }
-    if github_repo is not None:
-        entry["github_repo"] = github_repo
-    cfg: dict[str, Any] = {"repos": [entry]}
-    if development_root is not None:
-        cfg["development_root"] = str(development_root)
-    config_path.write_text(yaml.safe_dump(cfg))
-
-
 def test_pull_down_404_when_pr_not_in_cache(_isolate: dict[str, Path]) -> None:
-    _write_minimal_config(_isolate["config_path"])
+    write_minimal_config(_isolate["config_path"])
     with TestClient(app) as client:
-        client.app.state.inbox = _seed_inbox_cache()
+        client.app.state.inbox = seed_inbox_cache()
         r = client.post("/api/inbox/o/r/42/pull-down")
     assert r.status_code == 404
 
 
 def test_pull_down_400_when_repo_not_configured(_isolate: dict[str, Path]) -> None:
-    _write_minimal_config(_isolate["config_path"])
+    write_minimal_config(_isolate["config_path"])
     with TestClient(app) as client:
-        client.app.state.inbox = _seed_inbox_cache(
-            _enriched(pr_repo="acme/other", pr_number=42, repo_configured=False)
+        client.app.state.inbox = seed_inbox_cache(
+            build_enriched_pr(pr_repo="acme/other", pr_number=42, repo_configured=False)
         )
         r = client.post("/api/inbox/acme/other/42/pull-down")
     assert r.status_code == 400
@@ -758,15 +682,16 @@ def test_pull_down_400_when_repo_path_missing_on_disk(
     _isolate: dict[str, Path],
 ) -> None:
     bogus = _isolate["db_path"].parent / "nope"
-    _write_repo_config(
+    write_repo_config(
         _isolate["config_path"],
-        repo_name="myapp",
-        repo_path=bogus,
+        None,
+        bogus,
+        name="myapp",
         github_repo="acme/myapp",
     )
     with TestClient(app) as client:
-        client.app.state.inbox = _seed_inbox_cache(
-            _enriched(pr_repo="acme/myapp", pr_number=42)
+        client.app.state.inbox = seed_inbox_cache(
+            build_enriched_pr(pr_repo="acme/myapp", pr_number=42)
         )
         r = client.post("/api/inbox/acme/myapp/42/pull-down")
     assert r.status_code == 400
@@ -793,12 +718,12 @@ def test_pull_down_same_repo_happy_path(
         check=True,
     )
     subprocess.run(["git", "-C", str(repo_path), "branch", "feat/x"], check=True)
-    _write_repo_config(
+    write_repo_config(
         _isolate["config_path"],
-        repo_name="myapp",
-        repo_path=repo_path,
+        tmp_path,
+        repo_path,
+        name="myapp",
         github_repo="acme/myapp",
-        development_root=tmp_path,
     )
 
     # Mock `gh pr view` (same-repo)
@@ -817,8 +742,8 @@ def test_pull_down_same_repo_happy_path(
     monkeypatch.setattr(inbox_route, "_fetch_pr_ref", fake_fetch_pr_ref)
 
     with TestClient(app) as client:
-        client.app.state.inbox = _seed_inbox_cache(
-            _enriched(pr_repo="acme/myapp", pr_number=42, head_ref="feat/x")
+        client.app.state.inbox = seed_inbox_cache(
+            build_enriched_pr(pr_repo="acme/myapp", pr_number=42, head_ref="feat/x")
         )
         r = client.post("/api/inbox/acme/myapp/42/pull-down")
 
@@ -857,12 +782,12 @@ def test_pull_down_fork_pr_fetches_pull_ref(
         ["git", "-C", str(repo_path), "commit", "--allow-empty", "-m", "init", "-q"],
         check=True,
     )
-    _write_repo_config(
+    write_repo_config(
         _isolate["config_path"],
-        repo_name="myapp",
-        repo_path=repo_path,
+        tmp_path,
+        repo_path,
+        name="myapp",
         github_repo="acme/myapp",
-        development_root=tmp_path,
     )
 
     from app.routes import inbox as inbox_route
@@ -890,8 +815,8 @@ def test_pull_down_fork_pr_fetches_pull_ref(
     monkeypatch.setattr(inbox_route, "_fetch_pr_ref", fake_fetch_pr_ref)
 
     with TestClient(app) as client:
-        client.app.state.inbox = _seed_inbox_cache(
-            _enriched(pr_repo="acme/myapp", pr_number=58, head_ref="feat/forked")
+        client.app.state.inbox = seed_inbox_cache(
+            build_enriched_pr(pr_repo="acme/myapp", pr_number=58, head_ref="feat/forked")
         )
         r = client.post("/api/inbox/acme/myapp/58/pull-down")
 
@@ -909,9 +834,9 @@ def test_pull_down_fork_pr_fetches_pull_ref(
 def test_configure_and_pull_down_404_when_pr_not_in_cache(
     _isolate: dict[str, Path],
 ) -> None:
-    _write_minimal_config(_isolate["config_path"])
+    write_minimal_config(_isolate["config_path"])
     with TestClient(app) as client:
-        client.app.state.inbox = _seed_inbox_cache()
+        client.app.state.inbox = seed_inbox_cache()
         client.app.state.iterm = SimpleNamespace(connection=object())
         r = client.post("/api/inbox/acme/myapp/42/configure-and-pull-down")
     assert r.status_code == 404
@@ -922,16 +847,16 @@ def test_configure_and_pull_down_409_when_repo_already_configured(
 ) -> None:
     repo_path = tmp_path / "myapp"
     repo_path.mkdir()
-    _write_repo_config(
+    write_repo_config(
         _isolate["config_path"],
-        repo_name="myapp",
-        repo_path=repo_path,
+        tmp_path,
+        repo_path,
+        name="myapp",
         github_repo="acme/myapp",
-        development_root=tmp_path,
     )
     with TestClient(app) as client:
-        client.app.state.inbox = _seed_inbox_cache(
-            _enriched(pr_repo="acme/myapp", pr_number=42)
+        client.app.state.inbox = seed_inbox_cache(
+            build_enriched_pr(pr_repo="acme/myapp", pr_number=42)
         )
         client.app.state.iterm = SimpleNamespace(connection=object())
         r = client.post("/api/inbox/acme/myapp/42/configure-and-pull-down")
@@ -942,14 +867,14 @@ def test_configure_and_pull_down_409_when_repo_already_configured(
 def test_configure_and_pull_down_503_when_iterm_disconnected(
     _isolate: dict[str, Path], tmp_path: Path
 ) -> None:
-    _write_minimal_config(_isolate["config_path"])
+    write_minimal_config(_isolate["config_path"])
     (tmp_path / "dev").mkdir()
     config_with_devroot = {"repos": [], "development_root": str(tmp_path / "dev")}
     _isolate["config_path"].write_text(yaml.safe_dump(config_with_devroot))
 
     with TestClient(app) as client:
-        client.app.state.inbox = _seed_inbox_cache(
-            _enriched(pr_repo="acme/myapp", pr_number=42, repo_configured=False)
+        client.app.state.inbox = seed_inbox_cache(
+            build_enriched_pr(pr_repo="acme/myapp", pr_number=42, repo_configured=False)
         )
         client.app.state.iterm = SimpleNamespace(connection=None)
         r = client.post("/api/inbox/acme/myapp/42/configure-and-pull-down")
@@ -981,8 +906,8 @@ def test_configure_and_pull_down_spawns_iterm_returns_session_id(
     monkeypatch.setattr(inbox_route, "spawn_global_claude_window", fake_spawn)
 
     with TestClient(app) as client:
-        client.app.state.inbox = _seed_inbox_cache(
-            _enriched(pr_repo="acme/myapp", pr_number=42, repo_configured=False)
+        client.app.state.inbox = seed_inbox_cache(
+            build_enriched_pr(pr_repo="acme/myapp", pr_number=42, repo_configured=False)
         )
         client.app.state.iterm = SimpleNamespace(connection=object())
         r = client.post("/api/inbox/acme/myapp/42/configure-and-pull-down")
@@ -1046,8 +971,8 @@ def test_onboard_complete_fires_follow_up_pull_down(
     import time as _time
 
     with TestClient(app) as client:
-        client.app.state.inbox = _seed_inbox_cache(
-            _enriched(pr_repo="acme/myapp", pr_number=42, repo_configured=False)
+        client.app.state.inbox = seed_inbox_cache(
+            build_enriched_pr(pr_repo="acme/myapp", pr_number=42, repo_configured=False)
         )
         client.app.state.iterm = SimpleNamespace(connection=object())
 

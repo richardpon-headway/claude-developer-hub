@@ -68,7 +68,7 @@ def write_minimal_config(
 
 def write_repo_config(
     config_path: Path,
-    dev_root: Path,
+    dev_root: Path | None,
     repo_path: Path,
     *,
     name: str = "myapp",
@@ -78,7 +78,10 @@ def write_repo_config(
     ticket_pattern: str | None = None,
     github_repo: str | None = None,
 ) -> None:
-    """Write a config YAML with one configured repo entry."""
+    """Write a config YAML with one configured repo entry. Pass
+    ``dev_root=None`` to omit the ``development_root`` key entirely
+    (matches tests that exercise inbox endpoints without a configured
+    dev_root)."""
     entry: dict[str, Any] = {
         "name": name,
         "path": str(repo_path),
@@ -89,8 +92,7 @@ def write_repo_config(
     }
     if github_repo is not None:
         entry["github_repo"] = github_repo
-    cfg: dict[str, Any] = {
-        "development_root": str(dev_root),
-        "repos": [entry],
-    }
+    cfg: dict[str, Any] = {"repos": [entry]}
+    if dev_root is not None:
+        cfg["development_root"] = str(dev_root)
     config_path.write_text(yaml.safe_dump(cfg))
