@@ -17,29 +17,12 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from app import db
 from app.config.schema import ITermWindow
 from app.main import app
 from app.services import iterm_spawn
 from app.services import iterm_supervisor as supervisor
-from app.services import worktree as wsvc
 from tests.fixtures.iterm import build_fake_window, seed_iterm_session
 from tests.fixtures.worktree import seed_worktree
-
-# --- fixtures ------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]:
-    db_path = tmp_path / "cdh-test.db"
-    config_path = tmp_path / "cdh-test.yaml"
-    dev_root = tmp_path / "dev"
-    dev_root.mkdir()
-    monkeypatch.setenv("CDH_DB_PATH", str(db_path))
-    monkeypatch.setenv("CDH_CONFIG_PATH", str(config_path))
-    db.apply_migrations_sync(db_path)
-    wsvc._logs.clear()
-    return {"db_path": db_path, "config_path": config_path, "dev_root": dev_root}
 
 
 def _write_minimal_config(config_path: Path, dev_root: Path) -> None:

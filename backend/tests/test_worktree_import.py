@@ -4,31 +4,14 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
-from app import db
 from app.main import app
 from app.services.worktree_import import (
     parse_worktree_list_porcelain,
 )
 from tests.fixtures.config import write_minimal_config
 from tests.fixtures.worktree import init_git_repo, make_worktree
-
-# --- fixtures ------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]:
-    db_path = tmp_path / "cdh-test.db"
-    config_path = tmp_path / "cdh-test.yaml"
-    dev_root = tmp_path / "dev"
-    dev_root.mkdir()
-    monkeypatch.setenv("CDH_DB_PATH", str(db_path))
-    monkeypatch.setenv("CDH_CONFIG_PATH", str(config_path))
-    db.apply_migrations_sync(db_path)
-    return {"db_path": db_path, "config_path": config_path, "dev_root": dev_root}
-
 
 # --- parser --------------------------------------------------------------
 

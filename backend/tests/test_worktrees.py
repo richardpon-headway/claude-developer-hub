@@ -9,32 +9,10 @@ from fastapi.testclient import TestClient
 from app import db
 from app.main import app
 from app.models.worktree import derive_worktree_name, extract_ticket
-from app.services import worktree as svc
 from tests.fixtures.config import write_repo_config
 from tests.fixtures.worktree import init_git_repo, seed_worktree
 
 # --- fixtures ------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]:
-    """Each test gets a fresh tmp DB, tmp config, tmp development_root, and a
-    cleaned in-memory log buffer. The CDH_DB_PATH / CDH_CONFIG_PATH env
-    vars steer the production code paths at the loaded backend."""
-    db_path = tmp_path / "cdh-test.db"
-    config_path = tmp_path / "cdh-test.yaml"
-    development_root = tmp_path / "dev"
-    development_root.mkdir()
-
-    monkeypatch.setenv("CDH_DB_PATH", str(db_path))
-    monkeypatch.setenv("CDH_CONFIG_PATH", str(config_path))
-
-    # Apply migrations to the fresh tmp DB.
-    db.apply_migrations_sync(db_path)
-
-    svc._logs.clear()
-
-    return {"db_path": db_path, "config_path": config_path, "dev_root": development_root}
 
 
 def _init_git_repo(path: Path) -> None:

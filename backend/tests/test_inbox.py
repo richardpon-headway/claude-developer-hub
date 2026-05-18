@@ -10,7 +10,6 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from app import db
 from app.config.schema import CDHConfig, InboxConfig
 from app.main import app
 from app.services import inbox_poll, inbox_search
@@ -31,21 +30,6 @@ from tests.fixtures.inbox import (
 )
 from tests.fixtures.pr_state import seed_pr_state
 from tests.fixtures.worktree import seed_worktree
-
-# --- fixtures ------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]:
-    db_path = tmp_path / "cdh-test.db"
-    config_path = tmp_path / "cdh-test.yaml"
-    monkeypatch.setenv("CDH_DB_PATH", str(db_path))
-    monkeypatch.setenv("CDH_CONFIG_PATH", str(config_path))
-    db.apply_migrations_sync(db_path)
-    return {"db_path": db_path, "config_path": config_path}
-
-
-
 
 # --- config schema -------------------------------------------------------
 
@@ -865,12 +849,9 @@ def test_configure_and_pull_down_409_when_repo_already_configured(
 
 
 def test_configure_and_pull_down_503_when_iterm_disconnected(
-    _isolate: dict[str, Path], tmp_path: Path
+    _isolate: dict[str, Path],
 ) -> None:
-    write_minimal_config(_isolate["config_path"])
-    (tmp_path / "dev").mkdir()
-    config_with_devroot = {"repos": [], "development_root": str(tmp_path / "dev")}
-    _isolate["config_path"].write_text(yaml.safe_dump(config_with_devroot))
+    write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
 
     with TestClient(app) as client:
         client.app.state.inbox = seed_inbox_cache(
@@ -882,16 +863,13 @@ def test_configure_and_pull_down_503_when_iterm_disconnected(
 
 
 def test_configure_and_pull_down_spawns_iterm_returns_session_id(
-    _isolate: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Happy path: mock the iTerm2 spawn, assert the prompt includes a
     clone instruction and that an onboard session is minted with a
     pull_down follow_up."""
-    dev_root = tmp_path / "dev"
-    dev_root.mkdir()
-    _isolate["config_path"].write_text(
-        yaml.safe_dump({"repos": [], "development_root": str(dev_root)})
-    )
+    dev_root = _isolate["dev_root"]
+    write_minimal_config(_isolate["config_path"], dev_root)
 
     from app.routes import inbox as inbox_route
     from app.routes import repos as repos_route
@@ -932,21 +910,18 @@ def test_configure_and_pull_down_spawns_iterm_returns_session_id(
 
 
 def test_onboard_complete_fires_follow_up_pull_down(
-    _isolate: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """When onboard_complete saves a config entry whose session carries
     a pull_down follow_up, the inbox's _perform_pull_down should be
     invoked in the background with the stored pr_repo + pr_number."""
     import subprocess
 
-    dev_root = tmp_path / "dev"
-    dev_root.mkdir()
+    dev_root = _isolate["dev_root"]
     repo_path = dev_root / "myapp"
     repo_path.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo_path, check=True)
-    _isolate["config_path"].write_text(
-        yaml.safe_dump({"repos": [], "development_root": str(dev_root)})
-    )
+    write_minimal_config(_isolate["config_path"], dev_root)
 
     from app.routes import inbox as inbox_route
     from app.routes import repos as repos_route
