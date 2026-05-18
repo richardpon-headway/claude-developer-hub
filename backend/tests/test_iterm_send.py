@@ -22,6 +22,7 @@ from app.services.iterm_send import (
     find_session_by_id,
     send_to_session,
 )
+from tests.fixtures.worktree import seed_worktree
 
 # --- fixtures ------------------------------------------------------------
 
@@ -264,7 +265,9 @@ def test_send_text_auto_spawns_when_no_claude_session(
     a fresh iTerm2 window with the user's text as the initial prompt
     (``claude '<text>'``) instead of refusing with a 400."""
     _write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
-    _seed_worktree_only(_isolate["db_path"], "r", "wt", _isolate["dev_root"])
+    seed_worktree(
+        _isolate["db_path"], "r", "wt", path=_isolate["dev_root"] / "wt"
+    )
 
     import iterm2
 
@@ -442,23 +445,6 @@ def test_run_skill_prefixes_with_slash(
     session.async_send_text.assert_awaited_once_with("/pr-check-action-required\r")
 
 
-def _seed_worktree_only(db_path: Path, repo: str, name: str, dev_root: Path) -> None:
-    """Insert a worktree row WITHOUT an iterm_session row — simulating
-    a worktree that's been discovered/created but never opened in iTerm2."""
-    worktree_path = dev_root / name
-    worktree_path.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.execute(
-            "INSERT INTO worktree (repo, name, path, branch, created_at, status) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (repo, name, str(worktree_path), "main", "2026-01-01T00:00:00Z", "ready"),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
 def test_run_skill_spawns_when_no_session_exists(
     monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
 ) -> None:
@@ -469,7 +455,9 @@ def test_run_skill_spawns_when_no_session_exists(
     _write_minimal_config(
         _isolate["config_path"], _isolate["dev_root"], send_gate_patterns=[]
     )
-    _seed_worktree_only(_isolate["db_path"], "r", "wt", _isolate["dev_root"])
+    seed_worktree(
+        _isolate["db_path"], "r", "wt", path=_isolate["dev_root"] / "wt"
+    )
 
     # Stub the iTerm2 spawn surface so we never touch a real iTerm2.
     import iterm2

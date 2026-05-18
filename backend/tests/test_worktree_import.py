@@ -5,7 +5,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
 from app import db
@@ -13,6 +12,8 @@ from app.main import app
 from app.services.worktree_import import (
     parse_worktree_list_porcelain,
 )
+from tests.fixtures.config import write_minimal_config
+from tests.fixtures.worktree import init_git_repo, make_worktree
 
 # --- fixtures ------------------------------------------------------------
 
@@ -27,45 +28,6 @@ def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]
     monkeypatch.setenv("CDH_CONFIG_PATH", str(config_path))
     db.apply_migrations_sync(db_path)
     return {"db_path": db_path, "config_path": config_path, "dev_root": dev_root}
-
-
-def _write_config(
-    config_path: Path,
-    dev_root: Path,
-    repos: list[dict],
-) -> None:
-    config_path.write_text(
-        yaml.safe_dump(
-            {
-                "development_root": str(dev_root),
-                "repos": repos,
-                "iterm2": {"default_window": {"width": 800, "height": 600, "x": 0, "y": 0}},
-            }
-        )
-    )
-
-
-def _init_git_repo(path: Path, branches: list[str] | None = None) -> None:
-    """Init a repo with `main` checked out + extra branches (not
-    checked out) so we can `git worktree add` against them."""
-    path.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=path, check=True)
-    subprocess.run(["git", "-C", str(path), "config", "user.email", "t@t"], check=True)
-    subprocess.run(["git", "-C", str(path), "config", "user.name", "t"], check=True)
-    subprocess.run(
-        ["git", "-C", str(path), "commit", "--allow-empty", "-m", "init", "-q"],
-        check=True,
-    )
-    for branch in branches or []:
-        subprocess.run(["git", "-C", str(path), "branch", branch], check=True)
-
-
-def _make_worktree(repo_path: Path, target: Path, branch: str) -> None:
-    subprocess.run(
-        ["git", "-C", str(repo_path), "worktree", "add", str(target), branch],
-        check=True,
-        capture_output=True,
-    )
 
 
 # --- parser --------------------------------------------------------------
@@ -131,14 +93,14 @@ def test_parser_handles_no_trailing_newline() -> None:
 
 def test_discover_happy_path(_isolate: dict[str, Path]) -> None:
     repo_path = _isolate["dev_root"] / "myapp"
-    _init_git_repo(repo_path, branches=["feature1", "feature2"])
+    init_git_repo(repo_path, branches=["feature1", "feature2"])
     # One worktree using CDH's default template prefix; one not.
-    _make_worktree(repo_path, _isolate["dev_root"] / "myapp_worktree_feature1", "feature1")
-    _make_worktree(repo_path, _isolate["dev_root"] / "custom-dir", "feature2")
-    _write_config(
+    make_worktree(repo_path, _isolate["dev_root"] / "myapp_worktree_feature1", "feature1")
+    make_worktree(repo_path, _isolate["dev_root"] / "custom-dir", "feature2")
+    write_minimal_config(
         _isolate["config_path"],
         _isolate["dev_root"],
-        [
+        repos=[
             {
                 "name": "myapp",
                 "path": str(repo_path),
@@ -147,6 +109,7 @@ def test_discover_happy_path(_isolate: dict[str, Path]) -> None:
                 "ticket_pattern": None,
             }
         ],
+        iterm2=True,
     )
 
     with TestClient(app) as client:
@@ -166,16 +129,16 @@ def test_discover_happy_path(_isolate: dict[str, Path]) -> None:
 
 def test_discover_ticket_extraction(_isolate: dict[str, Path]) -> None:
     repo_path = _isolate["dev_root"] / "myapp"
-    _init_git_repo(repo_path, branches=["alice/COR-77_login-flow-fix"])
-    _make_worktree(
+    init_git_repo(repo_path, branches=["alice/COR-77_login-flow-fix"])
+    make_worktree(
         repo_path,
         _isolate["dev_root"] / "myapp_worktree_COR-77_login_flow_fix",
         "alice/COR-77_login-flow-fix",
     )
-    _write_config(
+    write_minimal_config(
         _isolate["config_path"],
         _isolate["dev_root"],
-        [
+        repos=[
             {
                 "name": "myapp",
                 "path": str(repo_path),
@@ -185,6 +148,7 @@ def test_discover_ticket_extraction(_isolate: dict[str, Path]) -> None:
                 "ticket_pattern": r"COR-\d+",
             }
         ],
+        iterm2=True,
     )
 
     with TestClient(app) as client:
@@ -198,13 +162,13 @@ def test_discover_ticket_extraction(_isolate: dict[str, Path]) -> None:
 
 def test_discover_skips_already_tracked(_isolate: dict[str, Path]) -> None:
     repo_path = _isolate["dev_root"] / "myapp"
-    _init_git_repo(repo_path, branches=["feature1"])
+    init_git_repo(repo_path, branches=["feature1"])
     wt_path = _isolate["dev_root"] / "myapp_worktree_feature1"
-    _make_worktree(repo_path, wt_path, "feature1")
-    _write_config(
+    make_worktree(repo_path, wt_path, "feature1")
+    write_minimal_config(
         _isolate["config_path"],
         _isolate["dev_root"],
-        [
+        repos=[
             {
                 "name": "myapp",
                 "path": str(repo_path),
@@ -213,6 +177,7 @@ def test_discover_skips_already_tracked(_isolate: dict[str, Path]) -> None:
                 "ticket_pattern": None,
             }
         ],
+        iterm2=True,
     )
 
     with TestClient(app) as client:
@@ -231,7 +196,7 @@ def test_discover_skips_already_tracked(_isolate: dict[str, Path]) -> None:
 
 def test_discover_skips_detached_head(_isolate: dict[str, Path]) -> None:
     repo_path = _isolate["dev_root"] / "myapp"
-    _init_git_repo(repo_path, branches=["feature1"])
+    init_git_repo(repo_path, branches=["feature1"])
     wt_path = _isolate["dev_root"] / "detached-wt"
     # `git worktree add --detach <path> HEAD` produces a detached worktree
     subprocess.run(
@@ -239,10 +204,10 @@ def test_discover_skips_detached_head(_isolate: dict[str, Path]) -> None:
         check=True,
         capture_output=True,
     )
-    _write_config(
+    write_minimal_config(
         _isolate["config_path"],
         _isolate["dev_root"],
-        [
+        repos=[
             {
                 "name": "myapp",
                 "path": str(repo_path),
@@ -251,6 +216,7 @@ def test_discover_skips_detached_head(_isolate: dict[str, Path]) -> None:
                 "ticket_pattern": None,
             }
         ],
+        iterm2=True,
     )
 
     with TestClient(app) as client:
@@ -264,10 +230,10 @@ def test_discover_skips_detached_head(_isolate: dict[str, Path]) -> None:
 
 def test_discover_reports_missing_repo_path(_isolate: dict[str, Path]) -> None:
     bogus_path = _isolate["dev_root"] / "no-such-repo"
-    _write_config(
+    write_minimal_config(
         _isolate["config_path"],
         _isolate["dev_root"],
-        [
+        repos=[
             {
                 "name": "ghost",
                 "path": str(bogus_path),
@@ -276,6 +242,7 @@ def test_discover_reports_missing_repo_path(_isolate: dict[str, Path]) -> None:
                 "ticket_pattern": None,
             }
         ],
+        iterm2=True,
     )
     with TestClient(app) as client:
         r = client.post("/api/worktrees/sync")
@@ -291,14 +258,14 @@ def test_discover_isolates_per_repo_failures(_isolate: dict[str, Path]) -> None:
     """One broken repo (missing path) shouldn't block import for the
     other repos in the same call."""
     good_path = _isolate["dev_root"] / "good"
-    _init_git_repo(good_path, branches=["feature1"])
-    _make_worktree(good_path, _isolate["dev_root"] / "good_worktree_feature1", "feature1")
+    init_git_repo(good_path, branches=["feature1"])
+    make_worktree(good_path, _isolate["dev_root"] / "good_worktree_feature1", "feature1")
 
     bogus_path = _isolate["dev_root"] / "nope"
-    _write_config(
+    write_minimal_config(
         _isolate["config_path"],
         _isolate["dev_root"],
-        [
+        repos=[
             {
                 "name": "ghost",
                 "path": str(bogus_path),
@@ -314,6 +281,7 @@ def test_discover_isolates_per_repo_failures(_isolate: dict[str, Path]) -> None:
                 "ticket_pattern": None,
             },
         ],
+        iterm2=True,
     )
 
     with TestClient(app) as client:
@@ -325,7 +293,12 @@ def test_discover_isolates_per_repo_failures(_isolate: dict[str, Path]) -> None:
 
 
 def test_sync_noop_when_no_repos(_isolate: dict[str, Path]) -> None:
-    _write_config(_isolate["config_path"], _isolate["dev_root"], [])
+    write_minimal_config(
+        _isolate["config_path"],
+        _isolate["dev_root"],
+        repos=[],
+        iterm2=True,
+    )
     with TestClient(app) as client:
         r = client.post("/api/worktrees/sync")
     assert r.status_code == 200
@@ -336,13 +309,13 @@ def test_sync_removes_worktree_gone_from_git(_isolate: dict[str, Path]) -> None:
     """A worktree imported in one sync, then deleted via
     ``git worktree remove`` outside CDH, disappears on the next sync."""
     repo_path = _isolate["dev_root"] / "myapp"
-    _init_git_repo(repo_path, branches=["feature1"])
+    init_git_repo(repo_path, branches=["feature1"])
     wt_path = _isolate["dev_root"] / "myapp_worktree_feature1"
-    _make_worktree(repo_path, wt_path, "feature1")
-    _write_config(
+    make_worktree(repo_path, wt_path, "feature1")
+    write_minimal_config(
         _isolate["config_path"],
         _isolate["dev_root"],
-        [
+        repos=[
             {
                 "name": "myapp",
                 "path": str(repo_path),
@@ -351,6 +324,7 @@ def test_sync_removes_worktree_gone_from_git(_isolate: dict[str, Path]) -> None:
                 "ticket_pattern": None,
             }
         ],
+        iterm2=True,
     )
 
     with TestClient(app) as client:
@@ -391,16 +365,16 @@ def test_sync_does_not_remove_worktrees_in_other_repos(
     """
     repo_a = _isolate["dev_root"] / "a"
     repo_b = _isolate["dev_root"] / "b"
-    _init_git_repo(repo_a, branches=["feat"])
-    _init_git_repo(repo_b, branches=["feat"])
+    init_git_repo(repo_a, branches=["feat"])
+    init_git_repo(repo_b, branches=["feat"])
     wt_a = _isolate["dev_root"] / "a_worktree_feat"
     wt_b = _isolate["dev_root"] / "b_worktree_feat"
-    _make_worktree(repo_a, wt_a, "feat")
-    _make_worktree(repo_b, wt_b, "feat")
-    _write_config(
+    make_worktree(repo_a, wt_a, "feat")
+    make_worktree(repo_b, wt_b, "feat")
+    write_minimal_config(
         _isolate["config_path"],
         _isolate["dev_root"],
-        [
+        repos=[
             {
                 "name": "a",
                 "path": str(repo_a),
@@ -416,6 +390,7 @@ def test_sync_does_not_remove_worktrees_in_other_repos(
                 "ticket_pattern": None,
             },
         ],
+        iterm2=True,
     )
 
     with TestClient(app) as client:

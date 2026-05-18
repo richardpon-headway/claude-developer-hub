@@ -23,6 +23,7 @@ from app.main import app
 from app.services import iterm_spawn
 from app.services import iterm_supervisor as supervisor
 from app.services import worktree as wsvc
+from tests.fixtures.worktree import seed_worktree
 
 # --- fixtures ------------------------------------------------------------
 
@@ -52,21 +53,6 @@ def _write_minimal_config(config_path: Path, dev_root: Path) -> None:
             }
         )
     )
-
-
-def _seed_worktree(db_path: Path, repo: str, name: str, path: Path) -> None:
-    """Insert a 'ready' worktree row without going through the service."""
-    path.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.execute(
-            "INSERT INTO worktree (repo, name, path, branch, created_at, status) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (repo, name, str(path), "main", "2026-01-01T00:00:00Z", "ready"),
-        )
-        conn.commit()
-    finally:
-        conn.close()
 
 
 def _build_fake_window(
@@ -143,7 +129,7 @@ def test_spawn_two_tab_window_calls_iterm_api(
 def test_upsert_iterm_sessions_replaces_prior_rows(_isolate: dict[str, Path]) -> None:
     repo, name = "myapp", "feature"
     # FK requires the worktree row to exist first.
-    _seed_worktree(_isolate["db_path"], repo, name, _isolate["dev_root"] / "wt")
+    seed_worktree(_isolate["db_path"], repo, name, path=_isolate["dev_root"] / "wt")
 
     result1 = iterm_spawn.SpawnResult(window_id="W1", claude_session_id="A1", shell_session_id="A2")
     iterm_spawn.upsert_iterm_sessions_sync(repo, name, result1)
@@ -173,7 +159,7 @@ def test_set_iterm_session_uuid_is_window_id_scoped(
     spawned for — otherwise a slow discovery from spawn #1 would
     clobber the (still-uuid-less) row that spawn #2 just inserted."""
     repo, name = "myapp", "feature"
-    _seed_worktree(_isolate["db_path"], repo, name, _isolate["dev_root"] / "wt")
+    seed_worktree(_isolate["db_path"], repo, name, path=_isolate["dev_root"] / "wt")
 
     # First spawn — bg discovery is about to start; UUID is null.
     first = iterm_spawn.SpawnResult(window_id="W1", claude_session_id="C1", shell_session_id="S1")
@@ -227,7 +213,7 @@ def test_set_iterm_session_uuid_is_window_id_scoped(
 def test_restart_invalidates_sessions(_isolate: dict[str, Path]) -> None:
     # Seed a worktree + iterm_session rows + a persisted started_at
     repo, name = "r", "wt"
-    _seed_worktree(_isolate["db_path"], repo, name, _isolate["dev_root"] / "wt")
+    seed_worktree(_isolate["db_path"], repo, name, path=_isolate["dev_root"] / "wt")
     iterm_spawn.upsert_iterm_sessions_sync(
         repo,
         name,
@@ -261,7 +247,7 @@ def test_first_connect_records_started_at_without_invalidating(
     _isolate: dict[str, Path],
 ) -> None:
     repo, name = "r", "wt"
-    _seed_worktree(_isolate["db_path"], repo, name, _isolate["dev_root"] / "wt")
+    seed_worktree(_isolate["db_path"], repo, name, path=_isolate["dev_root"] / "wt")
     iterm_spawn.upsert_iterm_sessions_sync(
         repo,
         name,
@@ -295,7 +281,7 @@ def test_first_connect_records_started_at_without_invalidating(
 
 def test_spawn_endpoint_503_when_not_connected(_isolate: dict[str, Path]) -> None:
     _write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
-    _seed_worktree(_isolate["db_path"], "r", "wt", _isolate["dev_root"] / "wt")
+    seed_worktree(_isolate["db_path"], "r", "wt", path=_isolate["dev_root"] / "wt")
 
     with TestClient(app) as client:
         # Force the supervisor's state to "disconnected" before issuing the request.
@@ -339,7 +325,7 @@ def test_spawn_endpoint_happy_path(
 ) -> None:
     _write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
     repo, name = "r", "wt"
-    _seed_worktree(_isolate["db_path"], repo, name, _isolate["dev_root"] / "wt")
+    seed_worktree(_isolate["db_path"], repo, name, path=_isolate["dev_root"] / "wt")
 
     fake_window = _build_fake_window(
         window_id="W42", claude_session_id="C42", shell_session_id="SH42"
@@ -388,7 +374,7 @@ def test_spawn_endpoint_502_on_iterm_error(
     monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
 ) -> None:
     _write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
-    _seed_worktree(_isolate["db_path"], "r", "wt", _isolate["dev_root"] / "wt")
+    seed_worktree(_isolate["db_path"], "r", "wt", path=_isolate["dev_root"] / "wt")
 
     import iterm2
 
@@ -437,7 +423,7 @@ def test_focus_endpoint_503_when_iterm_disconnected(
     _isolate: dict[str, Path],
 ) -> None:
     _write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
-    _seed_worktree(_isolate["db_path"], "r", "wt", _isolate["dev_root"] / "wt")
+    seed_worktree(_isolate["db_path"], "r", "wt", path=_isolate["dev_root"] / "wt")
     _seed_claude_session(
         _isolate["db_path"], "r", "wt", window_id="W1", session_id="S1"
     )
@@ -452,7 +438,7 @@ def test_focus_endpoint_404_when_no_session_tracked(
     _isolate: dict[str, Path],
 ) -> None:
     _write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
-    _seed_worktree(_isolate["db_path"], "r", "wt", _isolate["dev_root"] / "wt")
+    seed_worktree(_isolate["db_path"], "r", "wt", path=_isolate["dev_root"] / "wt")
     # No iterm_session row seeded.
 
     with TestClient(app) as client:
@@ -468,7 +454,7 @@ def test_focus_endpoint_happy_path(
     """Window with the tracked id exists in iTerm2; we activate it +
     select its claude tab."""
     _write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
-    _seed_worktree(_isolate["db_path"], "r", "wt", _isolate["dev_root"] / "wt")
+    seed_worktree(_isolate["db_path"], "r", "wt", path=_isolate["dev_root"] / "wt")
     _seed_claude_session(
         _isolate["db_path"], "r", "wt", window_id="W42", session_id="S42"
     )
@@ -504,7 +490,7 @@ def test_focus_endpoint_404_and_prunes_when_window_missing(
     anymore (user closed it / iTerm2 restarted), the endpoint prunes
     the stale row and returns 404."""
     _write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
-    _seed_worktree(_isolate["db_path"], "r", "wt", _isolate["dev_root"] / "wt")
+    seed_worktree(_isolate["db_path"], "r", "wt", path=_isolate["dev_root"] / "wt")
     _seed_claude_session(
         _isolate["db_path"], "r", "wt", window_id="W-gone", session_id="S1"
     )

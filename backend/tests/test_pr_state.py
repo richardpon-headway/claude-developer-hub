@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -28,6 +27,7 @@ from app.services.pr_state import (
     summarize_gh_payload,
     upsert_pr_state_sync,
 )
+from tests.fixtures.worktree import seed_worktree
 
 
 @pytest.fixture
@@ -467,23 +467,13 @@ def test_summarize_end_to_end() -> None:
 # --- upsert + read round-trip ---------------------------------------------
 
 
-def _seed_worktree(db_path: Path, repo: str, name: str, dev_root: Path) -> None:
-    wt_path = dev_root / name
-    wt_path.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.execute(
-            "INSERT INTO worktree (repo, name, path, branch, created_at, status) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (repo, name, str(wt_path), "main", "2026-01-01T00:00:00Z", "ready"),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
 def test_upsert_and_get_pr_state(_isolate: dict[str, Path]) -> None:
-    _seed_worktree(_isolate["db_path"], "myrepo", "feature1", _isolate["dev_root"])
+    seed_worktree(
+        _isolate["db_path"],
+        "myrepo",
+        "feature1",
+        path=_isolate["dev_root"] / "feature1",
+    )
     summary = PrSummary(
         headline="ready_to_merge",
         pr_number=42,
@@ -501,7 +491,12 @@ def test_upsert_and_get_pr_state(_isolate: dict[str, Path]) -> None:
 
 
 def test_upsert_replaces_existing_row(_isolate: dict[str, Path]) -> None:
-    _seed_worktree(_isolate["db_path"], "myrepo", "feature1", _isolate["dev_root"])
+    seed_worktree(
+        _isolate["db_path"],
+        "myrepo",
+        "feature1",
+        path=_isolate["dev_root"] / "feature1",
+    )
     s1 = PrSummary(headline="checks_running", pr_number=1)
     s2 = PrSummary(headline="ready_to_merge", pr_number=1)
     upsert_pr_state_sync("myrepo", "feature1", s1, db_path=_isolate["db_path"])
@@ -700,7 +695,12 @@ def test_fetch_unresolved_threads_count_zero_on_gh_failure(
 def test_pr_state_refresh_endpoint(
     monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
 ) -> None:
-    _seed_worktree(_isolate["db_path"], "myrepo", "feature1", _isolate["dev_root"])
+    seed_worktree(
+        _isolate["db_path"],
+        "myrepo",
+        "feature1",
+        path=_isolate["dev_root"] / "feature1",
+    )
 
     # Stub the actual gh call so the test is offline-safe.
     async def fake_fetch(path: Path) -> PrSummary:
@@ -742,7 +742,12 @@ def test_pr_state_refresh_404_when_worktree_missing(_isolate: dict[str, Path]) -
 
 
 def test_list_worktrees_includes_pr_state(_isolate: dict[str, Path]) -> None:
-    _seed_worktree(_isolate["db_path"], "myrepo", "feature1", _isolate["dev_root"])
+    seed_worktree(
+        _isolate["db_path"],
+        "myrepo",
+        "feature1",
+        path=_isolate["dev_root"] / "feature1",
+    )
     upsert_pr_state_sync(
         "myrepo",
         "feature1",
@@ -768,7 +773,12 @@ def test_list_worktrees_includes_pr_state(_isolate: dict[str, Path]) -> None:
 def test_list_worktrees_handles_missing_pr_state(_isolate: dict[str, Path]) -> None:
     """Worktrees that haven't been polled yet should still serialize cleanly
     with pr_state: None — the LEFT JOIN returns NULLs we have to handle."""
-    _seed_worktree(_isolate["db_path"], "myrepo", "nopr", _isolate["dev_root"])
+    seed_worktree(
+        _isolate["db_path"],
+        "myrepo",
+        "nopr",
+        path=_isolate["dev_root"] / "nopr",
+    )
     with TestClient(app) as client:
         r = client.get("/api/worktrees")
     assert r.status_code == 200

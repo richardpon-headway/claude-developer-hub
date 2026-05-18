@@ -23,6 +23,7 @@ from app.services.inbox_search import (
     is_repo_configured,
 )
 from app.services.inbox_stack import annotate_stacks
+from tests.fixtures.worktree import seed_worktree
 
 # --- fixtures ------------------------------------------------------------
 
@@ -232,35 +233,6 @@ def test_explicit_github_repo_excludes_basename_collisions() -> None:
 # --- dedup pull from worktree + pr_state --------------------------------
 
 
-def _seed_worktree_row(
-    db_path: Path,
-    repo: str,
-    name: str,
-    *,
-    pr_repo: str | None = None,
-    pr_number: int | None = None,
-) -> None:
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.execute(
-            "INSERT INTO worktree (repo, name, path, branch, created_at, status, "
-            "pr_number, pr_repo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                repo,
-                name,
-                f"/tmp/{repo}_{name}",
-                "feat/x",
-                "2026-05-14T00:00:00Z",
-                "ready",
-                pr_number,
-                pr_repo,
-            ),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
 def _seed_pr_state(
     db_path: Path,
     repo: str,
@@ -294,8 +266,13 @@ def _seed_pr_state(
 
 
 def test_tracked_keys_reads_from_worktree_columns(_isolate: dict[str, Path]) -> None:
-    _seed_worktree_row(
-        _isolate["db_path"], "myapp", "feat1", pr_repo="o/myapp", pr_number=7
+    seed_worktree(
+        _isolate["db_path"],
+        "myapp",
+        "feat1",
+        branch="feat/x",
+        pr_repo="o/myapp",
+        pr_number=7,
     )
     keys = inbox_poll._tracked_pr_keys_sync()
     assert keys == {("o/myapp", 7)}
@@ -308,8 +285,8 @@ def test_tracked_keys_reads_from_pr_state_url(_isolate: dict[str, Path]) -> None
     PR-button click."""
     # Worktree exists but has no pr_repo (the common case after
     # creating a worktree + waiting for pr_state polling).
-    _seed_worktree_row(
-        _isolate["db_path"], "myapp", "feat1", pr_repo=None, pr_number=None
+    seed_worktree(
+        _isolate["db_path"], "myapp", "feat1", branch="feat/x"
     )
     _seed_pr_state(
         _isolate["db_path"], "myapp", "feat1", pr_number=99, pr_repo="o/myapp"
@@ -325,7 +302,9 @@ def test_tracked_keys_handles_pr_state_with_malformed_url(
     shouldn't crash dedup — just gets skipped."""
     import json
 
-    _seed_worktree_row(_isolate["db_path"], "myapp", "feat1")
+    seed_worktree(
+        _isolate["db_path"], "myapp", "feat1", branch="feat/x"
+    )
     conn = sqlite3.connect(_isolate["db_path"])
     try:
         conn.execute(
@@ -703,8 +682,13 @@ def test_tick_dedup_against_worktree(
     _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _write_minimal_config(_isolate["config_path"])
-    _seed_worktree_row(
-        _isolate["db_path"], "myapp", "feat1", pr_repo="o/r", pr_number=42
+    seed_worktree(
+        _isolate["db_path"],
+        "myapp",
+        "feat1",
+        branch="feat/x",
+        pr_repo="o/r",
+        pr_number=42,
     )
 
     raw_rows = [

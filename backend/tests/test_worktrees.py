@@ -1,17 +1,17 @@
 """Tests for the worktree CRUD slice (model, service, /api/worktree)."""
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
 from app import db
 from app.main import app
 from app.models.worktree import derive_worktree_name, extract_ticket
 from app.services import worktree as svc
+from tests.fixtures.config import write_repo_config
+from tests.fixtures.worktree import init_git_repo, seed_worktree
 
 # --- fixtures ------------------------------------------------------------
 
@@ -38,44 +38,9 @@ def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]
 
 
 def _init_git_repo(path: Path) -> None:
-    """Init a repo with `main` checked out + a `feature` branch available
-    for worktree-add (since git rejects worktree-add on a branch that's
-    already checked out elsewhere)."""
-    path.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=path, check=True)
-    subprocess.run(["git", "-C", str(path), "config", "user.email", "t@t"], check=True)
-    subprocess.run(["git", "-C", str(path), "config", "user.name", "t"], check=True)
-    subprocess.run(
-        ["git", "-C", str(path), "commit", "--allow-empty", "-m", "init", "-q"], check=True
-    )
-    subprocess.run(["git", "-C", str(path), "branch", "feature"], check=True)
-
-
-def _write_config(
-    config_path: Path,
-    development_root: Path,
-    repo_path: Path,
-    name: str = "myapp",
-    setup_steps: list[dict] | None = None,
-    ticket_pattern: str | None = None,
-    branch_prefix: str = "",
-) -> None:
-    config = {
-        "development_root": str(development_root),
-        "repos": [
-            {
-                "name": name,
-                "path": str(repo_path),
-                "default_branch": "main",
-                "branch_prefix": branch_prefix,
-                "setup_steps": setup_steps or [],
-                "ticket_pattern": ticket_pattern,
-            }
-        ],
-    }
-    config_path.write_text(yaml.safe_dump(config))
-
-
+    """Wrapper that always seeds the ``feature`` branch this file's
+    tests need for ``git worktree add``."""
+    init_git_repo(path, branches=["feature"])
 
 
 # --- pure helpers --------------------------------------------------------
@@ -116,11 +81,11 @@ def test_list_worktrees_initially_empty() -> None:
 
 
 def test_create_unknown_repo_400(_isolate: dict[str, Path]) -> None:
-    _write_config(
+    write_repo_config(
         _isolate["config_path"],
         _isolate["dev_root"],
         _isolate["dev_root"] / "ignored",
-        "registered",
+        name="registered",
     )
     with TestClient(app) as client:
         r = client.post("/api/worktree", json={"repo": "not-registered", "branch": "main"})
@@ -131,7 +96,7 @@ def test_create_unknown_repo_400(_isolate: dict[str, Path]) -> None:
 def test_create_happy_path(_isolate: dict[str, Path]) -> None:
     repo_path = _isolate["dev_root"] / "myapp"
     _init_git_repo(repo_path)
-    _write_config(
+    write_repo_config(
         _isolate["config_path"],
         _isolate["dev_root"],
         repo_path,
@@ -156,7 +121,7 @@ def test_create_happy_path(_isolate: dict[str, Path]) -> None:
 def test_create_duplicate_409(_isolate: dict[str, Path]) -> None:
     repo_path = _isolate["dev_root"] / "myapp"
     _init_git_repo(repo_path)
-    _write_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
+    write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
 
     with TestClient(app) as client:
         r1 = client.post("/api/worktree", json={"repo": "myapp", "branch": "feature"})
@@ -170,7 +135,7 @@ def test_create_duplicate_409(_isolate: dict[str, Path]) -> None:
 def test_setup_step_failure_marks_failed(_isolate: dict[str, Path]) -> None:
     repo_path = _isolate["dev_root"] / "myapp"
     _init_git_repo(repo_path)
-    _write_config(
+    write_repo_config(
         _isolate["config_path"],
         _isolate["dev_root"],
         repo_path,
@@ -196,7 +161,7 @@ def test_setup_step_failure_marks_failed(_isolate: dict[str, Path]) -> None:
 def test_missing_branch_marks_failed(_isolate: dict[str, Path]) -> None:
     repo_path = _isolate["dev_root"] / "myapp"
     _init_git_repo(repo_path)
-    _write_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
+    write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
 
     with TestClient(app) as client:
         r = client.post("/api/worktree", json={"repo": "myapp", "branch": "nope-not-real"})
@@ -217,7 +182,7 @@ def test_get_worktree_404() -> None:
 
 
 def test_recreate_404_when_worktree_missing(_isolate: dict[str, Path]) -> None:
-    _write_config(_isolate["config_path"], _isolate["dev_root"], _isolate["dev_root"])
+    write_repo_config(_isolate["config_path"], _isolate["dev_root"], _isolate["dev_root"])
     with TestClient(app) as client:
         r = client.post("/api/worktree/myapp/nope/recreate")
     assert r.status_code == 404
@@ -229,7 +194,7 @@ def test_recreate_409_when_status_not_stale(_isolate: dict[str, Path]) -> None:
     to investigate or stash."""
     repo_path = _isolate["dev_root"] / "myapp"
     _init_git_repo(repo_path)
-    _write_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
+    write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
 
     with TestClient(app) as client:
         r1 = client.post(
@@ -249,7 +214,7 @@ def test_recreate_stale_row_drops_and_reinserts(_isolate: dict[str, Path]) -> No
     ready row pointing at the same branch."""
     repo_path = _isolate["dev_root"] / "myapp"
     _init_git_repo(repo_path)
-    _write_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
+    write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
 
     with TestClient(app) as client:
         r1 = client.post(
@@ -294,43 +259,14 @@ def test_recreate_stale_row_drops_and_reinserts(_isolate: dict[str, Path]) -> No
 # --- /api/worktree/{repo}/{name}/pr-url ----------------------------------
 
 
-def _insert_worktree_row(
-    db_path: Path,
-    repo: str,
-    name: str,
-    path: Path,
-    branch: str = "feature",
-    pr_number: int | None = None,
-    pr_repo: str | None = None,
-) -> None:
-    """Bypass the full create flow — just stamp a row so we can test the
-    pr-url endpoint independently of worktree creation."""
-    from app.models.worktree import WorktreeRow, now_iso
-
-    svc.insert_worktree_sync(
-        WorktreeRow(
-            repo=repo,
-            name=name,
-            path=str(path),
-            branch=branch,
-            ticket=None,
-            pr_number=pr_number,
-            pr_repo=pr_repo,
-            created_at=now_iso(),
-            status="ready",
-        ),
-        db_path,
-    )
-
-
 def test_pr_url_uses_cached_values(_isolate: dict[str, Path]) -> None:
     wt_path = _isolate["dev_root"] / "myapp_wt"
-    wt_path.mkdir()
-    _insert_worktree_row(
+    seed_worktree(
         _isolate["db_path"],
         "myapp",
         "feature",
-        wt_path,
+        path=wt_path,
+        branch="feature",
         pr_number=42,
         pr_repo="acme/myapp",
     )
@@ -352,9 +288,8 @@ def test_pr_url_lazy_lookup_and_cache(
     """First call: no cache → shell `gh`, return URL, write cache.
     Second call: cache hit, no `gh` invocation."""
     wt_path = _isolate["dev_root"] / "myapp_wt"
-    wt_path.mkdir()
-    _insert_worktree_row(
-        _isolate["db_path"], "myapp", "feature", wt_path,
+    seed_worktree(
+        _isolate["db_path"], "myapp", "feature", path=wt_path, branch="feature"
     )
 
     call_count = {"n": 0}
@@ -389,9 +324,8 @@ def test_pr_url_404_when_no_pr(
     _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     wt_path = _isolate["dev_root"] / "myapp_wt"
-    wt_path.mkdir()
-    _insert_worktree_row(
-        _isolate["db_path"], "myapp", "feature", wt_path,
+    seed_worktree(
+        _isolate["db_path"], "myapp", "feature", path=wt_path, branch="feature"
     )
 
     async def fake_gh_pr_view(cwd: Path) -> None:
@@ -408,11 +342,13 @@ def test_pr_url_404_when_no_pr(
 
 
 def test_pr_url_400_when_worktree_path_missing(_isolate: dict[str, Path]) -> None:
-    _insert_worktree_row(
+    seed_worktree(
         _isolate["db_path"],
         "myapp",
         "feature",
-        _isolate["dev_root"] / "does-not-exist",
+        path=_isolate["dev_root"] / "does-not-exist",
+        branch="feature",
+        mkdir=False,
     )
     with TestClient(app) as client:
         r = client.get("/api/worktree/myapp/feature/pr-url")

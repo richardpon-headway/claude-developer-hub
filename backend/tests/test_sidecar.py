@@ -22,6 +22,7 @@ from app.services.sidecar import (
     encode_project_dir,
     write_sidecar_sync,
 )
+from tests.fixtures.worktree import seed_worktree
 
 # --- fixtures ------------------------------------------------------------
 
@@ -61,26 +62,6 @@ def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]
         "sidecar_dir": sidecar_dir,
         "fake_home": fake_home,
     }
-
-
-def _seed_worktree(
-    db_path: Path,
-    repo: str,
-    name: str,
-    path: Path,
-    ticket: str | None = None,
-) -> None:
-    path.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.execute(
-            "INSERT INTO worktree (repo, name, path, branch, ticket, "
-            "created_at, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (repo, name, str(path), "feature", ticket, "2026-01-01T00:00:00Z", "ready"),
-        )
-        conn.commit()
-    finally:
-        conn.close()
 
 
 def _make_fake_jsonl(
@@ -239,7 +220,14 @@ def test_spawn_endpoint_writes_sidecar(
 ) -> None:
     repo, name = "r", "wt"
     wt_path = _isolate["dev_root"] / "wt"
-    _seed_worktree(_isolate["db_path"], repo, name, wt_path, ticket="PROJ-7")
+    seed_worktree(
+        _isolate["db_path"],
+        repo,
+        name,
+        path=wt_path,
+        branch="feature",
+        ticket="PROJ-7",
+    )
 
     fake_window = _build_fake_window(
         window_id="W9", claude_session_id="C9", shell_session_id="SH9"
@@ -343,7 +331,13 @@ def test_spawn_endpoint_succeeds_on_discovery_timeout(
     POST returns instantly regardless of whether Claude's jsonl ever
     appears."""
     repo, name = "r", "wt"
-    _seed_worktree(_isolate["db_path"], repo, name, _isolate["dev_root"] / "wt")
+    seed_worktree(
+        _isolate["db_path"],
+        repo,
+        name,
+        path=_isolate["dev_root"] / "wt",
+        branch="feature",
+    )
 
     fake_window = _build_fake_window()
     import iterm2
