@@ -6,6 +6,7 @@ import { ApiError } from "../api/client";
 import { focusIterm, getPrUrl, recreateWorktree, spawnIterm } from "../api/worktrees";
 import type { JiraConfig, PrHeadline, Worktree, WorktreeStatus } from "../api/types";
 import { Tooltip } from "./Tooltip";
+import { WorkspaceNotes } from "./WorkspaceNotes";
 
 interface Props {
   worktrees: Worktree[];
@@ -376,6 +377,14 @@ function WorkspaceRow({ w, jira, isReviewing }: RowProps) {
               </Link>
             </Tooltip>
           </div>
+        </div>
+        <div className="mt-3">
+          <WorkspaceNotes
+            repo={w.repo}
+            name={w.name}
+            notes={w.notes}
+            variant="compact"
+          />
         </div>
     </li>
   );
