@@ -9,10 +9,7 @@ import { ApiError } from "../api/client";
 
 import { WorkspaceNotes } from "./WorkspaceNotes";
 
-function renderNotes(props: {
-  notes: string | null;
-  variant?: "compact" | "full";
-}) {
+function renderNotes(props: { notes: string | null }) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -22,7 +19,6 @@ function renderNotes(props: {
         repo="myapp"
         name="feat_x"
         notes={props.notes}
-        variant={props.variant ?? "compact"}
       />
     </QueryClientProvider>,
   );
