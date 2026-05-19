@@ -120,6 +120,17 @@ async def recreate_worktree(repo: str, name: str) -> WorktreeRow:
         raise HTTPException(code, msg) from e
 
 
+class OpenCursorRequest(BaseModel):
+    file: str | None = Field(
+        default=None,
+        description=(
+            "Optional path relative to the worktree root. When set, "
+            "opens that specific file in Cursor instead of the "
+            "worktree folder."
+        ),
+    )
+
+
 class OpenCursorResponse(BaseModel):
     opened: bool
 
@@ -127,10 +138,15 @@ class OpenCursorResponse(BaseModel):
 @router.post(
     "/worktree/{repo}/{name}/open-cursor", response_model=OpenCursorResponse
 )
-async def open_in_cursor(repo: str, name: str) -> OpenCursorResponse:
-    """Shell `cursor <worktree.path>` to open the worktree folder in
-    Cursor. No pre-probe of the `cursor` CLI — we detect the missing-
-    binary case from subprocess stderr and surface it as 503.
+async def open_in_cursor(
+    repo: str,
+    name: str,
+    req: OpenCursorRequest | None = None,
+) -> OpenCursorResponse:
+    """Shell `cursor <target>` to open the worktree (folder by default,
+    or a specific file when ``req.file`` is set) in Cursor. No
+    pre-probe of the `cursor` CLI — we detect the missing-binary case
+    from subprocess stderr and surface it as 503.
     """
     row = await asyncio.to_thread(svc.get_worktree_sync, repo, name)
     if row is None:
@@ -145,10 +161,30 @@ async def open_in_cursor(repo: str, name: str) -> OpenCursorResponse:
             f"worktree path missing on disk: {wt_path}",
         )
 
+    target = wt_path
+    if req is not None and req.file:
+        # Resolve + verify the result stays under the worktree root.
+        # Catches absolute paths, parent-traversal, and symlinks
+        # pointing outside the tree.
+        candidate = (wt_path / req.file).resolve()
+        try:
+            candidate.relative_to(wt_path.resolve())
+        except ValueError as e:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"file must live under the worktree root: {req.file}",
+            ) from e
+        if not candidate.exists():
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"file does not exist: {req.file}",
+            )
+        target = candidate
+
     try:
         proc = await asyncio.create_subprocess_exec(
             "cursor",
-            str(wt_path),
+            str(target),
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -179,6 +215,90 @@ async def open_in_cursor(repo: str, name: str) -> OpenCursorResponse:
         )
 
     return OpenCursorResponse(opened=True)
+
+
+class PrFile(BaseModel):
+    path: str
+    additions: int
+    deletions: int
+    github_diff_anchor: str  # sha256(path).hexdigest()
+
+
+class PrFilesResponse(BaseModel):
+    files: list[PrFile]
+
+
+@router.get(
+    "/worktree/{repo}/{name}/pr-files", response_model=PrFilesResponse
+)
+async def get_pr_files(repo: str, name: str) -> PrFilesResponse:
+    """Return the files changed on the PR associated with this
+    worktree. Empty list if the worktree has no PR, or if ``gh pr
+    view`` reports no PR is open for the branch.
+
+    Prefers the ``pr_number`` + ``pr_repo`` cached on the worktree
+    row (populated lazily by the pr-state poller). Falls back to
+    ``gh pr view --json files`` in the worktree path when those
+    aren't set, so freshly-created rows still work pre-poll.
+    """
+    import hashlib
+
+    row = await asyncio.to_thread(svc.get_worktree_sync, repo, name)
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"worktree not found: {repo}/{name}"
+        )
+
+    wt_path = Path(row.path)
+    if not wt_path.is_dir():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"worktree path missing on disk: {wt_path}",
+        )
+
+    try:
+        if row.pr_number is not None and row.pr_repo is not None:
+            payload = await run_gh_json(
+                [
+                    "pr",
+                    "view",
+                    str(row.pr_number),
+                    "-R",
+                    row.pr_repo,
+                    "--json",
+                    "files",
+                ],
+                swallow_errors=True,
+            )
+        else:
+            payload = await run_gh_json(
+                ["pr", "view", "--json", "files"],
+                cwd=wt_path,
+                swallow_errors=True,
+            )
+    except GhNotFound as e:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "gh CLI not on PATH; cannot list PR files.",
+        ) from e
+
+    if payload is None or not isinstance(payload, dict):
+        return PrFilesResponse(files=[])
+    raw = payload.get("files") or []
+    files: list[PrFile] = []
+    for entry in raw:
+        path_str = str(entry.get("path") or "")
+        if not path_str:
+            continue
+        files.append(
+            PrFile(
+                path=path_str,
+                additions=int(entry.get("additions") or 0),
+                deletions=int(entry.get("deletions") or 0),
+                github_diff_anchor=hashlib.sha256(path_str.encode()).hexdigest(),
+            )
+        )
+    return PrFilesResponse(files=files)
 
 
 @router.get("/worktrees", response_model=list[WorktreeRow])
