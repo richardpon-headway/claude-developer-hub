@@ -61,7 +61,7 @@ def reset_log(repo: str, name: str) -> None:
 
 _LIST_SELECT = (
     "SELECT w.repo, w.name, w.path, w.branch, w.ticket, w.pr_number, w.pr_repo, "
-    "       w.pr_author_login, w.created_at, w.status, "
+    "       w.pr_author_login, w.notes, w.created_at, w.status, "
     "       (SELECT 1 FROM iterm_session s "
     "        WHERE s.repo = w.repo AND s.worktree_name = w.name "
     "          AND s.role = 'claude' LIMIT 1) IS NOT NULL, "
@@ -78,8 +78,8 @@ def _row_to_model(row: tuple) -> WorktreeRow:
     from app.models.worktree import PrStateSummary
 
     pr_state: PrStateSummary | None = None
-    payload_json = row[11]
-    checked_at = row[12]
+    payload_json = row[12]
+    checked_at = row[13]
     if payload_json is not None and checked_at is not None:
         try:
             data = json.loads(payload_json)
@@ -104,9 +104,10 @@ def _row_to_model(row: tuple) -> WorktreeRow:
         pr_number=row[5],
         pr_repo=row[6],
         pr_author_login=row[7],
-        created_at=row[8],
-        status=row[9],
-        has_claude_session=bool(row[10]),
+        notes=row[8],
+        created_at=row[9],
+        status=row[10],
+        has_claude_session=bool(row[11]),
         pr_state=pr_state,
     )
 
@@ -240,6 +241,30 @@ def update_worktree_pr_sync(
             "  pr_author_login = COALESCE(?, pr_author_login) "
             "WHERE repo = ? AND name = ?",
             (pr_number, pr_repo, pr_author_login, repo, name),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_worktree_notes_sync(
+    repo: str,
+    name: str,
+    notes: str,
+    db_path: Path | None = None,
+) -> None:
+    """Overwrite the free-form notes column on a worktree row.
+
+    Empty string is a valid value — the UI uses it to clear a note —
+    so we don't coerce empty → NULL. The distinction never matters
+    to the read path (both render as "no notes")."""
+    if db_path is None:
+        db_path = get_db_path()
+    conn = open_db(db_path)
+    try:
+        conn.execute(
+            "UPDATE worktree SET notes = ? WHERE repo = ? AND name = ?",
+            (notes, repo, name),
         )
         conn.commit()
     finally:
