@@ -233,18 +233,78 @@ class PrFilesResponse(BaseModel):
     files: list[PrFile]
 
 
+def _parse_numstat(out: str) -> list[tuple[int, int, str]]:
+    """Parse ``git diff --numstat`` output: rows of ``<adds>\\t<dels>
+    \\t<path>``. Binary files report ``-`` in both numeric columns;
+    we treat those as 0/0 so the row still renders."""
+    rows: list[tuple[int, int, str]] = []
+    for line in out.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) != 3:
+            continue
+        adds_s, dels_s, path = parts
+        adds = int(adds_s) if adds_s.isdigit() else 0
+        dels = int(dels_s) if dels_s.isdigit() else 0
+        rows.append((adds, dels, path))
+    return rows
+
+
+async def _git_diff_numstat(
+    wt_path: Path, default_branch: str
+) -> list[tuple[int, int, str]]:
+    """Run ``git diff --numstat --no-renames <base>...HEAD`` to list
+    files changed on this branch since it diverged from the base ref.
+
+    Tries ``origin/<default_branch>`` first (the server-side state of
+    the base, which matches what a PR diff is computed against); falls
+    back to the bare local ``<default_branch>`` ref when the origin
+    form is missing (rare, but possible in repos without a remote).
+
+    Returns parsed ``(additions, deletions, path)`` tuples. Empty list
+    on any failure — better to render an empty list than 5xx, and the
+    most common "failure" here is the legitimate "branch is at the
+    base, no diff yet" case which git reports as an empty stdout.
+    """
+    for ref in (f"origin/{default_branch}", default_branch):
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "git",
+                "-C",
+                str(wt_path),
+                "diff",
+                "--numstat",
+                "--no-renames",
+                f"{ref}...HEAD",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError:
+            return []  # git missing entirely (very unusual on a dev box)
+        stdout_b, _ = await proc.communicate()
+        if proc.returncode != 0:
+            continue  # try next ref
+        return _parse_numstat(stdout_b.decode("utf-8", errors="replace"))
+    return []
+
+
 @router.get(
     "/worktree/{repo}/{name}/pr-files", response_model=PrFilesResponse
 )
 async def get_pr_files(repo: str, name: str) -> PrFilesResponse:
-    """Return the files changed on the PR associated with this
-    worktree. Empty list if the worktree has no PR, or if ``gh pr
-    view`` reports no PR is open for the branch.
+    """Return the files this branch changes vs its base, derived
+    from local ``git diff --numstat`` (not the GitHub API).
 
-    Prefers the ``pr_number`` + ``pr_repo`` cached on the worktree
-    row (populated lazily by the pr-state poller). Falls back to
-    ``gh pr view --json files`` in the worktree path when those
-    aren't set, so freshly-created rows still work pre-poll.
+    The base is ``origin/<default_branch>`` (or the bare
+    ``<default_branch>`` ref as a fallback). Empty list if the branch
+    has no divergence from the base yet.
+
+    Local-only by design: this used to shell ``gh pr view --json
+    files`` against the GitHub GraphQL API, but that burned ~1 call
+    per page load against an already-tight 5000/hr quota and didn't
+    reflect uncommitted edits. The local-git view matches your
+    working tree and costs nothing in API budget.
     """
     import hashlib
 
@@ -261,48 +321,20 @@ async def get_pr_files(repo: str, name: str) -> PrFilesResponse:
             f"worktree path missing on disk: {wt_path}",
         )
 
-    try:
-        if row.pr_number is not None and row.pr_repo is not None:
-            payload = await run_gh_json(
-                [
-                    "pr",
-                    "view",
-                    str(row.pr_number),
-                    "-R",
-                    row.pr_repo,
-                    "--json",
-                    "files",
-                ],
-                swallow_errors=True,
-            )
-        else:
-            payload = await run_gh_json(
-                ["pr", "view", "--json", "files"],
-                cwd=wt_path,
-                swallow_errors=True,
-            )
-    except GhNotFound as e:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "gh CLI not on PATH; cannot list PR files.",
-        ) from e
+    config = await asyncio.to_thread(load_config)
+    repo_cfg = next((r for r in config.repos if r.name == row.repo), None)
+    default_branch = repo_cfg.default_branch if repo_cfg else "main"
 
-    if payload is None or not isinstance(payload, dict):
-        return PrFilesResponse(files=[])
-    raw = payload.get("files") or []
-    files: list[PrFile] = []
-    for entry in raw:
-        path_str = str(entry.get("path") or "")
-        if not path_str:
-            continue
-        files.append(
-            PrFile(
-                path=path_str,
-                additions=int(entry.get("additions") or 0),
-                deletions=int(entry.get("deletions") or 0),
-                github_diff_anchor=hashlib.sha256(path_str.encode()).hexdigest(),
-            )
+    rows = await _git_diff_numstat(wt_path, default_branch)
+    files = [
+        PrFile(
+            path=path,
+            additions=adds,
+            deletions=dels,
+            github_diff_anchor=hashlib.sha256(path.encode()).hexdigest(),
         )
+        for adds, dels, path in rows
+    ]
     return PrFilesResponse(files=files)
 
 
