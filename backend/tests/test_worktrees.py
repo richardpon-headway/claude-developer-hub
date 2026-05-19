@@ -457,3 +457,263 @@ def test_open_cursor_happy_path_invokes_subprocess(
     assert r.json() == {"opened": True}
     # First two positional args are ("cursor", "<wt_path>").
     assert captured["argv"][:2] == ["cursor", str(wt_path)]
+
+
+def test_open_cursor_with_file_invokes_cursor_with_full_path(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wt_path = _isolate["dev_root"] / "wt"
+    seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
+    # The file must exist for the endpoint to accept it.
+    (wt_path / "src").mkdir()
+    (wt_path / "src" / "foo.py").write_text("# foo\n")
+    captured = _stub_cursor_subprocess(monkeypatch)
+
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/worktree/myapp/feature/open-cursor",
+            json={"file": "src/foo.py"},
+        )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"opened": True}
+    assert captured["argv"][:2] == ["cursor", str(wt_path / "src" / "foo.py")]
+
+
+def test_open_cursor_rejects_parent_traversal(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wt_path = _isolate["dev_root"] / "wt"
+    seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
+    _stub_cursor_subprocess(monkeypatch)
+
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/worktree/myapp/feature/open-cursor",
+            json={"file": "../../../etc/passwd"},
+        )
+    assert r.status_code == 400
+    assert "worktree root" in r.json()["detail"]
+
+
+def test_open_cursor_rejects_absolute_file_path(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wt_path = _isolate["dev_root"] / "wt"
+    seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
+    _stub_cursor_subprocess(monkeypatch)
+
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/worktree/myapp/feature/open-cursor",
+            json={"file": "/etc/passwd"},
+        )
+    assert r.status_code == 400
+    assert "worktree root" in r.json()["detail"]
+
+
+def test_open_cursor_rejects_nonexistent_file(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wt_path = _isolate["dev_root"] / "wt"
+    seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
+    _stub_cursor_subprocess(monkeypatch)
+
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/worktree/myapp/feature/open-cursor",
+            json={"file": "does-not-exist.py"},
+        )
+    assert r.status_code == 400
+    assert "does not exist" in r.json()["detail"]
+
+
+def test_open_cursor_rejects_symlink_escaping_worktree(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A symlink inside the worktree that resolves to a path outside the
+    worktree must be rejected — `resolve().relative_to()` catches the
+    escape after symlink resolution."""
+    import os
+
+    wt_path = _isolate["dev_root"] / "wt"
+    seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
+    # Make a target outside the worktree, then a symlink inside pointing at it.
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret\n")
+    os.symlink(outside, wt_path / "escape.txt")
+    _stub_cursor_subprocess(monkeypatch)
+
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/worktree/myapp/feature/open-cursor",
+            json={"file": "escape.txt"},
+        )
+    assert r.status_code == 400
+    assert "worktree root" in r.json()["detail"]
+
+
+# --- /api/worktree/{repo}/{name}/pr-files --------------------------------
+
+
+def _stub_gh_pr_view_files(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    files: list[dict] | None,
+) -> dict:
+    """Replace ``run_gh_json`` (as imported by the worktrees route
+    module) with a fake that returns ``{"files": files}`` (or None if
+    ``files`` is None). Returns a dict the test can inspect for the
+    argv it was called with."""
+    from unittest.mock import AsyncMock
+
+    captured: dict = {"args": None, "kwargs": None}
+
+    async def fake(*args: object, **kwargs: object) -> dict | None:
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        if files is None:
+            return None
+        return {"files": files}
+
+    monkeypatch.setattr(
+        "app.routes.worktrees.run_gh_json", AsyncMock(side_effect=fake)
+    )
+    return captured
+
+
+def test_pr_files_404_when_worktree_missing(_isolate: dict[str, Path]) -> None:
+    with TestClient(app) as client:
+        r = client.get("/api/worktree/myapp/nope/pr-files")
+    assert r.status_code == 404
+
+
+def test_pr_files_400_when_path_missing_on_disk(
+    _isolate: dict[str, Path],
+) -> None:
+    seed_worktree(
+        _isolate["db_path"],
+        "myapp",
+        "feature",
+        path=_isolate["dev_root"] / "ghost",
+        mkdir=False,
+    )
+    with TestClient(app) as client:
+        r = client.get("/api/worktree/myapp/feature/pr-files")
+    assert r.status_code == 400
+    assert "missing on disk" in r.json()["detail"]
+
+
+def test_pr_files_503_when_gh_missing(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import AsyncMock
+
+    from app.services.gh_cli import GhNotFound
+
+    wt_path = _isolate["dev_root"] / "wt"
+    seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
+
+    async def boom(*args: object, **kwargs: object) -> object:
+        raise GhNotFound("gh CLI not on PATH")
+
+    monkeypatch.setattr(
+        "app.routes.worktrees.run_gh_json", AsyncMock(side_effect=boom)
+    )
+
+    with TestClient(app) as client:
+        r = client.get("/api/worktree/myapp/feature/pr-files")
+    assert r.status_code == 503
+
+
+def test_pr_files_empty_when_gh_returns_no_pr(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run_gh_json returns None when `gh pr view` reports no PR for
+    the current branch (the swallow_errors path)."""
+    wt_path = _isolate["dev_root"] / "wt"
+    seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
+    _stub_gh_pr_view_files(monkeypatch, files=None)
+
+    with TestClient(app) as client:
+        r = client.get("/api/worktree/myapp/feature/pr-files")
+    assert r.status_code == 200
+    assert r.json() == {"files": []}
+
+
+def test_pr_files_happy_path_with_cached_pr_number(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When pr_number + pr_repo are cached on the row, the endpoint
+    calls `gh pr view <num> -R <repo>` (not the cwd variant)."""
+    wt_path = _isolate["dev_root"] / "wt"
+    seed_worktree(
+        _isolate["db_path"],
+        "myapp",
+        "feature",
+        path=wt_path,
+        pr_number=42,
+        pr_repo="acme/myapp",
+    )
+    captured = _stub_gh_pr_view_files(
+        monkeypatch,
+        files=[
+            {"path": "src/foo.py", "additions": 12, "deletions": 3},
+            {"path": "src/bar.py", "additions": 0, "deletions": 5},
+        ],
+    )
+
+    with TestClient(app) as client:
+        r = client.get("/api/worktree/myapp/feature/pr-files")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["files"]) == 2
+    assert body["files"][0]["path"] == "src/foo.py"
+    assert body["files"][0]["additions"] == 12
+    assert body["files"][0]["deletions"] == 3
+    # argv form: ["pr", "view", "42", "-R", "acme/myapp", "--json", "files"]
+    argv = captured["args"][0]
+    assert "42" in argv
+    assert "-R" in argv
+    assert "acme/myapp" in argv
+
+
+def test_pr_files_fallback_to_cwd_when_pr_number_unset(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When pr_number / pr_repo aren't cached yet, the endpoint falls
+    back to `gh pr view --json files` with cwd=<worktree path>."""
+    wt_path = _isolate["dev_root"] / "wt"
+    seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
+    captured = _stub_gh_pr_view_files(
+        monkeypatch,
+        files=[{"path": "x.py", "additions": 1, "deletions": 0}],
+    )
+
+    with TestClient(app) as client:
+        r = client.get("/api/worktree/myapp/feature/pr-files")
+    assert r.status_code == 200
+    assert len(r.json()["files"]) == 1
+    # cwd kwarg was set to the worktree path.
+    assert captured["kwargs"].get("cwd") == wt_path
+    # No "-R" / numeric arg in the argv when falling back.
+    argv = captured["args"][0]
+    assert "-R" not in argv
+
+
+def test_pr_files_computes_github_diff_anchor(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each file's `github_diff_anchor` must be sha256(path).hexdigest()."""
+    import hashlib
+
+    wt_path = _isolate["dev_root"] / "wt"
+    seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
+    _stub_gh_pr_view_files(
+        monkeypatch,
+        files=[{"path": "src/foo.py", "additions": 1, "deletions": 0}],
+    )
+
+    with TestClient(app) as client:
+        r = client.get("/api/worktree/myapp/feature/pr-files")
+    expected = hashlib.sha256(b"src/foo.py").hexdigest()
+    assert r.json()["files"][0]["github_diff_anchor"] == expected

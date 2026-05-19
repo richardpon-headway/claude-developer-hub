@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "../api/client";
 import { getWorkspaceSkills } from "../api/config";
 import {
+  getPrFiles,
   getWorktree,
   openInCursor,
   runSkill,
@@ -70,6 +71,17 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
 
   const cursorMutation = useMutation({
     mutationFn: () => openInCursor(repo, name),
+  });
+
+  const cursorFileMutation = useMutation({
+    mutationFn: (file: string) => openInCursor(repo, name, file),
+  });
+
+  const prFiles = useQuery({
+    queryKey: ["pr-files", repo, name],
+    queryFn: () => getPrFiles(repo, name),
+    enabled: ready,
+    staleTime: 60_000,
   });
 
   return (
@@ -191,6 +203,59 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
               </p>
             )}
           </section>
+
+          {prFiles.data && prFiles.data.files.length > 0 && (
+            <section className="mt-8">
+              <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                Files changed ({prFiles.data.files.length})
+              </h2>
+              <ul className="mt-2 divide-y divide-zinc-800 rounded border border-zinc-800">
+                {prFiles.data.files.map((f) => (
+                  <li
+                    key={f.path}
+                    className="flex items-center gap-3 px-3 py-2 text-sm"
+                  >
+                    <span className="flex-1 truncate font-mono text-xs text-zinc-200">
+                      {f.path}
+                    </span>
+                    <span className="text-xs tabular-nums text-green-400">
+                      +{f.additions}
+                    </span>
+                    <span className="text-xs tabular-nums text-red-400">
+                      −{f.deletions}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => cursorFileMutation.mutate(f.path)}
+                      disabled={cursorFileMutation.isPending}
+                      className="rounded border border-zinc-700 px-2 py-0.5 text-xs hover:bg-zinc-800 disabled:opacity-50"
+                    >
+                      Cursor
+                    </button>
+                    {row.pr_number != null && row.pr_repo != null && (
+                      <a
+                        href={`https://github.com/${row.pr_repo}/pull/${row.pr_number}/files#diff-${f.github_diff_anchor}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded border border-zinc-700 px-2 py-0.5 text-xs hover:bg-zinc-800"
+                      >
+                        GitHub
+                      </a>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {cursorFileMutation.error && (
+                <p
+                  role="alert"
+                  className="mt-2 text-xs text-red-400"
+                  title={errorMessage(cursorFileMutation.error)}
+                >
+                  {errorMessage(cursorFileMutation.error)}
+                </p>
+              )}
+            </section>
+          )}
 
           {detail.data.log.length > 0 && (
             <section className="mt-8">
