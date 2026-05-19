@@ -161,7 +161,13 @@ async def open_in_cursor(
             f"worktree path missing on disk: {wt_path}",
         )
 
-    target = wt_path
+    # Always pass the worktree folder as the first arg so Cursor opens
+    # it as a workspace (or reuses an existing window with that
+    # workspace). When a file is also requested, append its resolved
+    # path so Cursor brings it into focus inside the workspace —
+    # otherwise pyright / pylance / etc. have no project root and every
+    # import resolves to nothing.
+    argv: list[str] = ["cursor", str(wt_path)]
     if req is not None and req.file:
         # Resolve + verify the result stays under the worktree root.
         # Catches absolute paths, parent-traversal, and symlinks
@@ -179,12 +185,11 @@ async def open_in_cursor(
                 status.HTTP_400_BAD_REQUEST,
                 f"file does not exist: {req.file}",
             )
-        target = candidate
+        argv.append(str(candidate))
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            "cursor",
-            str(target),
+            *argv,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )

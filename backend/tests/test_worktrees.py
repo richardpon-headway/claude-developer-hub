@@ -459,12 +459,15 @@ def test_open_cursor_happy_path_invokes_subprocess(
     assert captured["argv"][:2] == ["cursor", str(wt_path)]
 
 
-def test_open_cursor_with_file_invokes_cursor_with_full_path(
+def test_open_cursor_with_file_invokes_cursor_with_workspace_and_file(
     _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Per-file open must pass both the worktree folder AND the file
+    so Cursor loads the workspace (project root, language-server
+    settings) before bringing the file into focus. Without the
+    folder, pyright / pylance can't resolve any imports."""
     wt_path = _isolate["dev_root"] / "wt"
     seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
-    # The file must exist for the endpoint to accept it.
     (wt_path / "src").mkdir()
     (wt_path / "src" / "foo.py").write_text("# foo\n")
     captured = _stub_cursor_subprocess(monkeypatch)
@@ -476,7 +479,11 @@ def test_open_cursor_with_file_invokes_cursor_with_full_path(
         )
     assert r.status_code == 200, r.text
     assert r.json() == {"opened": True}
-    assert captured["argv"][:2] == ["cursor", str(wt_path / "src" / "foo.py")]
+    assert captured["argv"][:3] == [
+        "cursor",
+        str(wt_path),
+        str(wt_path / "src" / "foo.py"),
+    ]
 
 
 def test_open_cursor_rejects_parent_traversal(
