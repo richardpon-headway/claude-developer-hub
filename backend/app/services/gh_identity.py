@@ -44,15 +44,18 @@ async def get_user_login() -> str | None:
         if _cached_login is not None:
             return _cached_login
         try:
-            # `--jq .login` makes gh emit the bare login string. That's
-            # valid JSON (a JSON string literal), so run_gh_json parses
-            # it back to a Python str.
-            data = await run_gh_json(
-                ["api", "user", "--jq", ".login"], swallow_errors=True,
-            )
+            # Plain ``gh api user`` returns the full GitHub user JSON
+            # object including ``login`` and a couple dozen other
+            # fields. We could narrow with ``--jq .login`` but jq emits
+            # bare values (not JSON-quoted), so the output wouldn't
+            # parse as JSON in ``run_gh_json``. Paying for the bigger
+            # response is fine — this fires once per process.
+            data = await run_gh_json(["api", "user"], swallow_errors=True)
         except GhNotFound:
             log.info("gh not on PATH — REVIEWING tier disabled")
             return None
-        if isinstance(data, str) and data:
-            _cached_login = data
+        if isinstance(data, dict):
+            login = data.get("login")
+            if isinstance(login, str) and login:
+                _cached_login = login
         return _cached_login
