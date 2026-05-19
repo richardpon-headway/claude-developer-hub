@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from "./client";
+import { apiGet, apiPost, apiPut } from "./client";
 import type {
   ListWorktreesResponse,
   PrUrlResponse,
@@ -87,3 +87,10 @@ export const refreshPrState = (repo: string, name: string) =>
     `${workspacePath(repo, name)}/pr-state/refresh`,
     {},
   );
+
+export interface UpdateNotesResponse {
+  notes: string;
+}
+
+export const updateNotes = (repo: string, name: string, notes: string) =>
+  apiPut<UpdateNotesResponse>(`${workspacePath(repo, name)}/notes`, { notes });

@@ -870,3 +870,104 @@ def test_pr_files_computes_github_diff_anchor(
         r = client.get("/api/worktree/myapp/feature/pr-files")
     expected = hashlib.sha256(b"src/foo.py").hexdigest()
     assert r.json()["files"][0]["github_diff_anchor"] == expected
+
+
+# --- PUT /api/worktree/{repo}/{name}/notes -------------------------------
+
+
+def test_update_notes_404_when_worktree_missing(_isolate: dict[str, Path]) -> None:
+    with TestClient(app) as client:
+        r = client.put(
+            "/api/worktree/missing/x/notes",
+            json={"notes": "hello"},
+        )
+    assert r.status_code == 404
+
+
+def test_update_notes_persists_to_db(_isolate: dict[str, Path]) -> None:
+    import sqlite3
+
+    seed_worktree(_isolate["db_path"], "myapp", "feature")
+    with TestClient(app) as client:
+        r = client.put(
+            "/api/worktree/myapp/feature/notes",
+            json={"notes": "blocking PROJ-218, keep open"},
+        )
+    assert r.status_code == 200
+    assert r.json() == {"notes": "blocking PROJ-218, keep open"}
+
+    conn = sqlite3.connect(_isolate["db_path"])
+    try:
+        row = conn.execute(
+            "SELECT notes FROM worktree WHERE repo='myapp' AND name='feature'"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row == ("blocking PROJ-218, keep open",)
+
+
+def test_update_notes_overwrites_existing(_isolate: dict[str, Path]) -> None:
+    seed_worktree(_isolate["db_path"], "myapp", "feature")
+    with TestClient(app) as client:
+        client.put("/api/worktree/myapp/feature/notes", json={"notes": "v1"})
+        r = client.put(
+            "/api/worktree/myapp/feature/notes",
+            json={"notes": "v2 — replaces v1"},
+        )
+    assert r.status_code == 200
+    assert r.json()["notes"] == "v2 — replaces v1"
+
+
+def test_update_notes_empty_string_clears(_isolate: dict[str, Path]) -> None:
+    """Empty string is a valid value — the user clears a note by
+    deleting all its text. The endpoint should accept it (not 422),
+    persist it (read path can see ""), and not coerce to NULL."""
+    import sqlite3
+
+    seed_worktree(_isolate["db_path"], "myapp", "feature")
+    with TestClient(app) as client:
+        client.put("/api/worktree/myapp/feature/notes", json={"notes": "x"})
+        r = client.put("/api/worktree/myapp/feature/notes", json={"notes": ""})
+    assert r.status_code == 200
+
+    conn = sqlite3.connect(_isolate["db_path"])
+    try:
+        row = conn.execute(
+            "SELECT notes FROM worktree WHERE repo='myapp' AND name='feature'"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row == ("",)
+
+
+def test_update_notes_rejects_oversize_payload(_isolate: dict[str, Path]) -> None:
+    """Soft guard against a runaway paste — 10k char ceiling."""
+    seed_worktree(_isolate["db_path"], "myapp", "feature")
+    with TestClient(app) as client:
+        r = client.put(
+            "/api/worktree/myapp/feature/notes",
+            json={"notes": "a" * 10_001},
+        )
+    assert r.status_code == 422
+
+
+def test_get_worktree_includes_notes_field(_isolate: dict[str, Path]) -> None:
+    seed_worktree(_isolate["db_path"], "myapp", "feature")
+    with TestClient(app) as client:
+        client.put("/api/worktree/myapp/feature/notes", json={"notes": "remember this"})
+        r = client.get("/api/worktree/myapp/feature")
+    assert r.status_code == 200
+    assert r.json()["row"]["notes"] == "remember this"
+
+
+def test_list_worktrees_includes_notes_field(_isolate: dict[str, Path]) -> None:
+    seed_worktree(_isolate["db_path"], "myapp", "feature")
+    seed_worktree(_isolate["db_path"], "myapp", "other")
+    with TestClient(app) as client:
+        client.put("/api/worktree/myapp/feature/notes", json={"notes": "first"})
+        r = client.get("/api/worktrees")
+    assert r.status_code == 200
+    rows = {row["name"]: row for row in r.json()["worktrees"]}
+    assert rows["feature"]["notes"] == "first"
+    # Untouched rows still serialize with notes=None.
+    assert rows["other"]["notes"] is None
