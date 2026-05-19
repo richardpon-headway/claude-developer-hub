@@ -1,0 +1,22 @@
+LICENSE
+  s_2f3667d117f8c6::t_dbe3bdc9e788e0 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.10",
+  "base_commit_sha": "c039688bebe5814abac27df6227b98da735e4556",
+  "prompts": {},
+  "sessions": {
+    "s_2f3667d117f8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ef2cca2f-a80d-4ad7-bf9e-5eac9a465b1e",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
