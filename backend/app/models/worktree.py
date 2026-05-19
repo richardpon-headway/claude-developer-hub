@@ -107,6 +107,10 @@ class WorktreeRow(BaseModel):
     # None means "not yet known" — the hub treats None as owner-by-
     # default so legacy rows behave as they did before.
     pr_author_login: str | None = None
+    # Free-form per-workspace notes (markdown). NULL or "" means the
+    # row has no notes. Edited inline on the hub and on the workspace
+    # detail page; auto-saved on debounce.
+    notes: str | None = None
     created_at: str
     status: WorktreeStatus
     # True if an iterm_session row with role='claude' exists for this

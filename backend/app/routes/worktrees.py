@@ -423,6 +423,45 @@ async def get_worktree(repo: str, name: str) -> WorktreeDetail:
     return WorktreeDetail(row=row, log=svc.get_log(repo, name))
 
 
+# Soft upper bound on a single note. Real notes are a few lines; the
+# guard protects against a runaway paste (e.g., accidentally dumping a
+# log file into the textarea). The SQLite column itself is TEXT with
+# no inherent limit.
+_NOTES_MAX_LENGTH = 10_000
+
+
+class UpdateNotesRequest(BaseModel):
+    notes: str = Field(..., max_length=_NOTES_MAX_LENGTH)
+
+
+class UpdateNotesResponse(BaseModel):
+    notes: str
+
+
+@router.put(
+    "/worktree/{repo}/{name}/notes",
+    response_model=UpdateNotesResponse,
+)
+async def update_notes(
+    repo: str, name: str, req: UpdateNotesRequest
+) -> UpdateNotesResponse:
+    """Overwrite the worktree's notes column.
+
+    Empty string is a valid value (clears the note). The frontend
+    auto-saves on a debounce, so this endpoint is hit on every
+    settled keystroke burst.
+    """
+    row = await asyncio.to_thread(svc.get_worktree_sync, repo, name)
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"worktree not found: {repo}/{name}"
+        )
+    await asyncio.to_thread(
+        svc.update_worktree_notes_sync, repo, name, req.notes
+    )
+    return UpdateNotesResponse(notes=req.notes)
+
+
 class PrUrlResponse(BaseModel):
     url: str
 

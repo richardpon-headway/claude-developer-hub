@@ -13,6 +13,7 @@ import {
 } from "../api/worktrees";
 import { Button } from "../components/Button";
 import { Tooltip } from "../components/Tooltip";
+import { WorkspaceNotes } from "../components/WorkspaceNotes";
 
 export const Route = createFileRoute("/workspace/$repo/$name")({
   component: WorkspaceRoute,
@@ -136,6 +137,20 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
               re-run setup from scratch.
             </div>
           )}
+
+          <section className="mt-8">
+            <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              Notes
+            </h2>
+            <div className="mt-2">
+              <WorkspaceNotes
+                repo={repo}
+                name={name}
+                notes={row.notes}
+                variant="full"
+              />
+            </div>
+          </section>
 
           <section className="mt-8 space-y-4">
             <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">

@@ -134,6 +134,10 @@ export interface Worktree {
   // `ListWorktreesResponse.user_login` to decide whether the row sorts
   // into the REVIEWING tier. Null → "not yet known" → treat as owner.
   pr_author_login: string | null;
+  // Free-form per-workspace notes (markdown). Null or "" means the
+  // row has no notes. Edited inline on the hub row and on the
+  // workspace detail page; auto-saved on debounce.
+  notes: string | null;
   created_at: string;
   status: WorktreeStatus;
   has_claude_session: boolean;
