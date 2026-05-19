@@ -109,6 +109,11 @@ export interface PrStateSummary {
   base_ref: string | null;
   head_ref: string | null;
   updated_at: string | null;
+  // GitHub login of the PR's author. Mirrors PrSummary.author_login
+  // on the backend; surfaced here for symmetry, though the hub reads
+  // ownership from Worktree.pr_author_login (also lazy-backfilled
+  // from this value by the poll loop).
+  author_login: string | null;
   checked_at: string;
   // Count of unresolved + non-outdated PR review threads.
   // Drives the `unresolved_comments` label.
@@ -123,10 +128,24 @@ export interface Worktree {
   ticket: string | null;
   pr_number: number | null;
   pr_repo: string | null;
+  // GitHub login of the PR's author when known. Captured at pull-down
+  // time from the inbox row and lazy-filled by the pr_state poll for
+  // worktrees that pre-date the column. Compared against
+  // `ListWorktreesResponse.user_login` to decide whether the row sorts
+  // into the REVIEWING tier. Null → "not yet known" → treat as owner.
+  pr_author_login: string | null;
   created_at: string;
   status: WorktreeStatus;
   has_claude_session: boolean;
   pr_state: PrStateSummary | null;
+}
+
+export interface ListWorktreesResponse {
+  worktrees: Worktree[];
+  // Local user's gh login when resolvable, else null. The frontend
+  // compares each row's `pr_author_login` against this to decide
+  // REVIEWING vs. owner. Null disables the split.
+  user_login: string | null;
 }
 
 export interface WorktreeDetail {

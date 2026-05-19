@@ -32,14 +32,21 @@ import { ApiError } from "../api/client";
 import { WorkspaceList } from "./WorkspaceList";
 import type { PrHeadline, PrStateSummary, Worktree } from "../api/types";
 
-function renderWorkspaces(worktrees: Worktree[]) {
+function renderWorkspaces(
+  worktrees: Worktree[],
+  userLogin: string | null = null,
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={client}>
       <RadixTooltip.Provider>
-        <WorkspaceList worktrees={worktrees} jira={null} />
+        <WorkspaceList
+          worktrees={worktrees}
+          jira={null}
+          userLogin={userLogin}
+        />
       </RadixTooltip.Provider>
     </QueryClientProvider>,
   );
@@ -65,6 +72,7 @@ function prState(
     base_ref: null,
     head_ref: null,
     updated_at: null,
+    author_login: null,
     checked_at: "2026-05-15T00:00:00Z",
   };
 }
@@ -78,6 +86,7 @@ function wt(overrides: Partial<Worktree> = {}): Worktree {
     ticket: null,
     pr_number: 1,
     pr_repo: "acme/myapp",
+    pr_author_login: null,
     created_at: "2026-05-15T00:00:00Z",
     status: "ready",
     has_claude_session: false,
@@ -292,6 +301,7 @@ describe("WorkspaceList", () => {
       ticket: null,
       pr_number: null,
       pr_repo: null,
+      pr_author_login: null,
       created_at: "2026-05-18T00:00:00Z",
       status: "ready",
       has_claude_session: false,
@@ -305,6 +315,137 @@ describe("WorkspaceList", () => {
     await waitFor(() => {
       expect(worktreesApi.recreateWorktree).toHaveBeenCalledWith("myapp", "gone");
     });
+  });
+
+  // --- REVIEWING tier ---------------------------------------------------
+
+  test("reviewing tier renders at top with author chip when pr_author_login != user_login", () => {
+    renderWorkspaces(
+      [
+        wt({ name: "my-feat", pr_state: prState("ci_failing") }),
+        wt({
+          name: "their-pr",
+          pr_author_login: "sarah-h",
+          pr_state: prState("unresolved_comments"),
+        }),
+      ],
+      "octocat",
+    );
+    const headings = screen
+      .getAllByRole("heading", { level: 3 })
+      .map((h) => h.textContent ?? "");
+    // Reviewing is at the top of the stack.
+    expect(headings[0]).toMatch(/Reviewing/i);
+    // Author chip renders on the reviewer row.
+    expect(screen.getByText("@sarah-h")).toBeInTheDocument();
+  });
+
+  test("reviewer-owned merged row sorts into REVIEWING, not MERGED", () => {
+    // Ownership trumps state: even though the labels would put this
+    // row into MERGED, it sorts under REVIEWING because the author
+    // isn't the local user.
+    renderWorkspaces(
+      [
+        wt({
+          name: "their-merged",
+          pr_author_login: "alex-r",
+          pr_state: prState("merged"),
+        }),
+      ],
+      "octocat",
+    );
+    // Reviewing tier has the row.
+    const reviewingHeading = screen.getByRole("heading", { name: /Reviewing/i });
+    const reviewingSection = reviewingHeading.closest("section");
+    expect(reviewingSection?.textContent).toContain("their-merged");
+    // Merged tier is empty (50% opacity placeholder).
+    const mergedHeading = screen.getByRole("heading", { name: /^Merged/i });
+    const mergedSection = mergedHeading.closest("section");
+    expect(mergedSection?.textContent).not.toContain("their-merged");
+  });
+
+  test("self-authored row sorts by state-tier, not REVIEWING", () => {
+    renderWorkspaces(
+      [
+        wt({
+          name: "mine",
+          pr_author_login: "octocat",
+          pr_state: prState("ci_failing"),
+        }),
+      ],
+      "octocat",
+    );
+    const needsActionHeading = screen.getByRole("heading", {
+      name: /Needs your action/i,
+    });
+    expect(needsActionHeading.closest("section")?.textContent).toContain(
+      "mine",
+    );
+    // No author chip on owner rows.
+    expect(screen.queryByText("@octocat")).not.toBeInTheDocument();
+  });
+
+  test("null pr_author_login sorts by state-tier (legacy / pre-backfill rows)", () => {
+    renderWorkspaces(
+      [wt({ name: "legacy", pr_state: prState("ci_failing") })],
+      "octocat",
+    );
+    const needsActionHeading = screen.getByRole("heading", {
+      name: /Needs your action/i,
+    });
+    expect(needsActionHeading.closest("section")?.textContent).toContain(
+      "legacy",
+    );
+  });
+
+  test("null userLogin disables the split — every row sorts by state-tier", () => {
+    // gh-missing or fail-open: no userLogin → no REVIEWING. Even a
+    // row with a known non-self author falls through to its state-
+    // tier so the hub keeps working.
+    renderWorkspaces(
+      [
+        wt({
+          name: "their-pr",
+          pr_author_login: "sarah-h",
+          pr_state: prState("merged"),
+        }),
+      ],
+      null,
+    );
+    const mergedHeading = screen.getByRole("heading", { name: /^Merged/i });
+    expect(mergedHeading.closest("section")?.textContent).toContain("their-pr");
+    // No author chip without the split active.
+    expect(screen.queryByText("@sarah-h")).not.toBeInTheDocument();
+  });
+
+  test("approval-ready promotion still applies inside REVIEWING", () => {
+    // Same within-tier sort: ready_to_merge bubbles to the top, even
+    // when the row is reviewer-owned and bucketed into REVIEWING.
+    renderWorkspaces(
+      [
+        wt({
+          name: "their_aaa_unaddressed",
+          pr_author_login: "sarah-h",
+          pr_state: prState("unresolved_comments", ["unresolved_comments"]),
+        }),
+        wt({
+          name: "their_zzz_approved",
+          pr_author_login: "alex-r",
+          pr_state: prState("unresolved_comments", [
+            "unresolved_comments",
+            "ready_to_merge",
+          ]),
+        }),
+      ],
+      "octocat",
+    );
+    const reviewingHeading = screen.getByRole("heading", { name: /Reviewing/i });
+    const section = reviewingHeading.closest("section")!;
+    const names = Array.from(section.querySelectorAll("a"))
+      .map((a) => a.textContent ?? "")
+      .filter((t) => t.startsWith("their_"));
+    expect(names[0]).toContain("their_zzz_approved");
+    expect(names[1]).toContain("their_aaa_unaddressed");
   });
 
   test("iTerm2 spawn failure surfaces inline error + flips the button to a red state", async () => {

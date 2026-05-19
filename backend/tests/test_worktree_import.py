@@ -335,7 +335,7 @@ def test_sync_removes_worktree_gone_from_git(_isolate: dict[str, Path]) -> None:
     # Tracked row is actually gone from the DB.
     with TestClient(app) as client:
         r3 = client.get("/api/worktrees")
-    assert r3.json() == []
+    assert r3.json()["worktrees"] == []
 
 
 def test_sync_does_not_remove_worktrees_in_other_repos(
@@ -391,5 +391,5 @@ def test_sync_does_not_remove_worktrees_in_other_repos(
     assert body["removed"][0]["repo"] == "b"
     # A's worktree is still tracked
     with TestClient(app) as client:
-        rows = client.get("/api/worktrees").json()
+        rows = client.get("/api/worktrees").json()["worktrees"]
     assert {(r["repo"], r["name"]) for r in rows} == {("a", "feat")}

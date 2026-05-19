@@ -80,7 +80,10 @@ afterEach(() => {
 describe("Hub — Sync button", () => {
   test("hidden when no repos configured", async () => {
     vi.mocked(reposApi.listRepos).mockResolvedValue([]);
-    vi.mocked(worktreesApi.listWorktrees).mockResolvedValue([]);
+    vi.mocked(worktreesApi.listWorktrees).mockResolvedValue({
+      worktrees: [],
+      user_login: null,
+    });
     renderHub();
     await waitFor(() => {
       expect(screen.getByText(/No repos configured yet/i)).toBeInTheDocument();
@@ -102,7 +105,10 @@ describe("Hub — Sync button", () => {
         ticket_pattern: null,
       },
     ]);
-    vi.mocked(worktreesApi.listWorktrees).mockResolvedValue([]);
+    vi.mocked(worktreesApi.listWorktrees).mockResolvedValue({
+      worktrees: [],
+      user_login: null,
+    });
     vi.mocked(worktreesApi.syncWorktrees).mockResolvedValue({
       imported: [
         {
