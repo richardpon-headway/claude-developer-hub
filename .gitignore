@@ -37,3 +37,6 @@ backend/app/static/
 .vscode/
 .idea/
 *.swp
+
+# Claude Code's per-project metadata (local to each contributor)
+.claude/
