@@ -67,8 +67,8 @@ Open `http://localhost:5174/` (dev) or `http://localhost:47823/` (after
 
 ## Configuration
 
-User-local settings live at `~/.config/cdh/config.yaml`. **You should not
-hand-edit this file.** The intended workflow is:
+User-local settings live at `~/.config/cdh/config.yaml`. The primary path
+for adding a repo is the UI:
 
 1. Click "Add a repo" in the hub.
 2. Paste the absolute path to your repo.
@@ -82,10 +82,28 @@ exists, run `pnpm install`" — those rules live in Claude's onboarding
 prompt, so the inspector adapts to whatever conventions a repo uses
 without code changes.
 
-A reference of the schema lives in
-[`backend/app/config/`](backend/app/config/) (lands in a later slice);
-all keys default to generic values. There is no Acme-specific or
-user-specific data baked into the codebase.
+**Hand-editing the YAML.** Several knobs aren't exposed through the UI
+yet and require editing `~/.config/cdh/config.yaml` directly:
+
+- `polling` — pr_state / inbox poll intervals (raise these if you're
+  hitting GitHub's 5000/hr GraphQL quota)
+- `inbox.teams` — `owner/team-slug`s whose review-requested PRs should
+  surface in the hub inbox
+- `global_skills` / `workspace_skills` — custom Claude slash-command
+  buttons on the hub or workspace pages
+- `jira` — Jira tool selection and JQL for the assigned-tickets panel
+- `iterm2.default_window` — frame coords for spawned iTerm2 windows
+- `iterm2.send_gate_patterns` — regex list; CDH refuses to programmatically
+  send text to a Claude session when the last visible screen line matches
+  any pattern (default catches `[y/N]` confirmation prompts so a skill
+  button can't accidentally answer "y")
+
+See [`config.example.yaml`](config.example.yaml) for the full shape with
+every block's defaults, and
+[`backend/app/config/schema.py`](backend/app/config/schema.py) for the
+authoritative Pydantic schema (unknown keys are rejected). All defaults
+are generic — no Acme-specific or user-specific data is baked into
+the codebase.
 
 If your repo lives under `development_root` (default `~/development`),
 it'll appear in the "Add a repo" modal as a clickable card; otherwise

@@ -1,0 +1,47 @@
+# CDH config — defaults shown.
+#
+# The hub onboarding flow ("Add a repo") writes to ~/.config/cdh/config.yaml.
+# Most users never touch this file directly. Hand-edit it when you need a
+# knob the UI doesn't expose (polling cadence, inbox teams, custom skills,
+# Jira, iTerm2 window frame, send-gate patterns).
+#
+# Authoritative schema: backend/app/config/schema.py. Unknown keys are
+# rejected; defaults below match what the schema applies when a key is
+# omitted, so you only need to include the blocks you're actually
+# customizing.
+
+development_root: ~/development        # where worktrees + repo discovery live
+repos: []                              # auto-populated by "Add a repo" in the UI
+
+inbox:
+  teams: []                            # ["owner/team-slug"] — team-review-requested PRs to surface
+
+polling:
+  pr_state_interval_seconds: 600.0     # `gh pr view --json …` per worktree
+  inbox_interval_seconds: 300.0        # `gh search prs` × 5 (author / reviewer / assignee / mentions / team)
+
+global_skills: []                      # hub-level Claude slash-command buttons
+workspace_skills: []                   # workspace-page Claude slash-command buttons
+
+jira:
+  tool: none                           # "acli" | "jira-cli" | "none"
+  base_url: null
+  list_jql: null
+
+iterm2:
+  default_window: { width: 1024, height: 768, x: 50, y: 50 }
+  # Regex; the "send to Claude" button refuses if the last visible
+  # screen line matches one of these (prevents auto-answering a y/N
+  # prompt with your slash command).
+  send_gate_patterns:
+    - 'Allow .* \[y/N\]\??$'
+    - '\? \(y/n\) $'
+    - 'Press any key to continue'
+
+token_monitor:
+  api_url: http://localhost:47821
+  sidecar_dir: ~/.cache/claude-token-monitor/session-meta
+
+server:
+  port: 47823
+  host: 127.0.0.1
