@@ -375,8 +375,15 @@ async def _create_worktree_async(
                 repo.name, short_name,
                 f"setup step {i} failed (exit {rc})",
             )
+            # `git worktree add` already succeeded above, so the code
+            # IS on disk — only the bootstrap automation failed. Mark
+            # as `code_on_disk` (not `failed`) so the user isn't
+            # locked out of the action buttons; they can open the
+            # worktree in iTerm2 / Cursor and re-run the failing
+            # step manually.
             await asyncio.to_thread(
-                update_worktree_status_sync, repo.name, short_name, "failed", db_path
+                update_worktree_status_sync,
+                repo.name, short_name, "code_on_disk", db_path,
             )
             return
 

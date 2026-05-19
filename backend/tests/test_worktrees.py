@@ -110,7 +110,10 @@ def test_create_duplicate_409(_isolate: dict[str, Path]) -> None:
     assert "already exists" in r2.json()["detail"]
 
 
-def test_setup_step_failure_marks_failed(_isolate: dict[str, Path]) -> None:
+def test_setup_step_failure_marks_code_on_disk(_isolate: dict[str, Path]) -> None:
+    """Setup-step failure after `git worktree add` succeeded routes
+    to `code_on_disk`, not `failed`. The user keeps access to iTerm2 /
+    Cursor on a usable worktree."""
     repo_path = _isolate["dev_root"] / "myapp"
     _init_git_repo(repo_path)
     write_repo_config(
@@ -127,7 +130,11 @@ def test_setup_step_failure_marks_failed(_isolate: dict[str, Path]) -> None:
     with TestClient(app) as client:
         r = client.post("/api/worktree", json={"repo": "myapp", "branch": "feature"})
         assert r.status_code == 200
-        assert r.json()["status"] == "failed"
+        body = r.json()
+        assert body["status"] == "code_on_disk"
+        # And the on-disk path actually exists — that's the whole
+        # premise of the new status.
+        assert Path(body["path"]).is_dir()
         r2 = client.get("/api/worktree/myapp/feature")
     detail = r2.json()
     log = detail["log"]
@@ -137,6 +144,8 @@ def test_setup_step_failure_marks_failed(_isolate: dict[str, Path]) -> None:
 
 
 def test_missing_branch_marks_failed(_isolate: dict[str, Path]) -> None:
+    """Pre-worktree-add failure (branch doesn't exist) → still
+    `failed`. There's no usable code on disk."""
     repo_path = _isolate["dev_root"] / "myapp"
     _init_git_repo(repo_path)
     write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
@@ -144,7 +153,9 @@ def test_missing_branch_marks_failed(_isolate: dict[str, Path]) -> None:
     with TestClient(app) as client:
         r = client.post("/api/worktree", json={"repo": "myapp", "branch": "nope-not-real"})
         assert r.status_code == 200
-        assert r.json()["status"] == "failed"
+        body = r.json()
+        assert body["status"] == "failed"
+        assert not Path(body["path"]).is_dir()
         r2 = client.get("/api/worktree/myapp/nope_not_real")
     detail = r2.json()
     assert any("not found locally or on origin" in line for line in detail["log"])
@@ -166,10 +177,10 @@ def test_recreate_404_when_worktree_missing(_isolate: dict[str, Path]) -> None:
     assert r.status_code == 404
 
 
-def test_recreate_409_when_status_not_stale(_isolate: dict[str, Path]) -> None:
-    """Recreate is intentionally limited to stale rows — for a ready or
-    failed row we'd be destroying on-disk state the user might want
-    to investigate or stash."""
+def test_recreate_409_when_status_is_ready(_isolate: dict[str, Path]) -> None:
+    """Recreate refuses ready rows — they have on-disk state the user
+    may not want destroyed without thinking. Only stale + code_on_disk
+    are accepted."""
     repo_path = _isolate["dev_root"] / "myapp"
     _init_git_repo(repo_path)
     write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
@@ -183,6 +194,54 @@ def test_recreate_409_when_status_not_stale(_isolate: dict[str, Path]) -> None:
         r2 = client.post("/api/worktree/myapp/feature/recreate")
     assert r2.status_code == 409
     assert "stale" in r2.json()["detail"]
+
+
+def test_recreate_allows_code_on_disk(_isolate: dict[str, Path]) -> None:
+    """Recreate accepts code_on_disk rows — the user knows setup didn't
+    finish and explicitly wants to wipe and retry."""
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    write_repo_config(
+        _isolate["config_path"],
+        _isolate["dev_root"],
+        repo_path,
+        setup_steps=[{"cmd": "false", "cwd": ""}],  # guaranteed fail
+    )
+
+    with TestClient(app) as client:
+        r1 = client.post(
+            "/api/worktree", json={"repo": "myapp", "branch": "feature"}
+        )
+        assert r1.status_code == 200
+        assert r1.json()["status"] == "code_on_disk"
+        old_created_at = r1.json()["created_at"]
+        # Recreate should be accepted (and will fail setup again,
+        # since we didn't fix the failing step — but that's the
+        # user's problem, not the endpoint's).
+        r2 = client.post("/api/worktree/myapp/feature/recreate")
+    assert r2.status_code == 200, r2.text
+    body = r2.json()
+    assert body["status"] == "code_on_disk"  # still fails setup
+    assert body["created_at"] != old_created_at  # fresh row
+
+
+def test_recreate_still_rejects_failed(_isolate: dict[str, Path]) -> None:
+    """Recreate is not validated for genuinely-failed rows (no code on
+    disk). Keep the rejection until that path is exercised."""
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
+
+    with TestClient(app) as client:
+        r1 = client.post(
+            "/api/worktree",
+            json={"repo": "myapp", "branch": "nope-not-real"},
+        )
+        assert r1.status_code == 200
+        assert r1.json()["status"] == "failed"
+        r2 = client.post("/api/worktree/myapp/nope_not_real/recreate")
+    assert r2.status_code == 409
+    assert "code_on_disk" in r2.json()["detail"]
 
 
 def test_recreate_stale_row_drops_and_reinserts(_isolate: dict[str, Path]) -> None:

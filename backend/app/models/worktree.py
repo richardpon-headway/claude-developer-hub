@@ -11,7 +11,17 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-WorktreeStatus = Literal["setting_up", "ready", "failed", "stale", "removing"]
+WorktreeStatus = Literal[
+    "setting_up",
+    "ready",
+    # `git worktree add` succeeded but a later setup_step from the
+    # repo config errored. Code is on disk and usable; the user can
+    # open in iTerm2 / Cursor and re-run the failing step manually.
+    "code_on_disk",
+    "failed",
+    "stale",
+    "removing",
+]
 
 PrHeadline = Literal[
     "no_pr",
