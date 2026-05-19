@@ -379,12 +379,7 @@ function WorkspaceRow({ w, jira, isReviewing }: RowProps) {
           </div>
         </div>
         <div className="mt-3">
-          <WorkspaceNotes
-            repo={w.repo}
-            name={w.name}
-            notes={w.notes}
-            variant="compact"
-          />
+          <WorkspaceNotes repo={w.repo} name={w.name} notes={w.notes} />
         </div>
     </li>
   );

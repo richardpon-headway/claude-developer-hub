@@ -8,10 +8,6 @@ interface Props {
   repo: string;
   name: string;
   notes: string | null;
-  // "compact" = hub row variant (smaller default height).
-  // "full"    = detail page variant (taller default).
-  // Both auto-grow with content; the variant only sets the floor.
-  variant: "compact" | "full";
 }
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
@@ -27,15 +23,8 @@ const SAVE_DEBOUNCE_MS = 1000;
 const SOFT_LIMIT = 10_000;
 const SOFT_LIMIT_WARN_AT = 9_500;
 
-// Minimum rendered textarea height per variant. Content beyond this
-// expands the box via the auto-grow effect below.
-const MIN_HEIGHT_PX: Record<"compact" | "full", number> = {
-  compact: 80,
-  full: 140,
-};
 
-
-export function WorkspaceNotes({ repo, name, notes, variant }: Props) {
+export function WorkspaceNotes({ repo, name, notes }: Props) {
   const queryClient = useQueryClient();
 
   const [draft, setDraft] = useState(notes ?? "");
@@ -90,15 +79,19 @@ export function WorkspaceNotes({ repo, name, notes, variant }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft, committed]);
 
-  // Auto-grow the textarea to fit its content. Runs synchronously
-  // (useLayoutEffect) so the user never sees a frame at the wrong
+  // Auto-grow the textarea to fit its content with no floor — an
+  // empty textarea collapses to a single line so it doesn't claim
+  // visual real estate when the user hasn't written anything. With
+  // ``rows=1`` as the HTML baseline, ``scrollHeight`` for empty
+  // content equals one line + padding (~28px); typing grows it.
+  // Runs synchronously so the user never sees a frame at the wrong
   // size.
   useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.max(el.scrollHeight, MIN_HEIGHT_PX[variant])}px`;
-  }, [draft, variant]);
+    el.style.height = `${el.scrollHeight}px`;
+  }, [draft]);
 
   return (
     <div className="space-y-1">
@@ -107,13 +100,13 @@ export function WorkspaceNotes({ repo, name, notes, variant }: Props) {
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         placeholder="+ Add note"
+        rows={1}
         className={
           "block w-full resize-none overflow-hidden rounded border " +
           "border-zinc-800 bg-zinc-950/40 px-3 py-2 text-xs text-zinc-200 " +
           "placeholder:text-zinc-600 hover:border-zinc-700 " +
           "focus:border-indigo-700 focus:bg-zinc-950/60 focus:outline-none"
         }
-        style={{ minHeight: MIN_HEIGHT_PX[variant] }}
       />
       <StatusRow draft={draft} status={status} error={errorDetail} />
     </div>
