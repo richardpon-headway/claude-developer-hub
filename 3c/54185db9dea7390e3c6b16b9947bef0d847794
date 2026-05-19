@@ -1,0 +1,25 @@
+backend/app/services/gh_identity.py
+  s_bf7dfca5b39eba::t_a1ca0072776fd6 47-53,57-60
+backend/tests/test_gh_identity.py
+  s_bf7dfca5b39eba::t_8c2f3fcc33b8b7 25-31,43,45
+  s_bf7dfca5b39eba::t_b09c3120878651 90,94,100-133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.10",
+  "base_commit_sha": "3c54185db9dea7390e3c6b16b9947bef0d847794",
+  "prompts": {},
+  "sessions": {
+    "s_bf7dfca5b39eba": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4657f9bd-5598-498e-bf57-fa1337a5e64a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
