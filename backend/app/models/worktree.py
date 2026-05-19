@@ -86,6 +86,7 @@ class PrStateSummary(BaseModel):
     base_ref: str | None = None
     head_ref: str | None = None
     updated_at: str | None = None
+    author_login: str | None = None
     checked_at: str
     unresolved_threads: int = 0
 
@@ -100,6 +101,12 @@ class WorktreeRow(BaseModel):
     ticket: str | None = None
     pr_number: int | None = None
     pr_repo: str | None = None
+    # GitHub login of the PR's author when known. Captured at pull-down
+    # time from the inbox row's `author_login`, and lazy-filled by the
+    # pr_state poll for worktrees created before this column existed.
+    # None means "not yet known" — the hub treats None as owner-by-
+    # default so legacy rows behave as they did before.
+    pr_author_login: str | None = None
     created_at: str
     status: WorktreeStatus
     # True if an iterm_session row with role='claude' exists for this

@@ -726,7 +726,12 @@ def test_pull_down_same_repo_happy_path(
 
     with TestClient(app) as client:
         client.app.state.inbox = seed_inbox_cache(
-            build_enriched_pr(pr_repo="acme/myapp", pr_number=42, head_ref="feat/x")
+            build_enriched_pr(
+                pr_repo="acme/myapp",
+                pr_number=42,
+                head_ref="feat/x",
+                author_login="sarah-h",
+            )
         )
         r = client.post("/api/inbox/acme/myapp/42/pull-down")
 
@@ -736,16 +741,18 @@ def test_pull_down_same_repo_happy_path(
     # Same-repo: no fork-ref fetch
     assert fetch_called["n"] == 0
 
-    # pr_number + pr_repo persisted on the new worktree row
+    # pr_number + pr_repo + pr_author_login persisted on the new
+    # worktree row — the author captured here is what powers the
+    # hub's REVIEWING tier split.
     conn = sqlite3.connect(_isolate["db_path"])
     try:
         row = conn.execute(
-            "SELECT pr_number, pr_repo FROM worktree WHERE repo=?",
+            "SELECT pr_number, pr_repo, pr_author_login FROM worktree WHERE repo=?",
             ("myapp",),
         ).fetchone()
     finally:
         conn.close()
-    assert row == (42, "acme/myapp")
+    assert row == (42, "acme/myapp", "sarah-h")
 
 
 def test_pull_down_fork_pr_fetches_pull_ref(
