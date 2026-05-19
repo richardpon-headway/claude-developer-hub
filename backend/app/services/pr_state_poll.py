@@ -21,7 +21,10 @@ from typing import Any
 from app.config.loader import load_config
 from app.services import pr_state
 from app.services.gh_cli import GhNotFound
-from app.services.worktree import list_worktrees_sync
+from app.services.worktree import (
+    list_worktrees_sync,
+    update_worktree_pr_author_sync,
+)
 
 log = logging.getLogger(__name__)
 
@@ -71,6 +74,21 @@ async def _fetch_one(row: Any, sem: asyncio.Semaphore) -> None:
             await asyncio.to_thread(
                 pr_state.upsert_pr_state_sync, row.repo, row.name, summary
             )
+            # Lazy backfill: worktrees created before the
+            # pr_author_login column existed have NULL there. Once we
+            # have a fresh gh payload with an author, write it to the
+            # worktree row so the hub can route this row to REVIEWING
+            # vs. an owner tier without needing the pull-down path to
+            # have populated it. The helper itself no-ops when the
+            # column already has a value, so this is safe to call
+            # every tick.
+            if summary.author_login and row.pr_author_login is None:
+                await asyncio.to_thread(
+                    update_worktree_pr_author_sync,
+                    row.repo,
+                    row.name,
+                    summary.author_login,
+                )
         except GhNotFound:
             # gh missing → log once-per-tick is enough; suppress per-row.
             log.info("gh CLI not on PATH; skipping pr_state poll for %s/%s", row.repo, row.name)

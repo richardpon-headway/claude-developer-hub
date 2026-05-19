@@ -42,6 +42,7 @@ def build_enriched_pr(
     pr_number: int = 1,
     repo_configured: bool = True,
     head_ref: str = "feat/x",
+    author_login: str = "me",
 ) -> InboxPr:
     """Build a fully-enriched ``InboxPr`` (post stack annotation +
     repo-configured flagging) suitable for seeding the cache."""
@@ -49,7 +50,7 @@ def build_enriched_pr(
         pr_repo=pr_repo,
         pr_number=pr_number,
         title=f"PR #{pr_number}",
-        author_login="me",
+        author_login=author_login,
         head_ref=head_ref,
         base_ref="main",
         is_draft=False,

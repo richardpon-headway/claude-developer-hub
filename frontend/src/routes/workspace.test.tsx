@@ -49,6 +49,7 @@ function makeWorktree(overrides: Partial<Worktree> = {}): Worktree {
     ticket: null,
     pr_number: null,
     pr_repo: null,
+    pr_author_login: null,
     created_at: "2026-01-01T00:00:00Z",
     status: "ready",
     has_claude_session: false,

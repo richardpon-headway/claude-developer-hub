@@ -40,7 +40,8 @@ export function HubPage() {
   });
 
   const repos = reposQuery.data ?? [];
-  const worktrees = worktreesQuery.data ?? [];
+  const worktrees = worktreesQuery.data?.worktrees ?? [];
+  const userLogin = worktreesQuery.data?.user_login ?? null;
   const jira = jiraQuery.data ?? null;
 
   const sync = useMutation({
@@ -129,7 +130,11 @@ export function HubPage() {
                 </div>
               )}
               {worktreesQuery.isSuccess && worktrees.length > 0 && (
-                <WorkspaceList worktrees={worktrees} jira={jira} />
+                <WorkspaceList
+                  worktrees={worktrees}
+                  jira={jira}
+                  userLogin={userLogin}
+                />
               )}
             </div>
           </section>

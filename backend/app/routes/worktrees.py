@@ -355,9 +355,24 @@ async def get_pr_files(repo: str, name: str) -> PrFilesResponse:
     return PrFilesResponse(files=files)
 
 
-@router.get("/worktrees", response_model=list[WorktreeRow])
-async def list_worktrees() -> list[WorktreeRow]:
-    return await asyncio.to_thread(svc.list_worktrees_sync)
+class ListWorktreesResponse(BaseModel):
+    worktrees: list[WorktreeRow]
+    # The local user's gh login when resolvable, else None. The
+    # frontend compares each worktree's pr_author_login to this to
+    # decide whether the row belongs in the REVIEWING tier. None
+    # disables the split (everything renders as owner-by-default).
+    user_login: str | None = None
+
+
+@router.get("/worktrees", response_model=ListWorktreesResponse)
+async def list_worktrees() -> ListWorktreesResponse:
+    from app.services.gh_identity import get_user_login
+
+    rows, user_login = await asyncio.gather(
+        asyncio.to_thread(svc.list_worktrees_sync),
+        get_user_login(),
+    )
+    return ListWorktreesResponse(worktrees=rows, user_login=user_login)
 
 
 class ImportedWorktree(BaseModel):

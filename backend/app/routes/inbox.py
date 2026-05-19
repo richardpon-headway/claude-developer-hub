@@ -167,9 +167,17 @@ async def _perform_pull_down(
     a structured failure. Callers in a background context catch broad
     Exception around this; the inbox-route caller lets it bubble.
     """
-    if cache is None or not any(
-        p.pr_repo == pr_repo and p.pr_number == pr_number for p in cache.prs
-    ):
+    matching_pr: InboxPr | None = None
+    if cache is not None:
+        matching_pr = next(
+            (
+                p
+                for p in cache.prs
+                if p.pr_repo == pr_repo and p.pr_number == pr_number
+            ),
+            None,
+        )
+    if matching_pr is None:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             f"PR {pr_repo}#{pr_number} not in inbox cache",
@@ -249,13 +257,16 @@ async def _perform_pull_down(
 
     # Set pr_number + pr_repo on the new worktree row so the inbox dedup
     # filter applies on the next poll (and so the PR-URL button on the
-    # hub can short-circuit without re-shelling `gh pr view`).
+    # hub can short-circuit without re-shelling `gh pr view`). Also
+    # persist the PR author so the hub can split owner vs. reviewing
+    # workspaces without re-querying gh.
     await asyncio.to_thread(
         wt_svc.update_worktree_pr_sync,
         repo.name,
         worktree.name,
         pr_number,
         pr_repo,
+        matching_pr.author_login,
     )
 
     return PullDownResponse(repo=repo.name, name=worktree.name)

@@ -10,19 +10,30 @@ import { Tooltip } from "./Tooltip";
 interface Props {
   worktrees: Worktree[];
   jira: JiraConfig | null;
+  // Local user's gh login when known. Drives the REVIEWING tier:
+  // worktrees whose `pr_author_login` is set AND doesn't match this
+  // value are rendered as "I'm reviewing someone else's PR locally."
+  // Null disables the split (everything sorts by state-tier, the
+  // pre-REVIEWING behavior).
+  userLogin: string | null;
 }
 
 
 // Bucket headlines into action tiers so the hub answers "where does
 // this worktree need attention" at a glance.
 //
-// "Merged" gets its own top-of-the-page tier because a merged PR with
-// a still-extant worktree is a pure cleanup task — delete the
-// worktree, prune the branch — and shouldn't sit mixed in with
-// CI-failing / review-feedback rows where the work is "fix something
-// in code". "Closed" stays in "Needs your action" since closed-not-
-// merged is rare and often needs investigation.
+// REVIEWING sits at the top because the user's mental model is
+// "other people's PRs go there, my work goes below." Ownership trumps
+// state inside that decision: a reviewer-owned PR that's also merged
+// or ci_failing still sorts into REVIEWING. Its label chip still
+// renders on the row, so urgency isn't lost.
+//
+// Below REVIEWING, "Merged" gets its own tier because a merged PR
+// with a still-extant worktree is a pure cleanup task. "Closed" stays
+// in "Needs your action" since closed-not-merged is rare and often
+// needs investigation.
 type Tier =
+  | "reviewing"
   | "merged"
   | "ready_to_merge"
   | "needs_action"
@@ -46,12 +57,14 @@ const TIER_FOR_HEADLINE: Record<PrHeadline, Tier> = {
 };
 
 // Display order on the hub, top to bottom:
-// 1. Merged — easiest to clear (delete worktree, done).
-// 2. Ready to merge — one merge click and it's gone.
-// 3. Needs your action — real code work.
-// 4. In progress — wait state.
-// 5. No PR yet — branch hasn't been pushed.
+// 1. Reviewing — other people's PRs you pulled down locally.
+// 2. Merged — easiest to clear (delete worktree, done).
+// 3. Ready to merge — one merge click and it's gone.
+// 4. Needs your action — real code work.
+// 5. In progress — wait state.
+// 6. No PR yet — branch hasn't been pushed.
 const TIER_ORDER: Tier[] = [
+  "reviewing",
   "merged",
   "ready_to_merge",
   "needs_action",
@@ -60,11 +73,21 @@ const TIER_ORDER: Tier[] = [
 ];
 
 const TIER_LABEL: Record<Tier, string> = {
+  reviewing: "Reviewing",
   merged: "Merged",
   needs_action: "Needs your action",
   ready_to_merge: "Ready to merge",
   in_progress: "In progress",
   no_pr: "No PR yet",
+};
+
+const TIER_EMPTY_COPY: Record<Tier, string> = {
+  reviewing: "no PRs being reviewed locally",
+  merged: "no worktrees in this tier",
+  needs_action: "no worktrees in this tier",
+  ready_to_merge: "no worktrees in this tier",
+  in_progress: "no worktrees in this tier",
+  no_pr: "no worktrees in this tier",
 };
 
 // Per-label chip styling. Each chip is rendered inline on its row;
@@ -167,9 +190,28 @@ function labelsForWorktree(w: Worktree): PrHeadline[] {
   return ["no_pr"];
 }
 
-function tierForWorktree(w: Worktree): Tier {
-  // labels[0] is the highest-priority signal; the original first-match
-  // classifier's priority order is preserved on the backend.
+function isReviewerOwned(w: Worktree, userLogin: string | null): boolean {
+  // The REVIEWING tier triggers only when we know BOTH logins AND
+  // they disagree. Unknown user_login (gh missing) and unknown
+  // pr_author_login (never captured) both fall through to state-tier
+  // — matches the pre-REVIEWING behavior and avoids surprising
+  // legacy rows.
+  return (
+    userLogin != null &&
+    w.pr_author_login != null &&
+    w.pr_author_login !== userLogin
+  );
+}
+
+function tierForWorktree(w: Worktree, userLogin: string | null): Tier {
+  // Ownership trumps state: a reviewer-owned PR sorts into REVIEWING
+  // even if its labels would otherwise put it in MERGED / NEEDS
+  // ACTION / etc. The state chips still render on the row, so the
+  // tier-vs-label semantics are: tier = whose work, chip = what
+  // state.
+  if (isReviewerOwned(w, userLogin)) {
+    return "reviewing";
+  }
   return TIER_FOR_HEADLINE[labelsForWorktree(w)[0]];
 }
 
@@ -188,8 +230,12 @@ function compareWithinTier(a: Worktree, b: Worktree): number {
   return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 }
 
-function groupByTier(worktrees: Worktree[]): Record<Tier, Worktree[]> {
+function groupByTier(
+  worktrees: Worktree[],
+  userLogin: string | null,
+): Record<Tier, Worktree[]> {
   const out: Record<Tier, Worktree[]> = {
+    reviewing: [],
     merged: [],
     ready_to_merge: [],
     needs_action: [],
@@ -197,7 +243,7 @@ function groupByTier(worktrees: Worktree[]): Record<Tier, Worktree[]> {
     no_pr: [],
   };
   for (const w of worktrees) {
-    out[tierForWorktree(w)].push(w);
+    out[tierForWorktree(w, userLogin)].push(w);
   }
   for (const tier of TIER_ORDER) {
     out[tier].sort(compareWithinTier);
@@ -205,16 +251,17 @@ function groupByTier(worktrees: Worktree[]): Record<Tier, Worktree[]> {
   return out;
 }
 
-export function WorkspaceList({ worktrees, jira }: Props) {
+export function WorkspaceList({ worktrees, jira, userLogin }: Props) {
   if (worktrees.length === 0) return null;
 
-  const grouped = groupByTier(worktrees);
+  const grouped = groupByTier(worktrees, userLogin);
 
   return (
     <div className="space-y-4">
       {TIER_ORDER.map((tier) => {
         const rows = grouped[tier];
         const isEmpty = rows.length === 0;
+        const isReviewing = tier === "reviewing";
         return (
           <section key={tier} className={isEmpty ? "opacity-50" : undefined}>
             <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
@@ -223,12 +270,17 @@ export function WorkspaceList({ worktrees, jira }: Props) {
             </h3>
             {isEmpty ? (
               <p className="rounded-lg border border-dashed border-zinc-800 px-4 py-3 text-xs italic text-zinc-600">
-                no worktrees in this tier
+                {TIER_EMPTY_COPY[tier]}
               </p>
             ) : (
               <ul className="space-y-2">
                 {rows.map((w) => (
-                  <WorkspaceRow key={`${w.repo}/${w.name}`} w={w} jira={jira} />
+                  <WorkspaceRow
+                    key={`${w.repo}/${w.name}`}
+                    w={w}
+                    jira={jira}
+                    isReviewing={isReviewing}
+                  />
                 ))}
               </ul>
             )}
@@ -242,20 +294,36 @@ export function WorkspaceList({ worktrees, jira }: Props) {
 interface RowProps {
   w: Worktree;
   jira: JiraConfig | null;
+  // True when the row is rendered inside the REVIEWING tier — drives
+  // the `@author` chip. Passed down rather than recomputed so the
+  // row doesn't need to know about userLogin or ownership rules.
+  isReviewing: boolean;
 }
 
-function WorkspaceRow({ w, jira }: RowProps) {
+function WorkspaceRow({ w, jira, isReviewing }: RowProps) {
   const labels = labelsForWorktree(w);
+  const showAuthor = isReviewing && w.pr_author_login;
   return (
     <li className="rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-3">
       <div className="flex items-start justify-between gap-4">
-          <Link
-            to="/workspace/$repo/$name"
-            params={{ repo: w.repo, name: w.name }}
-            className="min-w-0 truncate font-medium text-zinc-100 hover:text-indigo-300"
-          >
-            {w.name}
-          </Link>
+          <div className="flex min-w-0 items-baseline gap-2">
+            <Link
+              to="/workspace/$repo/$name"
+              params={{ repo: w.repo, name: w.name }}
+              className="min-w-0 truncate font-medium text-zinc-100 hover:text-indigo-300"
+            >
+              {w.name}
+            </Link>
+            {showAuthor && (
+              <Tooltip
+                text={`PR opened by @${w.pr_author_login} — you're reviewing it locally.`}
+              >
+                <span className="shrink-0 rounded border border-indigo-800 bg-indigo-900/30 px-1.5 py-0.5 text-[10px] text-indigo-300">
+                  @{w.pr_author_login}
+                </span>
+              </Tooltip>
+            )}
+          </div>
           <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
             {w.status === "code_on_disk" && (
               <Tooltip text="Worktree was created, but a setup_step (`make install`, etc.) errored. The code is on disk — you can open it in iTerm2 / Cursor and re-run the failing step. The setup log on the Manage page has details.">

@@ -51,7 +51,7 @@ BOT_LOGIN_PATTERN = re.compile(
 # narrow — we pay for every field crossed over the GitHub API.
 _GH_JSON_FIELDS = (
     "number,url,title,state,isDraft,mergeable,mergeStateStatus,"
-    "reviewDecision,statusCheckRollup,comments,"
+    "reviewDecision,statusCheckRollup,comments,author,"
     "baseRefName,headRefName,updatedAt"
 )
 
@@ -107,6 +107,11 @@ class PrSummary:
     base_ref: str | None = None
     head_ref: str | None = None
     updated_at: str | None = None
+    # GitHub login of the PR's author. Carried so the hub can lazy-
+    # backfill ``worktree.pr_author_login`` for worktrees that pre-
+    # date the column. None when the PR doesn't exist yet or when
+    # gh's payload didn't include an author (e.g. deleted account).
+    author_login: str | None = None
     labels: list[str] = field(default_factory=list)
     # Number of PR review threads that are NOT resolved AND NOT
     # outdated (outdated = superseded by a force-push). Surfaces as
@@ -313,6 +318,7 @@ def summarize_gh_payload(
     review_decision = payload.get("reviewDecision")
     checks = _count_checks(payload.get("statusCheckRollup") or [])
     comments = _count_comments(payload.get("comments") or [])
+    author_login = ((payload.get("author") or {}).get("login")) or None
 
     labels = _compute_labels(
         state=payload.get("state"),
@@ -340,6 +346,7 @@ def summarize_gh_payload(
         base_ref=payload.get("baseRefName"),
         head_ref=payload.get("headRefName"),
         updated_at=payload.get("updatedAt"),
+        author_login=author_login,
         unresolved_threads=unresolved_threads,
     )
 
