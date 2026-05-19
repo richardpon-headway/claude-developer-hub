@@ -1,0 +1,42 @@
+frontend/src/routes/workspace.$repo.$name.tsx
+  s_d128a241c2e116::t_1adfa36c22ef55 48-53,88,127-139,147,154,174,186
+backend/tests/test_db.py
+  s_d128a241c2e116::t_1adfa36c22ef55 155-159,162-164,173-180,186,199-242,257,269-310
+backend/app/migrations/005_worktree_status_code_on_disk.sql
+  s_d128a241c2e116::t_1adfa36c22ef55 1-69
+backend/app/models/worktree.py
+  s_d128a241c2e116::t_1adfa36c22ef55 14-24
+backend/app/db.py
+  s_d128a241c2e116::t_1adfa36c22ef55 177-178,180-189,191-216,218-228
+frontend/src/components/WorkspaceList.tsx
+  s_d128a241c2e116::t_1adfa36c22ef55 492-496,514
+  s_d128a241c2e116::t_e2b99319c638ea 260-266
+backend/tests/test_worktrees.py
+  s_d128a241c2e116::t_1adfa36c22ef55 113-116,133-137,147-148,156-158,180-183,199-244
+backend/app/routes/worktrees.py
+  s_d128a241c2e116::t_1adfa36c22ef55 68-70,73-82,89,92-94,101-110,112-115
+  s_d128a241c2e116::t_64c34da0b8464b 111
+frontend/src/api/types.ts
+  s_d128a241c2e116::t_f13124ef49304d 56-64
+backend/app/services/worktree.py
+  s_d128a241c2e116::t_1adfa36c22ef55 378-383,385-386
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.10",
+  "base_commit_sha": "4f9189f240ce8517bc642c8c3a74d30273bc17f8",
+  "prompts": {},
+  "sessions": {
+    "s_d128a241c2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6a9c603-8a9f-47c5-a234-1b418c8994f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": null,
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
