@@ -1,0 +1,32 @@
+backend/app/routes/worktrees.py
+  s_d128a241c2e116::t_c28a121f3c6cf7 123-183
+frontend/src/routes/workspace.$repo.$name.tsx
+  s_d128a241c2e116::t_28c4430980bf94 6-12
+  s_d128a241c2e116::t_77292e26271465 71-74
+  s_d128a241c2e116::t_98e2d54b95271b 130
+  s_d128a241c2e116::t_cccf7463a94193 184-192
+  s_d128a241c2e116::t_1af178bbb19830 129,131-139
+backend/tests/test_worktrees.py
+  s_d128a241c2e116::t_e5f9b419f7cde2 335-459
+frontend/src/api/worktrees.ts
+  s_d128a241c2e116::t_ca7fa6c54f0fde 40-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.9",
+  "base_commit_sha": "f9f5a8123033967bba668fbd37a22b6c29c27eb9",
+  "prompts": {},
+  "sessions": {
+    "s_d128a241c2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6a9c603-8a9f-47c5-a234-1b418c8994f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
