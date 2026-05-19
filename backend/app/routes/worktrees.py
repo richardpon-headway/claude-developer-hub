@@ -120,6 +120,67 @@ async def recreate_worktree(repo: str, name: str) -> WorktreeRow:
         raise HTTPException(code, msg) from e
 
 
+class OpenCursorResponse(BaseModel):
+    opened: bool
+
+
+@router.post(
+    "/worktree/{repo}/{name}/open-cursor", response_model=OpenCursorResponse
+)
+async def open_in_cursor(repo: str, name: str) -> OpenCursorResponse:
+    """Shell `cursor <worktree.path>` to open the worktree folder in
+    Cursor. No pre-probe of the `cursor` CLI — we detect the missing-
+    binary case from subprocess stderr and surface it as 503.
+    """
+    row = await asyncio.to_thread(svc.get_worktree_sync, repo, name)
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"worktree not found: {repo}/{name}"
+        )
+
+    wt_path = Path(row.path)
+    if not wt_path.is_dir():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"worktree path missing on disk: {wt_path}",
+        )
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "cursor",
+            str(wt_path),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as e:
+        # `cursor` not on PATH at all — Python raises before exec.
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Cursor CLI not on PATH. Install from cursor.com, then run "
+            "Cmd+Shift+P → 'Shell Command: Install \"cursor\" command'.",
+        ) from e
+
+    _, stderr_b = await proc.communicate()
+    if proc.returncode != 0:
+        stderr = stderr_b.decode("utf-8", errors="replace").strip()
+        lower = stderr.lower()
+        if (
+            "executable file not found" in lower
+            or "command not found" in lower
+        ):
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "Cursor CLI not on PATH. Install from cursor.com, then run "
+                "Cmd+Shift+P → 'Shell Command: Install \"cursor\" command'.",
+            )
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            f"cursor exited {proc.returncode}: {stderr[:200]}",
+        )
+
+    return OpenCursorResponse(opened=True)
+
+
 @router.get("/worktrees", response_model=list[WorktreeRow])
 async def list_worktrees() -> list[WorktreeRow]:
     return await asyncio.to_thread(svc.list_worktrees_sync)
