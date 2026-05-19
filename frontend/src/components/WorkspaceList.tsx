@@ -257,6 +257,13 @@ function WorkspaceRow({ w, jira }: RowProps) {
             {w.name}
           </Link>
           <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+            {w.status === "code_on_disk" && (
+              <Tooltip text="Worktree was created, but a setup_step (`make install`, etc.) errored. The code is on disk — you can open it in iTerm2 / Cursor and re-run the failing step. The setup log on the Manage page has details.">
+                <span className="rounded border border-amber-800 bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-300">
+                  setup incomplete
+                </span>
+              </Tooltip>
+            )}
             {labels.map((label) => {
               const style = LABEL_CHIP_STYLE[label];
               return (
@@ -482,7 +489,11 @@ function WorkspaceActionButton({
     );
   }
 
-  // status === "ready" past here.
+  // status === "ready" or "code_on_disk" past here. Both are
+  // usable for the action-button purpose (code is on disk;
+  // iTerm2 / focus works). The `code_on_disk` distinction is
+  // surfaced separately via an amber chip next to the workspace
+  // name, not by disabling the action button.
   if (hasClaudeSession) {
     const errorDetail = mutationError(focusMutation.error);
     const tooltip = errorDetail
@@ -500,7 +511,7 @@ function WorkspaceActionButton({
     );
   }
 
-  // status === "ready" + no claude session.
+  // status === "ready" / "code_on_disk" + no claude session.
   const errorDetail = mutationError(spawnMutation.error);
   const tooltip = errorDetail
     ? errorDetail

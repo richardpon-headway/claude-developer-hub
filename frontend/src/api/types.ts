@@ -53,7 +53,15 @@ export interface RepoCandidate {
   already_configured: boolean;
 }
 
-export type WorktreeStatus = "setting_up" | "ready" | "failed" | "stale" | "removing";
+export type WorktreeStatus =
+  | "setting_up"
+  | "ready"
+  // `git worktree add` succeeded but a setup_step errored. Code is
+  // on disk and usable; setup automation didn't fully complete.
+  | "code_on_disk"
+  | "failed"
+  | "stale"
+  | "removing";
 
 export type PrHeadline =
   | "no_pr"

@@ -65,37 +65,54 @@ async def create_worktree(req: CreateWorktreeRequest) -> WorktreeRow:
         raise HTTPException(code, msg) from e
 
 
+_RECREATE_ALLOWED_STATUSES = {"stale", "code_on_disk"}
+
+
 @router.post("/worktree/{repo}/{name}/recreate", response_model=WorktreeRow)
 async def recreate_worktree(repo: str, name: str) -> WorktreeRow:
-    """Drop a stale worktree row + re-run the full create flow against
-    the same branch. Used by the "Recreate workspace" button on rows
-    whose on-disk path was deleted outside CDH.
+    """Drop the worktree row + re-run the full create flow against
+    the same branch. Used by the "Recreate workspace" button.
 
-    Constrained to ``status='stale'`` rows only — a ready/setting_up/
-    failed row has on-disk state we shouldn't blow away without the
-    user thinking about it.
+    Allowed when status is ``stale`` (on-disk path deleted outside
+    CDH) or ``code_on_disk`` (setup_step failed but worktree was
+    created — user wants to wipe and try setup again). Rejected for
+    ``ready`` (on-disk work the user may not want destroyed),
+    ``failed`` (no code on disk, but also no validation that
+    recreate handles that case yet), and ``setting_up`` / ``removing``
+    (mid-flight; let the active operation finish).
     """
     row = await asyncio.to_thread(svc.get_worktree_sync, repo, name)
     if row is None:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, f"worktree not found: {repo}/{name}"
         )
-    if row.status != "stale":
+    if row.status not in _RECREATE_ALLOWED_STATUSES:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            f"recreate only applies to stale worktrees (this one is "
-            f"'{row.status}'). Investigate or delete it manually first.",
+            f"recreate only applies to stale or code_on_disk "
+            f"worktrees (this one is '{row.status}'). Investigate "
+            f"or delete it manually first.",
         )
 
     # Drop the row (CASCADEs iterm_session + pr_state) before re-running
     # create_worktree, which inserts a fresh row from scratch.
     await asyncio.to_thread(svc.delete_worktree_sync, repo, name)
 
-    # If the user did `rm -rf` on the directory without also running
-    # `git worktree prune`, git still tracks the (now-broken)
-    # worktree and a fresh `git worktree add <same path>` would fail
-    # with "already exists" from git. Run prune here so recreate
-    # works whether or not the user cleaned up git's tracking.
+    # For the `code_on_disk` case the worktree directory still exists
+    # on disk (only setup_steps errored). Remove it so the upcoming
+    # `git worktree add <same path>` doesn't conflict. For the
+    # `stale` case the directory is already gone; the rmtree is a
+    # no-op there.
+    wt_path = Path(row.path)
+    if wt_path.is_dir():
+        import shutil
+
+        await asyncio.to_thread(shutil.rmtree, wt_path, ignore_errors=True)
+
+    # Whether the user did `rm -rf` themselves (stale) or we just did
+    # (code_on_disk), git still tracks the now-missing worktree and a
+    # fresh `git worktree add <same path>` would fail with "already
+    # exists" from git. Run prune to clean git's tracking.
     config = load_config()
     repo_cfg = next((r for r in config.repos if r.name == repo), None)
     if repo_cfg is not None:
