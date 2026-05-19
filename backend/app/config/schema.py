@@ -132,6 +132,37 @@ class ServerConfig(BaseModel):
     host: str = "127.0.0.1"
 
 
+class PollingConfig(BaseModel):
+    """Tuning knobs for the two long-lived background pollers.
+
+    Defaults are set so an idle CDH with ~10 tracked worktrees uses
+    roughly 150 GraphQL/hr — well under GitHub's 5000/hr quota — while
+    still feeling reactive enough that the hub reflects new PR state
+    within a few minutes.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    pr_state_interval_seconds: float = Field(
+        600.0,
+        gt=0,
+        description=(
+            "How often to refresh per-worktree pr_state (review "
+            "decision, CI status, comment counts). Each tick shells "
+            "one `gh pr view --json …` per tracked worktree."
+        ),
+    )
+    inbox_interval_seconds: float = Field(
+        300.0,
+        gt=0,
+        description=(
+            "How often to refresh the inbox cache. Each tick runs 5 "
+            "`gh search prs` queries (author / reviewer / assignee / "
+            "mentions / team-review-requested)."
+        ),
+    )
+
+
 class InboxConfig(BaseModel):
     """GitHub teams whose review-requested PRs should surface in the
     hub's Inbox section alongside the user's authored + directly-
@@ -174,3 +205,4 @@ class CDHConfig(BaseModel):
     token_monitor: TokenMonitorConfig = Field(default_factory=TokenMonitorConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     inbox: InboxConfig = Field(default_factory=InboxConfig)
+    polling: PollingConfig = Field(default_factory=PollingConfig)
