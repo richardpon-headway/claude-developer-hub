@@ -9,9 +9,11 @@ The orchestration layer is the moat. Existing tools cover individual pieces
 favourite token monitor for usage). CDH ties ticket → worktree → Claude
 session → PR → CI → merge in one place.
 
-> **Status: pre-MVP scaffold.** Slice A only. The end-to-end flow described
-> below lands across subsequent slices; this README captures the target
-> shape so contributors and future self can orient.
+> **Status: early adopter.** The end-to-end ticket → worktree → Claude
+> session → PR → merge flow works today; rough edges and missing affordances
+> remain (see the issue tracker). Public adoption-ready polish (full README
+> walkthrough with screenshots, error messages for every failure mode) is
+> still in progress.
 
 ## Screenshots and demo
 
