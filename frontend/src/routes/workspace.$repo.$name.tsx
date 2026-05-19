@@ -208,6 +208,12 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
             <section className="mt-8">
               <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
                 Files changed ({prFiles.data.files.length})
+                <span
+                  className="ml-2 normal-case tracking-normal text-zinc-600"
+                  title="Stats computed from `git diff --numstat origin/<default_branch>...HEAD` in the worktree. Reflects your working tree, not GitHub's view of the PR."
+                >
+                  (via local git)
+                </span>
               </h2>
               <ul className="mt-2 divide-y divide-zinc-800 rounded border border-zinc-800">
                 {prFiles.data.files.map((f) => (
