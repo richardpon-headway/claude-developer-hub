@@ -37,6 +37,13 @@ export const focusIterm = (repo: string, name: string) =>
 export const recreateWorktree = (repo: string, name: string) =>
   apiPost<Worktree>(`${workspacePath(repo, name)}/recreate`, {});
 
+export interface OpenCursorResponse {
+  opened: boolean;
+}
+
+export const openInCursor = (repo: string, name: string) =>
+  apiPost<OpenCursorResponse>(`${workspacePath(repo, name)}/open-cursor`, {});
+
 export const sendText = (
   repo: string,
   name: string,
