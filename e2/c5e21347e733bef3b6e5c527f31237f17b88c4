@@ -1,0 +1,29 @@
+backend/app/services/inbox_poll.py
+  s_d128a241c2e116::t_54ab37d1340e23 189-192
+backend/app/config/schema.py
+  s_d128a241c2e116::t_d5b41c4a4f3534 208
+  s_d128a241c2e116::t_039c2bca4b62f0 135-165
+backend/app/services/pr_state_poll.py
+  s_d128a241c2e116::t_569dcff94462ac 21,42-45
+backend/tests/test_config.py
+  s_d128a241c2e116::t_29e23e66f96b9c 136-166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.9",
+  "base_commit_sha": "e2c5e21347e733bef3b6e5c527f31237f17b88c4",
+  "prompts": {},
+  "sessions": {
+    "s_d128a241c2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6a9c603-8a9f-47c5-a234-1b418c8994f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
