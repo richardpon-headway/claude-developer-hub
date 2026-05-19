@@ -3,7 +3,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError } from "../api/client";
 import { getWorkspaceSkills } from "../api/config";
-import { getWorktree, runSkill, sendText, spawnIterm } from "../api/worktrees";
+import {
+  getWorktree,
+  openInCursor,
+  runSkill,
+  sendText,
+  spawnIterm,
+} from "../api/worktrees";
 import { Button } from "../components/Button";
 import { Tooltip } from "../components/Tooltip";
 
@@ -62,6 +68,10 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
     mutationFn: (text: string) => sendText(repo, name, text),
   });
 
+  const cursorMutation = useMutation({
+    mutationFn: () => openInCursor(repo, name),
+  });
+
   return (
     <main className="mx-auto max-w-3xl p-8">
       <Link to="/" className="text-xs text-zinc-500 hover:text-zinc-300">
@@ -116,6 +126,17 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
                   {spawnMutation.isPending ? "Opening…" : "Open in iTerm2"}
                 </Button>
               </Tooltip>
+              <Button
+                variant={cursorMutation.error ? "danger" : "secondary"}
+                onClick={() => cursorMutation.mutate()}
+                disabled={cursorMutation.isPending}
+              >
+                {cursorMutation.isPending
+                  ? "Opening…"
+                  : cursorMutation.error
+                    ? "Open in Cursor ✗"
+                    : "Open in Cursor"}
+              </Button>
               {skills.map((skill) => (
                 <Tooltip
                   key={skill.name}
@@ -158,6 +179,15 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
             {sendMutation.error && (
               <p role="alert" className="text-sm text-red-400">
                 send failed: {errorMessage(sendMutation.error)}
+              </p>
+            )}
+            {cursorMutation.error && (
+              <p
+                role="alert"
+                className="text-sm text-red-400"
+                title={errorMessage(cursorMutation.error)}
+              >
+                {errorMessage(cursorMutation.error)}
               </p>
             )}
           </section>

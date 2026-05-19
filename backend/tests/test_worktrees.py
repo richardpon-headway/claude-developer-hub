@@ -332,3 +332,128 @@ def test_pr_url_400_when_worktree_path_missing(_isolate: dict[str, Path]) -> Non
         r = client.get("/api/worktree/myapp/feature/pr-url")
     assert r.status_code == 400
     assert "missing on disk" in r.json()["detail"]
+
+
+# --- /api/worktree/{repo}/{name}/open-cursor -----------------------------
+
+
+def _stub_cursor_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    returncode: int = 0,
+    stderr: bytes = b"",
+    raise_filenotfound: bool = False,
+) -> dict:
+    """Replace ``asyncio.create_subprocess_exec`` with a fake that
+    captures the argv it was called with and returns a process whose
+    ``communicate()`` yields ``(b"", stderr)`` + ``returncode``.
+
+    Returns a dict the test can inspect after the call (``["argv"]``)."""
+    from unittest.mock import AsyncMock
+
+    captured: dict = {"argv": None}
+
+    class FakeProc:
+        def __init__(self) -> None:
+            self.returncode = returncode
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return (b"", stderr)
+
+    async def fake_exec(*args: object, **kwargs: object) -> FakeProc:
+        if raise_filenotfound:
+            raise FileNotFoundError("[Errno 2] No such file: 'cursor'")
+        captured["argv"] = list(args)
+        return FakeProc()
+
+    monkeypatch.setattr(
+        "asyncio.create_subprocess_exec", AsyncMock(side_effect=fake_exec)
+    )
+    return captured
+
+
+def test_open_cursor_404_when_worktree_missing(_isolate: dict[str, Path]) -> None:
+    with TestClient(app) as client:
+        r = client.post("/api/worktree/myapp/nope/open-cursor")
+    assert r.status_code == 404
+    assert "worktree not found" in r.json()["detail"]
+
+
+def test_open_cursor_400_when_path_missing_on_disk(
+    _isolate: dict[str, Path],
+) -> None:
+    seed_worktree(
+        _isolate["db_path"],
+        "myapp",
+        "feature",
+        path=_isolate["dev_root"] / "ghost",
+        mkdir=False,
+    )
+    with TestClient(app) as client:
+        r = client.post("/api/worktree/myapp/feature/open-cursor")
+    assert r.status_code == 400
+    assert "missing on disk" in r.json()["detail"]
+
+
+def test_open_cursor_503_when_cursor_not_on_path(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`cursor` binary missing from PATH — Python raises FileNotFoundError
+    before exec. Endpoint must return 503 with install instructions."""
+    wt_path = _isolate["dev_root"] / "wt"
+    seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
+    _stub_cursor_subprocess(monkeypatch, raise_filenotfound=True)
+
+    with TestClient(app) as client:
+        r = client.post("/api/worktree/myapp/feature/open-cursor")
+    assert r.status_code == 503
+    assert "Cursor CLI not on PATH" in r.json()["detail"]
+    assert "cursor.com" in r.json()["detail"]
+
+
+def test_open_cursor_503_when_subprocess_reports_missing(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Some shells return non-zero with 'command not found' in stderr
+    rather than raising FileNotFoundError. Endpoint must still 503."""
+    wt_path = _isolate["dev_root"] / "wt"
+    seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
+    _stub_cursor_subprocess(
+        monkeypatch, returncode=127, stderr=b"cursor: command not found"
+    )
+
+    with TestClient(app) as client:
+        r = client.post("/api/worktree/myapp/feature/open-cursor")
+    assert r.status_code == 503
+    assert "Cursor CLI not on PATH" in r.json()["detail"]
+
+
+def test_open_cursor_502_when_cursor_errors(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wt_path = _isolate["dev_root"] / "wt"
+    seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
+    _stub_cursor_subprocess(
+        monkeypatch, returncode=1, stderr=b"cursor: something went wrong"
+    )
+
+    with TestClient(app) as client:
+        r = client.post("/api/worktree/myapp/feature/open-cursor")
+    assert r.status_code == 502
+    assert "cursor exited 1" in r.json()["detail"]
+    assert "something went wrong" in r.json()["detail"]
+
+
+def test_open_cursor_happy_path_invokes_subprocess(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wt_path = _isolate["dev_root"] / "wt"
+    seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
+    captured = _stub_cursor_subprocess(monkeypatch)
+
+    with TestClient(app) as client:
+        r = client.post("/api/worktree/myapp/feature/open-cursor")
+    assert r.status_code == 200
+    assert r.json() == {"opened": True}
+    # First two positional args are ("cursor", "<wt_path>").
+    assert captured["argv"][:2] == ["cursor", str(wt_path)]
