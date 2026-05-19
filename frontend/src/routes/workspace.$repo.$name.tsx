@@ -45,7 +45,12 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
 
   const row = detail.data?.row;
   const hasClaude = row?.has_claude_session ?? false;
-  const ready = row?.status === "ready";
+  // Action buttons gate on `usable`: code is on disk and workable,
+  // regardless of whether all setup_steps succeeded. `code_on_disk`
+  // rows are usable (only setup automation failed, not the worktree
+  // creation itself).
+  const usable =
+    row?.status === "ready" || row?.status === "code_on_disk";
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ["worktree", repo, name] });
@@ -80,7 +85,7 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
   const prFiles = useQuery({
     queryKey: ["pr-files", repo, name],
     queryFn: () => getPrFiles(repo, name),
-    enabled: ready,
+    enabled: usable,
     staleTime: 60_000,
   });
 
@@ -119,6 +124,19 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
             <dd className="text-zinc-200">{hasClaude ? "open" : "—"}</dd>
           </dl>
 
+          {row.status === "code_on_disk" && (
+            <div
+              role="status"
+              className="mt-6 rounded border border-amber-800 bg-amber-950/40 px-3 py-2 text-xs text-amber-200"
+            >
+              Setup didn't complete (see log below), but the code is
+              on disk. You can open the worktree in iTerm2 or Cursor
+              and re-run the failing step manually. Click{" "}
+              <em>Recreate</em> on the hub if you want CDH to wipe +
+              re-run setup from scratch.
+            </div>
+          )}
+
           <section className="mt-8 space-y-4">
             <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
               Actions
@@ -126,14 +144,14 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
             <div className="flex flex-wrap gap-2">
               <Tooltip
                 text={
-                  !ready
+                  !usable
                     ? `worktree status is ${row.status}; nothing to spawn into`
                     : null
                 }
               >
                 <Button
                   onClick={() => spawnMutation.mutate()}
-                  disabled={spawnMutation.isPending || !ready}
+                  disabled={spawnMutation.isPending || !usable}
                 >
                   {spawnMutation.isPending ? "Opening…" : "Open in iTerm2"}
                 </Button>
@@ -153,7 +171,7 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
                 <Tooltip
                   key={skill.name}
                   text={
-                    !ready
+                    !usable
                       ? `worktree status is ${row.status}; nothing to run into`
                       : !hasClaude
                         ? skill.description
@@ -165,7 +183,7 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
                   <Button
                     variant="secondary"
                     onClick={() => skillMutation.mutate(skill.name)}
-                    disabled={!ready || skillMutation.isPending}
+                    disabled={!usable || skillMutation.isPending}
                   >
                     {skill.label}
                   </Button>
