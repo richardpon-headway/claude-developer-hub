@@ -36,8 +36,6 @@ from app.services.inbox_stack import annotate_stacks
 
 log = logging.getLogger(__name__)
 
-POLL_INTERVAL_SECONDS = 60.0
-
 
 @dataclass
 class InboxPr:
@@ -188,7 +186,10 @@ async def inbox_poll_loop(state) -> None:  # type: ignore[no-untyped-def]
                 e,
             )
         try:
-            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+            # Re-read config every tick so YAML edits take effect on
+            # the next cycle without a backend restart.
+            interval = load_config().polling.inbox_interval_seconds
+            await asyncio.sleep(interval)
         except asyncio.CancelledError:
             raise
 
