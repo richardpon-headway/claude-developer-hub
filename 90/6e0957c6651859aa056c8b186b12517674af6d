@@ -1,0 +1,58 @@
+frontend/package.json
+  s_bf7dfca5b39eba::t_d40b15f4155ce6 24-26
+backend/app/services/worktree.py
+  s_bf7dfca5b39eba::t_913928bd4c1341 64,81-82,107-110
+  s_bf7dfca5b39eba::t_ab0ae07550705c 250-273
+frontend/src/api/client.ts
+  s_bf7dfca5b39eba::t_c77ee61d07ec08 46
+backend/app/migrations/008_worktree_notes.sql
+  s_bf7dfca5b39eba::t_84ab698f15c583 1-14
+frontend/src/components/WorkspaceList.test.tsx
+  s_bf7dfca5b39eba::t_c96a850aa39fd2 313
+  s_bf7dfca5b39eba::t_69a9ddbfc113af 90
+frontend/src/components/WorkspaceList.tsx
+  s_bf7dfca5b39eba::t_a6fb3c0cfd000e 9
+  s_bf7dfca5b39eba::t_30434fc469263d 381-388
+frontend/src/routes/workspace.test.tsx
+  s_bf7dfca5b39eba::t_c37b5cb2112208 53
+backend/app/models/worktree.py
+  s_bf7dfca5b39eba::t_d1d3c9dd40cb82 110-113
+frontend/src/api/types.ts
+  s_bf7dfca5b39eba::t_c47e9b181e6016 137-140
+backend/tests/test_worktrees.py
+  s_bf7dfca5b39eba::t_8d87ececcb7b68 873-973
+frontend/src/components/WorkspaceNotes.test.tsx
+  s_bf7dfca5b39eba::t_f6343ab2c70f00 2-74,79-90,95-119,123-125
+  s_bf7dfca5b39eba::t_ced672b3daf238 120-122
+  s_bf7dfca5b39eba::t_2b99d2f841a9a9 75-78,91-94
+  s_bf7dfca5b39eba::t_8a77d719836dad 1
+frontend/src/components/WorkspaceNotes.tsx
+  s_bf7dfca5b39eba::t_d69c71339776d3 1-167
+backend/app/routes/worktrees.py
+  s_bf7dfca5b39eba::t_96be3900b88628 426-464
+frontend/src/routes/workspace.$repo.$name.tsx
+  s_bf7dfca5b39eba::t_eb771104b3b985 16
+  s_bf7dfca5b39eba::t_b67d5d1b51601e 141-154
+frontend/src/api/worktrees.ts
+  s_bf7dfca5b39eba::t_a9b45230c86ca3 1
+  s_bf7dfca5b39eba::t_c9beaf3f7551cd 90-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.10",
+  "base_commit_sha": "906e0957c6651859aa056c8b186b12517674af6d",
+  "prompts": {},
+  "sessions": {
+    "s_bf7dfca5b39eba": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4657f9bd-5598-498e-bf57-fa1337a5e64a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
