@@ -147,7 +147,6 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
                 repo={repo}
                 name={name}
                 notes={row.notes}
-                variant="full"
               />
             </div>
           </section>
