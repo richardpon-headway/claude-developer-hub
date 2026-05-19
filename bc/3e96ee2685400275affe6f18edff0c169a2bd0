@@ -1,0 +1,82 @@
+backend/app/services/worktree.py
+  s_bf7dfca5b39eba::t_2ae88d0e6e8c56 225,228-233,239-240,242-267
+  s_bf7dfca5b39eba::t_31e37b012aff4c 64,81-82,106-109
+frontend/src/api/types.ts
+  s_bf7dfca5b39eba::t_aed0e42b980a28 112-116,131-136,143-148
+frontend/src/routes/index.test.tsx
+  s_bf7dfca5b39eba::t_c54f78ce73cc82 83-86,108-111
+backend/app/models/worktree.py
+  s_bf7dfca5b39eba::t_b381070b32a84c 104-109
+  s_bf7dfca5b39eba::t_41c445a9edad9f 89
+backend/app/routes/inbox.py
+  s_bf7dfca5b39eba::t_f598ec5341db30 170-180
+  s_bf7dfca5b39eba::t_5c54e78b50401f 260-262,269
+backend/app/services/gh_identity.py
+  s_bf7dfca5b39eba::t_eaa0581142b930 1-58
+backend/tests/test_worktree_import.py
+  s_bf7dfca5b39eba::t_d6713eb28ab454 338
+  s_bf7dfca5b39eba::t_745bdc3082921c 394
+backend/tests/test_inbox.py
+  s_bf7dfca5b39eba::t_882cdb3de2b4dd 729-734,744-746,750,755
+backend/tests/test_gh_identity.py
+  s_bf7dfca5b39eba::t_eae0b84d30b7f2 1-95
+frontend/src/routes/index.tsx
+  s_bf7dfca5b39eba::t_be758f69345370 43-44
+  s_bf7dfca5b39eba::t_8a71320fd0fb89 133-137
+backend/tests/test_worktrees.py
+  s_bf7dfca5b39eba::t_fc45b239563817 58-60
+frontend/src/components/WorkspaceList.tsx
+  s_bf7dfca5b39eba::t_cb00be5f811fd0 233-236,238,246,254,257,264,273,278-283,297-300,303
+  s_bf7dfca5b39eba::t_f45f680f825329 60-65,67,76,84-90
+  s_bf7dfca5b39eba::t_4209d40168e317 13-18,25-34,36
+  s_bf7dfca5b39eba::t_e892ee2c8d9eed 305,309-326
+  s_bf7dfca5b39eba::t_53d9ccbc73d041 193-214
+backend/app/services/pr_state.py
+  s_bf7dfca5b39eba::t_f63d280bb288d3 54
+  s_bf7dfca5b39eba::t_e6535c0976d543 110-114
+  s_bf7dfca5b39eba::t_0806bb09c06b0d 321
+  s_bf7dfca5b39eba::t_86322c62ec4e48 349
+backend/tests/fixtures/inbox.py
+  s_bf7dfca5b39eba::t_4440b71bf8c56e 45,53
+frontend/src/api/worktrees.ts
+  s_bf7dfca5b39eba::t_ca1b67ed28ea55 3,13-14
+backend/app/migrations/007_worktree_pr_author.sql
+  s_bf7dfca5b39eba::t_44bf43db1a52c1 1-19
+backend/app/routes/worktrees.py
+  s_bf7dfca5b39eba::t_a8d9d63ab8aedb 358-375
+backend/tests/test_pr_state.py
+  s_bf7dfca5b39eba::t_afbef32b9385e5 527
+  s_bf7dfca5b39eba::t_dd213caa5f4364 547-550
+  s_bf7dfca5b39eba::t_aca6d9c764accc 771,790
+  s_bf7dfca5b39eba::t_94e32bd2de98a0 793-891
+frontend/src/components/WorkspaceList.test.tsx
+  s_bf7dfca5b39eba::t_1f911f0815ea2f 320-450
+  s_bf7dfca5b39eba::t_6fc4b2273342f7 35-38,45-49
+  s_bf7dfca5b39eba::t_50491de238ca4d 75
+  s_bf7dfca5b39eba::t_aa7a939f2d24cc 89
+  s_bf7dfca5b39eba::t_4c6d41b5a74148 304
+frontend/src/routes/workspace.test.tsx
+  s_bf7dfca5b39eba::t_6c37eb7e2599c8 52
+backend/app/services/pr_state_poll.py
+  s_bf7dfca5b39eba::t_d097da762446e1 24-27
+  s_bf7dfca5b39eba::t_071949170edeb9 77-91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.10",
+  "base_commit_sha": "bc3e96ee2685400275affe6f18edff0c169a2bd0",
+  "prompts": {},
+  "sessions": {
+    "s_bf7dfca5b39eba": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4657f9bd-5598-498e-bf57-fa1337a5e64a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
