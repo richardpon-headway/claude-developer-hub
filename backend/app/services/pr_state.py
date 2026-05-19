@@ -225,6 +225,18 @@ def _compute_labels(
     if not found:
         found.add("waiting_on_others")
 
+    # Terminal states suppress every other chip. Once a PR is merged
+    # or closed, mid-flow signals (``ci_failing``, ``ready_to_merge``,
+    # ``unresolved_comments``, etc.) describe history, not anything
+    # actionable — rendering them alongside ``merged`` clutters the
+    # row and implies work the user can still do. The tier mapping
+    # (``merged`` → MERGED tier) already reflects "cleanup only", so
+    # collapsing to a single chip matches the tier's intent.
+    if "merged" in found:
+        found = {"merged"}
+    elif "closed" in found:
+        found = {"closed"}
+
     # Project onto the priority tuple to fix ordering and guarantee
     # labels[0] is the most-important signal.
     return [label for label in _LABEL_PRIORITY if label in found]

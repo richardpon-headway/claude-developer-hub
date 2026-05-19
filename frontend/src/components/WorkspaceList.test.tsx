@@ -212,18 +212,25 @@ describe("WorkspaceList", () => {
     ).toBeInTheDocument();
   });
 
-  test("tier is determined by labels[0], not by suppressed signals", () => {
-    // merged + ci_failing co-occur. labels[0]=merged → "Needs your action".
+  test("frontend renders all labels in the payload (terminal-state suppression happens on the backend)", () => {
+    // The backend now collapses terminal-state label sets to a
+    // single chip (merged + ci_failing → just [merged]), so a hub
+    // payload like ["merged", "ci_failing"] won't occur in practice.
+    // But the frontend's responsibility is to render whatever it
+    // receives — pinning this keeps the rendering layer dumb if the
+    // backend rule ever changes.
     renderWorkspaces([
       wt({
         name: "merged_with_old_ci_fail",
         pr_state: prState("merged", ["merged", "ci_failing"]),
       }),
     ]);
-    // Row sits under "Needs your action" since `merged` is a cleanup
-    // action item per the existing tier mapping.
-    expect(screen.getByText(/Needs your action/i)).toBeInTheDocument();
-    // Both chips render
+    // Tier still comes from labels[0]=merged → MERGED.
+    expect(
+      screen.getByRole("heading", { name: /^Merged/i }),
+    ).toBeInTheDocument();
+    // Both chips render — the frontend doesn't second-guess the
+    // backend's label set.
     expect(screen.getByText("merged")).toBeInTheDocument();
     expect(screen.getByText("ci fail")).toBeInTheDocument();
   });
