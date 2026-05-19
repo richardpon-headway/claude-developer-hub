@@ -85,7 +85,7 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
   });
 
   return (
-    <main className="mx-auto max-w-3xl p-8">
+    <main className="mx-auto max-w-5xl p-8">
       <Link to="/" className="text-xs text-zinc-500 hover:text-zinc-300">
         ← back to hub
       </Link>
@@ -215,7 +215,7 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
                     key={f.path}
                     className="flex items-center gap-3 px-3 py-2 text-sm"
                   >
-                    <span className="flex-1 truncate font-mono text-xs text-zinc-200">
+                    <span className="flex-1 break-all font-mono text-xs text-zinc-200">
                       {f.path}
                     </span>
                     <span className="text-xs tabular-nums text-green-400">
