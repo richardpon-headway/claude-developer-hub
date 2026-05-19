@@ -1,0 +1,24 @@
+config.example.yaml
+  s_d128a241c2e116::t_b039d2ab3b40ac 1-47
+README.md
+  s_d128a241c2e116::t_f89d7cc55cec8c 70-71,85-106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.9",
+  "base_commit_sha": "10c58e708868fd4f8f3ac69a4e3a41df0b21aa87",
+  "prompts": {},
+  "sessions": {
+    "s_d128a241c2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6a9c603-8a9f-47c5-a234-1b418c8994f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
