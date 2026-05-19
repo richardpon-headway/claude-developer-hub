@@ -1,0 +1,23 @@
+frontend/src/routes/workspace.$repo.$name.tsx
+  s_d128a241c2e116::t_2dfc7fc0f3472a 88
+  s_d128a241c2e116::t_0ff31e972e50ef 218
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.9",
+  "base_commit_sha": "21f39d3049c2d04e08ec1c6a7311423988b6f58d",
+  "prompts": {},
+  "sessions": {
+    "s_d128a241c2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6a9c603-8a9f-47c5-a234-1b418c8994f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
