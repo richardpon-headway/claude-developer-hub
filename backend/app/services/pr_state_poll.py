@@ -18,13 +18,13 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from app.config.loader import load_config
 from app.services import pr_state
 from app.services.gh_cli import GhNotFound
 from app.services.worktree import list_worktrees_sync
 
 log = logging.getLogger(__name__)
 
-POLL_INTERVAL_SECONDS = 180.0
 PARALLELISM = 4
 
 
@@ -39,7 +39,10 @@ async def pr_state_poll_loop(state: Any) -> None:  # noqa: ARG001 — state kept
                 "pr_state poll tick failed: %s; will retry on next interval", e
             )
         try:
-            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+            # Re-read config every tick so YAML edits take effect on
+            # the next cycle without a backend restart.
+            interval = load_config().polling.pr_state_interval_seconds
+            await asyncio.sleep(interval)
         except asyncio.CancelledError:
             raise
 

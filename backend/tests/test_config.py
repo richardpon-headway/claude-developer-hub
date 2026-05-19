@@ -133,3 +133,34 @@ def test_save_leaves_no_tempfile(_isolate_config: Path) -> None:
     save_config(CDHConfig())
     leftover = list(_isolate_config.parent.glob(f".{_isolate_config.name}.*.tmp"))
     assert leftover == []
+
+
+# --- polling config ---------------------------------------------------------
+
+
+def test_polling_config_defaults() -> None:
+    cfg = CDHConfig()
+    assert cfg.polling.pr_state_interval_seconds == 600.0
+    assert cfg.polling.inbox_interval_seconds == 300.0
+
+
+def test_polling_config_accepts_custom_values() -> None:
+    cfg = CDHConfig(
+        polling={  # type: ignore[arg-type]
+            "pr_state_interval_seconds": 1800,
+            "inbox_interval_seconds": 900,
+        }
+    )
+    assert cfg.polling.pr_state_interval_seconds == 1800.0
+    assert cfg.polling.inbox_interval_seconds == 900.0
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["pr_state_interval_seconds", "inbox_interval_seconds"],
+)
+@pytest.mark.parametrize("bad", [0, -1, -0.5])
+def test_polling_config_rejects_non_positive(field: str, bad: float) -> None:
+    with pytest.raises(Exception) as exc_info:
+        CDHConfig(polling={field: bad})  # type: ignore[arg-type]
+    assert "greater than 0" in str(exc_info.value).lower()
