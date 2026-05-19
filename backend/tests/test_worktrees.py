@@ -55,7 +55,9 @@ def test_list_worktrees_initially_empty() -> None:
     with TestClient(app) as client:
         r = client.get("/api/worktrees")
     assert r.status_code == 200
-    assert r.json() == []
+    body = r.json()
+    assert body["worktrees"] == []
+    assert "user_login" in body
 
 
 def test_create_unknown_repo_400(_isolate: dict[str, Path]) -> None:

@@ -524,6 +524,7 @@ def test_fetch_pr_summary_parses_gh_json(
             "reviewDecision": None,
             "statusCheckRollup": [{"bucket": "pass"}, {"bucket": "pending"}],
             "comments": [{"author": {"login": "alice"}}],
+            "author": {"login": "sarah-h"},
             "baseRefName": "main",
             "headRefName": "feat/y",
             "updatedAt": "2026-05-13T10:00:00Z",
@@ -543,6 +544,10 @@ def test_fetch_pr_summary_parses_gh_json(
     assert summary.headline == "human_comment"
     assert summary.pr_number == 7
     assert summary.comments.human == 1
+    # Author flows through so the hub's REVIEWING-tier split can use
+    # it (directly via list-worktrees, indirectly via lazy backfill of
+    # the worktree.pr_author_login column).
+    assert summary.author_login == "sarah-h"
 
 
 def test_fetch_pr_summary_returns_no_pr_on_gh_not_found(
@@ -763,7 +768,7 @@ def test_list_worktrees_includes_pr_state(_isolate: dict[str, Path]) -> None:
     with TestClient(app) as client:
         r = client.get("/api/worktrees")
     assert r.status_code == 200
-    rows = r.json()
+    rows = r.json()["worktrees"]
     assert len(rows) == 1
     assert rows[0]["pr_state"] is not None
     assert rows[0]["pr_state"]["headline"] == "ci_failing"
@@ -782,6 +787,105 @@ def test_list_worktrees_handles_missing_pr_state(_isolate: dict[str, Path]) -> N
     with TestClient(app) as client:
         r = client.get("/api/worktrees")
     assert r.status_code == 200
-    rows = r.json()
+    rows = r.json()["worktrees"]
     assert len(rows) == 1
     assert rows[0]["pr_state"] is None
+
+
+# --- poll-loop backfill of worktree.pr_author_login ------------------------
+
+
+def test_poll_backfills_pr_author_login(
+    monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
+) -> None:
+    """A worktree row created before the pr_author_login column existed
+    starts with NULL. Once the poll fetches a fresh gh payload that
+    carries an author, the next tick should write it onto the
+    worktree row so the hub can route the row to REVIEWING vs. an
+    owner tier."""
+    import sqlite3
+
+    from app.services import pr_state_poll
+
+    seed_worktree(
+        _isolate["db_path"],
+        "myrepo",
+        "feature1",
+        path=_isolate["dev_root"] / "feature1",
+    )
+
+    async def fake_fetch(path: Path) -> PrSummary:
+        return PrSummary(
+            headline="ready_to_merge",
+            pr_number=99,
+            url="https://github.com/x/y/pull/99",
+            title="ready",
+            author_login="alex-r",
+            checks=PrChecks(passed=4, total=4),
+        )
+
+    monkeypatch.setattr(pr_state, "fetch_pr_summary", fake_fetch)
+
+    asyncio.run(pr_state_poll._tick())
+
+    conn = sqlite3.connect(_isolate["db_path"])
+    try:
+        row = conn.execute(
+            "SELECT pr_author_login FROM worktree "
+            "WHERE repo='myrepo' AND name='feature1'"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row == ("alex-r",)
+
+
+def test_poll_does_not_overwrite_existing_pr_author_login(
+    monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
+) -> None:
+    """If the worktree row already has a pr_author_login (set at
+    pull-down), a subsequent poll tick should not overwrite it — even
+    if gh returns a different value (e.g., the PR's author got
+    renamed). The pull-down value reflects what the user clicked on;
+    we don't want background polls rewriting that."""
+    import sqlite3
+
+    from app.services import pr_state_poll
+
+    seed_worktree(
+        _isolate["db_path"],
+        "myrepo",
+        "feature1",
+        path=_isolate["dev_root"] / "feature1",
+    )
+    # Pre-set as if the pull-down path already captured the author.
+    conn = sqlite3.connect(_isolate["db_path"])
+    try:
+        conn.execute(
+            "UPDATE worktree SET pr_author_login = 'sarah-h' "
+            "WHERE repo='myrepo' AND name='feature1'"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    async def fake_fetch(path: Path) -> PrSummary:
+        return PrSummary(
+            headline="ready_to_merge",
+            pr_number=99,
+            author_login="someone-else",
+            checks=PrChecks(passed=4, total=4),
+        )
+
+    monkeypatch.setattr(pr_state, "fetch_pr_summary", fake_fetch)
+
+    asyncio.run(pr_state_poll._tick())
+
+    conn = sqlite3.connect(_isolate["db_path"])
+    try:
+        row = conn.execute(
+            "SELECT pr_author_login FROM worktree "
+            "WHERE repo='myrepo' AND name='feature1'"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row == ("sarah-h",)

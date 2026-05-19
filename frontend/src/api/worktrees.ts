@@ -1,5 +1,6 @@
 import { apiGet, apiPost } from "./client";
 import type {
+  ListWorktreesResponse,
   PrUrlResponse,
   SendResponse,
   SpawnItermResponse,
@@ -9,7 +10,8 @@ import type {
   WorktreeDetail,
 } from "./types";
 
-export const listWorktrees = () => apiGet<Worktree[]>("/api/worktrees");
+export const listWorktrees = () =>
+  apiGet<ListWorktreesResponse>("/api/worktrees");
 
 export const getWorktree = (repo: string, name: string) =>
   apiGet<WorktreeDetail>(
