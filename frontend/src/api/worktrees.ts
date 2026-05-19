@@ -41,8 +41,25 @@ export interface OpenCursorResponse {
   opened: boolean;
 }
 
-export const openInCursor = (repo: string, name: string) =>
-  apiPost<OpenCursorResponse>(`${workspacePath(repo, name)}/open-cursor`, {});
+export const openInCursor = (repo: string, name: string, file?: string) =>
+  apiPost<OpenCursorResponse>(
+    `${workspacePath(repo, name)}/open-cursor`,
+    file ? { file } : {},
+  );
+
+export interface PrFile {
+  path: string;
+  additions: number;
+  deletions: number;
+  github_diff_anchor: string;
+}
+
+export interface PrFilesResponse {
+  files: PrFile[];
+}
+
+export const getPrFiles = (repo: string, name: string) =>
+  apiGet<PrFilesResponse>(`${workspacePath(repo, name)}/pr-files`);
 
 export const sendText = (
   repo: string,
