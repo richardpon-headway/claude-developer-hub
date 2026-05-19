@@ -174,19 +174,58 @@ def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
 
 
 def _reconcile_orphaned_setting_up(conn: sqlite3.Connection) -> int:
-    """Mark any worktree rows in 'setting_up' as 'failed'.
+    """Reconcile any worktree rows stuck in 'setting_up' (leftovers
+    from a process kill mid-creation).
 
-    Such rows are leftovers from a process kill while a worktree was
-    being created. The workspace page offers retry affordances on
-    'failed' rows. Returns the number of rows updated.
+    Route each row by whether its on-disk path exists:
+
+    - **Path exists on disk** → ``code_on_disk``. The setup process
+      got at least as far as ``git worktree add`` before being
+      killed; the code is locally usable. The user can investigate
+      via iTerm2 / Cursor and either resume work or click Recreate.
+    - **Path missing** → ``failed``. Setup never got to or didn't
+      finish ``git worktree add``; nothing usable on disk.
+
+    Returns the total number of rows updated.
     """
-    cur = conn.execute(
-        "UPDATE worktree SET status = 'failed' WHERE status = 'setting_up'"
-    )
+    rows = conn.execute(
+        "SELECT repo, name, path FROM worktree WHERE status = 'setting_up'"
+    ).fetchall()
+    if not rows:
+        return 0
+
+    to_code: list[tuple[str, str]] = []
+    to_failed: list[tuple[str, str]] = []
+    for repo, name, path in rows:
+        if Path(path).is_dir():
+            to_code.append((repo, name))
+        else:
+            to_failed.append((repo, name))
+
+    if to_code:
+        conn.executemany(
+            "UPDATE worktree SET status = 'code_on_disk' "
+            "WHERE repo = ? AND name = ?",
+            to_code,
+        )
+    if to_failed:
+        conn.executemany(
+            "UPDATE worktree SET status = 'failed' "
+            "WHERE repo = ? AND name = ?",
+            to_failed,
+        )
     conn.commit()
-    if cur.rowcount:
-        log.info("reconciled %d orphaned 'setting_up' worktree(s) -> 'failed'", cur.rowcount)
-    return cur.rowcount
+    if to_code:
+        log.info(
+            "reconciled %d orphaned 'setting_up' worktree(s) -> 'code_on_disk'",
+            len(to_code),
+        )
+    if to_failed:
+        log.info(
+            "reconciled %d orphaned 'setting_up' worktree(s) -> 'failed'",
+            len(to_failed),
+        )
+    return len(to_code) + len(to_failed)
 
 
 def apply_migrations_sync(db_path: Path | None = None) -> None:

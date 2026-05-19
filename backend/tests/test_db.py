@@ -152,10 +152,16 @@ def test_backup_retention_caps_at_seven(db_path: Path, tmp_path: Path) -> None:
 # --- reconciliation --------------------------------------------------------
 
 
-def test_reconciles_orphaned_setting_up(db_path: Path) -> None:
+def test_reconciles_orphaned_setting_up_without_path_to_failed(
+    db_path: Path, tmp_path: Path
+) -> None:
+    """Orphaned 'setting_up' row whose path doesn't exist on disk →
+    'failed'. Nothing usable for the user to investigate."""
     db.apply_migrations_sync(db_path)
 
-    # Pre-seed a 'setting_up' row to simulate a process kill mid-setup
+    bogus_path = tmp_path / "does-not-exist"
+    assert not bogus_path.exists()
+
     conn = db.open_db(db_path)
     try:
         conn.execute(
@@ -164,13 +170,20 @@ def test_reconciles_orphaned_setting_up(db_path: Path) -> None:
               (repo, name, path, branch, created_at, status)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            ("repo1", "wt1", "/tmp/wt1", "main", "2026-01-01T00:00:00Z", "setting_up"),
+            (
+                "repo1",
+                "wt1",
+                str(bogus_path),
+                "main",
+                "2026-01-01T00:00:00Z",
+                "setting_up",
+            ),
         )
         conn.commit()
     finally:
         conn.close()
 
-    # Re-run apply_migrations — reconciliation should flip 'setting_up' -> 'failed'
+    # Re-run apply_migrations — reconciliation routes by path-on-disk
     db.apply_migrations_sync(db_path)
 
     conn = db.open_db(db_path)
@@ -179,6 +192,50 @@ def test_reconciles_orphaned_setting_up(db_path: Path) -> None:
             "SELECT status FROM worktree WHERE name = 'wt1'"
         ).fetchone()[0]
         assert status == "failed"
+    finally:
+        conn.close()
+
+
+def test_reconciles_orphaned_setting_up_with_path_to_code_on_disk(
+    db_path: Path, tmp_path: Path
+) -> None:
+    """Orphaned 'setting_up' row whose path DOES exist on disk →
+    'code_on_disk'. `git worktree add` got through before the kill;
+    code is usable."""
+    db.apply_migrations_sync(db_path)
+
+    real_path = tmp_path / "wt-on-disk"
+    real_path.mkdir()
+
+    conn = db.open_db(db_path)
+    try:
+        conn.execute(
+            """
+            INSERT INTO worktree
+              (repo, name, path, branch, created_at, status)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "repo1",
+                "wt2",
+                str(real_path),
+                "main",
+                "2026-01-01T00:00:00Z",
+                "setting_up",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    db.apply_migrations_sync(db_path)
+
+    conn = db.open_db(db_path)
+    try:
+        status = conn.execute(
+            "SELECT status FROM worktree WHERE name = 'wt2'"
+        ).fetchone()[0]
+        assert status == "code_on_disk"
     finally:
         conn.close()
 
@@ -197,6 +254,7 @@ def test_reconciliation_leaves_other_statuses_alone(db_path: Path) -> None:
                 ("r", "ready1", "/p1", "main", "2026-01-01T00:00:00Z", "ready"),
                 ("r", "failed1", "/p2", "main", "2026-01-01T00:00:00Z", "failed"),
                 ("r", "stale1", "/p3", "main", "2026-01-01T00:00:00Z", "stale"),
+                ("r", "cod1", "/p4", "main", "2026-01-01T00:00:00Z", "code_on_disk"),
             ],
         )
         conn.commit()
@@ -208,7 +266,48 @@ def test_reconciliation_leaves_other_statuses_alone(db_path: Path) -> None:
     conn = db.open_db(db_path)
     try:
         rows = dict(conn.execute("SELECT name, status FROM worktree"))
-        assert rows == {"ready1": "ready", "failed1": "failed", "stale1": "stale"}
+        assert rows == {
+            "ready1": "ready",
+            "failed1": "failed",
+            "stale1": "stale",
+            "cod1": "code_on_disk",
+        }
+    finally:
+        conn.close()
+
+
+def test_migration_005_allows_code_on_disk_status(db_path: Path) -> None:
+    """The rebuilt CHECK constraint must accept 'code_on_disk'; the
+    failed INSERT path is the regression test for the constraint
+    actually being applied."""
+    db.apply_migrations_sync(db_path)
+    conn = db.open_db(db_path)
+    try:
+        conn.execute(
+            """
+            INSERT INTO worktree
+              (repo, name, path, branch, created_at, status)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("r", "cod", "/p", "main", "2026-01-01T00:00:00Z", "code_on_disk"),
+        )
+        conn.commit()
+        # And the row is queryable back as the same value.
+        row = conn.execute(
+            "SELECT status FROM worktree WHERE name = 'cod'"
+        ).fetchone()
+        assert row[0] == "code_on_disk"
+
+        # Negative: an unknown status is still rejected.
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                """
+                INSERT INTO worktree
+                  (repo, name, path, branch, created_at, status)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                ("r", "bad", "/p", "main", "2026-01-01T00:00:00Z", "nope"),
+            )
     finally:
         conn.close()
 
