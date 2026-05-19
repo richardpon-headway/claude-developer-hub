@@ -1,0 +1,24 @@
+backend/app/migrations/006_pr_state_fk_repair.sql
+  s_d128a241c2e116::t_184eceaddeac01 1-65
+backend/tests/test_db.py
+  s_d128a241c2e116::t_66ccfcc7c2804b 315-363
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.10",
+  "base_commit_sha": "1fea943e53f6cbcf266c9bee014fcae5c5dfb371",
+  "prompts": {},
+  "sessions": {
+    "s_d128a241c2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6a9c603-8a9f-47c5-a234-1b418c8994f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
