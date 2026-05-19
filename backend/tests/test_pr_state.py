@@ -260,9 +260,14 @@ def test_compute_labels_emits_multiple_signals() -> None:
     assert "human_comment" in labels
 
 
-def test_compute_labels_terminal_state_leads_priority_order() -> None:
-    """Merged + ci_failing co-occur, but ``merged`` lands at index 0
-    so the back-compat headline + tier mapping stay correct."""
+def test_compute_labels_merged_suppresses_every_other_chip() -> None:
+    """Terminal-state rule: ``merged`` collapses the chip set to just
+    ``merged``. Mid-flow signals (ci_failing, ready_to_merge,
+    human_comment) describe history once the PR is merged — surfacing
+    them as live chips would imply actionable work that no longer
+    exists. The tier mapping (merged → MERGED tier) already says
+    "cleanup only"; this keeps the row's chips consistent with that
+    intent."""
     labels = _compute_labels(
         state="MERGED",
         is_draft=False,
@@ -271,9 +276,25 @@ def test_compute_labels_terminal_state_leads_priority_order() -> None:
         review_decision="APPROVED",
         checks=_c(passed=5, fail=1),
         comments=_cm(human=2),
+        unresolved_threads=3,
     )
-    assert labels[0] == "merged"
-    assert "ci_failing" in labels
+    assert labels == ["merged"]
+
+
+def test_compute_labels_closed_suppresses_every_other_chip() -> None:
+    """Same rule applies symmetrically to ``closed`` (closed without
+    merge). The PR isn't going anywhere; surfacing other chips just
+    clutters the row."""
+    labels = _compute_labels(
+        state="CLOSED",
+        is_draft=False,
+        mergeable=None,
+        merge_state_status=None,
+        review_decision=None,
+        checks=_c(passed=2, fail=1),
+        comments=_cm(human=1),
+    )
+    assert labels == ["closed"]
 
 
 def test_compute_labels_falls_back_to_waiting_on_others() -> None:
