@@ -312,6 +312,55 @@ def test_migration_005_allows_code_on_disk_status(db_path: Path) -> None:
         conn.close()
 
 
+def test_migration_006_pr_state_fk_points_at_worktree(db_path: Path) -> None:
+    """After all migrations apply, pr_state's FK target is `worktree`
+    (not a dangling `worktree_old_005`). Insert smoke-test confirms
+    the FK resolves at INSERT time."""
+    db.apply_migrations_sync(db_path)
+    conn = db.open_db(db_path)
+    try:
+        # PRAGMA foreign_key_list returns rows describing each FK; the
+        # third column (index 2) is the target table name.
+        fks = conn.execute("PRAGMA foreign_key_list(pr_state)").fetchall()
+        assert fks, "pr_state should have FK to worktree"
+        for fk in fks:
+            assert fk[2] == "worktree", (
+                f"pr_state FK target must be 'worktree', got {fk[2]!r}"
+            )
+
+        # End-to-end: seed a worktree, then insert a pr_state row that
+        # references it. The INSERT would error with "no such table"
+        # if the FK target were dangling.
+        conn.execute(
+            """
+            INSERT INTO worktree
+              (repo, name, path, branch, created_at, status)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("r", "wt", "/p", "main", "2026-01-01T00:00:00Z", "ready"),
+        )
+        conn.execute(
+            """
+            INSERT INTO pr_state
+              (repo, worktree_name, headline, payload, checked_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ("r", "wt", "no_pr", "{}", "2026-01-01T00:00:00Z"),
+        )
+        conn.commit()
+
+        # And cascade-delete still works (the FK action survived the
+        # rebuild).
+        conn.execute("DELETE FROM worktree WHERE name = 'wt'")
+        conn.commit()
+        remaining = conn.execute(
+            "SELECT COUNT(*) FROM pr_state WHERE worktree_name = 'wt'"
+        ).fetchone()[0]
+        assert remaining == 0
+    finally:
+        conn.close()
+
+
 # --- migration discovery ---------------------------------------------------
 
 
