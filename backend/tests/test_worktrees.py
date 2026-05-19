@@ -361,6 +361,12 @@ def _stub_cursor_subprocess(
             return (b"", stderr)
 
     async def fake_exec(*args: object, **kwargs: object) -> FakeProc:
+        # Only react to actual `cursor …` invocations; background
+        # pollers (inbox / pr_state) and the pr-files endpoint also
+        # call ``asyncio.create_subprocess_exec`` and would otherwise
+        # clobber the captured argv.
+        if not args or args[0] != "cursor":
+            return FakeProc()
         if raise_filenotfound:
             raise FileNotFoundError("[Errno 2] No such file: 'cursor'")
         captured["argv"] = list(args)
@@ -562,28 +568,50 @@ def test_open_cursor_rejects_symlink_escaping_worktree(
 # --- /api/worktree/{repo}/{name}/pr-files --------------------------------
 
 
-def _stub_gh_pr_view_files(
+def _stub_git_diff_numstat(
     monkeypatch: pytest.MonkeyPatch,
     *,
-    files: list[dict] | None,
+    by_ref: dict[str, tuple[int, bytes]] | None = None,
+    default: tuple[int, bytes] = (0, b""),
 ) -> dict:
-    """Replace ``run_gh_json`` (as imported by the worktrees route
-    module) with a fake that returns ``{"files": files}`` (or None if
-    ``files`` is None). Returns a dict the test can inspect for the
-    argv it was called with."""
+    """Replace ``asyncio.create_subprocess_exec`` (as imported via the
+    worktrees route module) so each invocation matches one of the
+    expected ``git diff --numstat <ref>...HEAD`` shapes and returns a
+    canned ``(returncode, stdout)``.
+
+    ``by_ref`` lets a test return different results per ref (e.g., to
+    simulate "origin/main missing, falls back to main"). The argv's
+    ref segment is the 8th token: ``git -C <wt> diff --numstat
+    --no-renames <ref>...HEAD``. ``default`` is used for any ref not
+    in ``by_ref``.
+
+    Returns ``{"calls": [argv, ...]}`` for inspection.
+    """
     from unittest.mock import AsyncMock
 
-    captured: dict = {"args": None, "kwargs": None}
+    captured: dict = {"calls": []}
 
-    async def fake(*args: object, **kwargs: object) -> dict | None:
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        if files is None:
-            return None
-        return {"files": files}
+    class FakeProc:
+        def __init__(self, rc: int, stdout: bytes) -> None:
+            self.returncode = rc
+            self._stdout = stdout
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return (self._stdout, b"")
+
+    async def fake_exec(*args: object, **kwargs: object) -> FakeProc:
+        captured["calls"].append(list(args))
+        # The ref...HEAD token is the last positional before the kwargs.
+        ref_token = ""
+        for a in args:
+            if isinstance(a, str) and a.endswith("...HEAD"):
+                ref_token = a[: -len("...HEAD")]
+                break
+        rc, stdout = (by_ref or {}).get(ref_token, default)
+        return FakeProc(rc, stdout)
 
     monkeypatch.setattr(
-        "app.routes.worktrees.run_gh_json", AsyncMock(side_effect=fake)
+        "asyncio.create_subprocess_exec", AsyncMock(side_effect=fake_exec)
     )
     return captured
 
@@ -610,64 +638,15 @@ def test_pr_files_400_when_path_missing_on_disk(
     assert "missing on disk" in r.json()["detail"]
 
 
-def test_pr_files_503_when_gh_missing(
+def test_pr_files_parses_numstat_output(
     _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from unittest.mock import AsyncMock
-
-    from app.services.gh_cli import GhNotFound
-
+    """Happy path: git diff --numstat returns one line per changed
+    file, tab-separated <adds>\\t<dels>\\t<path>."""
     wt_path = _isolate["dev_root"] / "wt"
     seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
-
-    async def boom(*args: object, **kwargs: object) -> object:
-        raise GhNotFound("gh CLI not on PATH")
-
-    monkeypatch.setattr(
-        "app.routes.worktrees.run_gh_json", AsyncMock(side_effect=boom)
-    )
-
-    with TestClient(app) as client:
-        r = client.get("/api/worktree/myapp/feature/pr-files")
-    assert r.status_code == 503
-
-
-def test_pr_files_empty_when_gh_returns_no_pr(
-    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """run_gh_json returns None when `gh pr view` reports no PR for
-    the current branch (the swallow_errors path)."""
-    wt_path = _isolate["dev_root"] / "wt"
-    seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
-    _stub_gh_pr_view_files(monkeypatch, files=None)
-
-    with TestClient(app) as client:
-        r = client.get("/api/worktree/myapp/feature/pr-files")
-    assert r.status_code == 200
-    assert r.json() == {"files": []}
-
-
-def test_pr_files_happy_path_with_cached_pr_number(
-    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """When pr_number + pr_repo are cached on the row, the endpoint
-    calls `gh pr view <num> -R <repo>` (not the cwd variant)."""
-    wt_path = _isolate["dev_root"] / "wt"
-    seed_worktree(
-        _isolate["db_path"],
-        "myapp",
-        "feature",
-        path=wt_path,
-        pr_number=42,
-        pr_repo="acme/myapp",
-    )
-    captured = _stub_gh_pr_view_files(
-        monkeypatch,
-        files=[
-            {"path": "src/foo.py", "additions": 12, "deletions": 3},
-            {"path": "src/bar.py", "additions": 0, "deletions": 5},
-        ],
-    )
+    out = b"12\t3\tsrc/foo.py\n0\t5\tsrc/bar.py\n"
+    _stub_git_diff_numstat(monkeypatch, default=(0, out))
 
     with TestClient(app) as client:
         r = client.get("/api/worktree/myapp/feature/pr-files")
@@ -677,48 +656,154 @@ def test_pr_files_happy_path_with_cached_pr_number(
     assert body["files"][0]["path"] == "src/foo.py"
     assert body["files"][0]["additions"] == 12
     assert body["files"][0]["deletions"] == 3
-    # argv form: ["pr", "view", "42", "-R", "acme/myapp", "--json", "files"]
-    argv = captured["args"][0]
-    assert "42" in argv
-    assert "-R" in argv
-    assert "acme/myapp" in argv
+    assert body["files"][1]["additions"] == 0
+    assert body["files"][1]["deletions"] == 5
 
 
-def test_pr_files_fallback_to_cwd_when_pr_number_unset(
+def test_pr_files_empty_when_git_returns_empty(
     _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """When pr_number / pr_repo aren't cached yet, the endpoint falls
-    back to `gh pr view --json files` with cwd=<worktree path>."""
+    """Branch at HEAD of base — git diff returns nothing, endpoint
+    returns an empty list (not 5xx)."""
     wt_path = _isolate["dev_root"] / "wt"
     seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
-    captured = _stub_gh_pr_view_files(
+    _stub_git_diff_numstat(monkeypatch, default=(0, b""))
+
+    with TestClient(app) as client:
+        r = client.get("/api/worktree/myapp/feature/pr-files")
+    assert r.status_code == 200
+    assert r.json() == {"files": []}
+
+
+def test_pr_files_empty_when_git_fails_both_refs(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Neither origin/<branch> nor bare <branch> ref resolves — both
+    git calls exit non-zero. Endpoint returns empty rather than 5xx
+    so the section just renders nothing."""
+    wt_path = _isolate["dev_root"] / "wt"
+    seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
+    _stub_git_diff_numstat(monkeypatch, default=(128, b""))
+
+    with TestClient(app) as client:
+        r = client.get("/api/worktree/myapp/feature/pr-files")
+    assert r.status_code == 200
+    assert r.json() == {"files": []}
+
+
+def test_pr_files_falls_back_to_local_ref_when_origin_missing(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``origin/main`` ref doesn't exist locally → first git call
+    exits non-zero. Endpoint retries with bare ``main`` and uses
+    its output."""
+    wt_path = _isolate["dev_root"] / "wt"
+    seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
+    captured = _stub_git_diff_numstat(
         monkeypatch,
-        files=[{"path": "x.py", "additions": 1, "deletions": 0}],
+        by_ref={
+            "origin/main": (128, b""),
+            "main": (0, b"5\t2\tsrc/x.py\n"),
+        },
     )
 
     with TestClient(app) as client:
         r = client.get("/api/worktree/myapp/feature/pr-files")
     assert r.status_code == 200
     assert len(r.json()["files"]) == 1
-    # cwd kwarg was set to the worktree path.
-    assert captured["kwargs"].get("cwd") == wt_path
-    # No "-R" / numeric arg in the argv when falling back.
-    argv = captured["args"][0]
-    assert "-R" not in argv
+    # Both refs were tried, in order.
+    refs_seen = [
+        token
+        for call in captured["calls"]
+        for token in call
+        if isinstance(token, str) and token.endswith("...HEAD")
+    ]
+    assert refs_seen == ["origin/main...HEAD", "main...HEAD"]
+
+
+def test_pr_files_treats_binary_files_as_zero_changes(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """git diff --numstat reports binary files with `-`/`-` instead of
+    line counts. Endpoint must not crash; render as 0/0."""
+    wt_path = _isolate["dev_root"] / "wt"
+    seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
+    _stub_git_diff_numstat(
+        monkeypatch, default=(0, b"-\t-\tassets/logo.png\n3\t1\tsrc/x.py\n")
+    )
+
+    with TestClient(app) as client:
+        r = client.get("/api/worktree/myapp/feature/pr-files")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["files"][0]["path"] == "assets/logo.png"
+    assert body["files"][0]["additions"] == 0
+    assert body["files"][0]["deletions"] == 0
+    assert body["files"][1]["additions"] == 3
+    assert body["files"][1]["deletions"] == 1
+
+
+def test_pr_files_uses_repo_default_branch_from_config(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Repo config's ``default_branch`` drives the ref used. A repo
+    with default_branch='develop' should produce ``origin/develop``
+    as the first ref tried."""
+    wt_path = _isolate["dev_root"] / "wt"
+    seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
+    write_repo_config(
+        _isolate["config_path"],
+        _isolate["dev_root"],
+        _isolate["dev_root"] / "myapp",
+        default_branch="develop",
+    )
+    captured = _stub_git_diff_numstat(monkeypatch, default=(0, b""))
+
+    with TestClient(app) as client:
+        r = client.get("/api/worktree/myapp/feature/pr-files")
+    assert r.status_code == 200
+    refs_seen = [
+        token
+        for call in captured["calls"]
+        for token in call
+        if isinstance(token, str) and token.endswith("...HEAD")
+    ]
+    assert refs_seen[0] == "origin/develop...HEAD"
+
+
+def test_pr_files_defaults_to_main_when_repo_not_in_config(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Worktree row's repo isn't in the config (e.g., config got out
+    of sync). Fall back to 'main' as the base branch."""
+    wt_path = _isolate["dev_root"] / "wt"
+    seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
+    # Intentionally no write_repo_config call.
+    captured = _stub_git_diff_numstat(monkeypatch, default=(0, b""))
+
+    with TestClient(app) as client:
+        r = client.get("/api/worktree/myapp/feature/pr-files")
+    assert r.status_code == 200
+    refs_seen = [
+        token
+        for call in captured["calls"]
+        for token in call
+        if isinstance(token, str) and token.endswith("...HEAD")
+    ]
+    assert refs_seen[0] == "origin/main...HEAD"
 
 
 def test_pr_files_computes_github_diff_anchor(
     _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Each file's `github_diff_anchor` must be sha256(path).hexdigest()."""
+    """Each file's `github_diff_anchor` is sha256(path).hexdigest() —
+    independent of the data source (was unit-tested when files came
+    from gh; verifying it survives the local-git move)."""
     import hashlib
 
     wt_path = _isolate["dev_root"] / "wt"
     seed_worktree(_isolate["db_path"], "myapp", "feature", path=wt_path)
-    _stub_gh_pr_view_files(
-        monkeypatch,
-        files=[{"path": "src/foo.py", "additions": 1, "deletions": 0}],
-    )
+    _stub_git_diff_numstat(monkeypatch, default=(0, b"1\t0\tsrc/foo.py\n"))
 
     with TestClient(app) as client:
         r = client.get("/api/worktree/myapp/feature/pr-files")
