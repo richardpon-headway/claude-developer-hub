@@ -253,9 +253,13 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
                     key={f.path}
                     className="flex items-center gap-3 px-3 py-2 text-sm"
                   >
-                    <span className="flex-1 break-all font-mono text-xs text-zinc-200">
+                    <Link
+                      to="/workspace/$repo/$name/files/$"
+                      params={{ repo, name, _splat: f.path }}
+                      className="flex-1 break-all font-mono text-xs text-zinc-200 hover:text-zinc-50 hover:underline"
+                    >
                       {f.path}
-                    </span>
+                    </Link>
                     <span className="text-xs tabular-nums text-green-400">
                       +{f.additions}
                     </span>

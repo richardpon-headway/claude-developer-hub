@@ -45,3 +45,7 @@ token_monitor:
 server:
   port: 47823
   host: 127.0.0.1
+
+diff:
+  default_context_lines: 25       # context kept around each diff hunk
+  expand_all_threshold: 200       # files ≤ this many lines render fully expanded

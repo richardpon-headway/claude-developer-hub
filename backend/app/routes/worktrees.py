@@ -7,14 +7,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from app.config.loader import load_config
 from app.models.worktree import PrStateSummary, WorktreeRow
+from app.services import git_cli
 from app.services import worktree as svc
 from app.services.gh_cli import GhFailed, GhNotFound, run_gh_json
 from app.services.iterm_send import (
@@ -353,6 +356,348 @@ async def get_pr_files(repo: str, name: str) -> PrFilesResponse:
         for adds, dels, path in rows
     ]
     return PrFilesResponse(files=files)
+
+
+# -- file view -----------------------------------------------------------
+#
+# `GET /api/worktree/{repo}/{name}/file` renders one file for the
+# PR-file-detail page (plan-46). Returns:
+#   - the file's on-disk content (when small + non-binary)
+#   - a list of diff hunks classified as committed (vs the branch's
+#     merge-base) or uncommitted (vs HEAD)
+#   - banner metadata (branch match, file-in-PR flag, rename info)
+#
+# The diff overlay derives entirely from local git state — no GitHub
+# queries. Two `git diff` calls per request (vs HEAD + vs merge-base)
+# and one file read. Works offline.
+
+
+_LARGE_FILE_THRESHOLD_BYTES = 1_048_576  # 1 MB
+_LARGE_FILE_THRESHOLD_LINES = 5_000
+_BINARY_SNIFF_BYTES = 4_096
+
+# Path patterns CDH collapses by default in the file view (the frontend
+# reads ``is_generated_or_lockfile`` and starts these collapsed). The
+# user can still expand them with one click; this just keeps them out
+# of the default scroll target on a noisy PR.
+_GENERATED_PATTERNS = [
+    re.compile(r"(^|/)(pnpm|yarn|package)-lock\.(json|yaml)$"),
+    re.compile(r"(^|/)poetry\.lock$"),
+    re.compile(r"(^|/)Cargo\.lock$"),
+    re.compile(r"(^|/)go\.sum$"),
+    re.compile(r"(^|/)uv\.lock$"),
+    re.compile(r"openapi(-spec)?\.(json|ya?ml)$"),
+    re.compile(r"__snapshots__/"),
+    re.compile(r"\.snap$"),
+    re.compile(r"(^|/)generated/"),
+]
+
+
+FileViewLineKind = Literal[
+    "context",
+    "committed_add",
+    "committed_remove",
+    "uncommitted_add",
+    "uncommitted_remove",
+]
+
+
+class FileViewHunkLine(BaseModel):
+    kind: FileViewLineKind
+    content: str
+    # 1-indexed position in the on-disk file. None for *_remove lines —
+    # they don't exist on disk, the frontend inserts them as "ghost"
+    # lines anchored to the surrounding hunk.
+    on_disk_lineno: int | None
+
+
+class FileViewHunk(BaseModel):
+    on_disk_start: int  # first on-disk line in this hunk (1-indexed)
+    on_disk_end: int    # last on-disk line in this hunk
+    lines: list[FileViewHunkLine]
+
+
+class FileViewResponse(BaseModel):
+    path: str
+    # Workspace / branch context for the banner.
+    workspace_branch: str | None     # worktree's current HEAD (short name)
+    pr_branch: str | None            # PR branch from worktree row
+    branch_matches_pr: bool
+    file_in_pr_diff: bool
+    # File status flags.
+    is_binary: bool
+    is_large: bool
+    is_missing: bool
+    size_bytes: int | None
+    # Rename info (when the branch renames this file).
+    rename_from: str | None
+    # Payload — null when binary / missing / large-and-not-load-anyway.
+    on_disk_content: str | None
+    line_count: int | None
+    hunks: list[FileViewHunk]
+    is_generated_or_lockfile: bool
+
+
+def _looks_binary(data: bytes) -> bool:
+    """Crude binary check: a NUL byte in the first 4 KB. Catches images,
+    compiled artifacts, etc. Misses UTF-16 (which legitimately has NULs)
+    — acceptable trade for not pulling in chardet."""
+    return b"\x00" in data[:_BINARY_SNIFF_BYTES]
+
+
+def _is_generated_or_lockfile(rel_path: str) -> bool:
+    return any(pat.search(rel_path) for pat in _GENERATED_PATTERNS)
+
+
+def _read_file_safely(
+    full_path: Path, load_anyway: bool
+) -> tuple[str | None, int | None, bool, bool, int | None]:
+    """Return ``(content, line_count, is_binary, is_large, size_bytes)``.
+
+    Content is None when the file is missing, binary, or large-without-
+    load-anyway. Line count is None whenever content is None.
+    """
+    try:
+        size = full_path.stat().st_size
+    except FileNotFoundError:
+        return None, None, False, False, None
+
+    is_large = size > _LARGE_FILE_THRESHOLD_BYTES
+
+    # Read the sniff prefix to detect binary before committing to a full
+    # text read (avoids hauling a 50 MB blob into memory just to refuse
+    # it on encoding grounds).
+    try:
+        with full_path.open("rb") as f:
+            head = f.read(_BINARY_SNIFF_BYTES)
+    except OSError:
+        return None, None, False, False, size
+
+    if _looks_binary(head):
+        return None, None, True, is_large, size
+
+    if is_large and not load_anyway:
+        return None, None, False, True, size
+
+    try:
+        text = full_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None, None, False, is_large, size
+
+    line_count = text.count("\n") + (0 if text.endswith("\n") or not text else 1)
+    if line_count > _LARGE_FILE_THRESHOLD_LINES and not load_anyway:
+        return None, None, False, True, size
+
+    return text, line_count, False, is_large, size
+
+
+def _classify_diff_to_hunks(
+    hunks: list[git_cli.GitDiffHunk], add_kind: FileViewLineKind, remove_kind: FileViewLineKind
+) -> list[FileViewHunk]:
+    """Convert ``GitDiffHunk`` (raw parsed unified diff) into the
+    response model, tagging adds and removes with the provided kinds."""
+    out: list[FileViewHunk] = []
+    for h in hunks:
+        lines: list[FileViewHunkLine] = []
+        for ln in h.lines:
+            if ln.kind == "add":
+                lines.append(
+                    FileViewHunkLine(
+                        kind=add_kind, content=ln.content, on_disk_lineno=ln.new_lineno
+                    )
+                )
+            elif ln.kind == "remove":
+                lines.append(
+                    FileViewHunkLine(
+                        kind=remove_kind, content=ln.content, on_disk_lineno=None
+                    )
+                )
+            # "context" lines from a unified=0 diff don't exist; the
+            # on_disk_content carries unchanged lines on the frontend.
+        if not lines:
+            continue
+        # When the hunk is pure-add, new_count is real and on_disk_start
+        # = new_start. When it's pure-remove, new_count is 0 and the
+        # removes anchor at new_start (which is the line BEFORE which
+        # the removed content used to live).
+        end = h.new_start + max(0, h.new_count - 1) if h.new_count > 0 else h.new_start
+        out.append(
+            FileViewHunk(
+                on_disk_start=h.new_start, on_disk_end=end, lines=lines
+            )
+        )
+    return out
+
+
+async def _file_was_changed_vs_base(
+    wt_path: Path, base_ref: str | None, rel_path: Path
+) -> bool:
+    """Did this branch touch ``rel_path`` between ``base_ref`` and HEAD?
+    Used for the "Not modified in this PR" banner."""
+    if base_ref is None:
+        return False
+    rc, out, _ = await git_cli._run_git(
+        wt_path,
+        [
+            "diff",
+            "--name-only",
+            "--no-color",
+            f"{base_ref}..HEAD",
+            "--",
+            str(rel_path),
+        ],
+    )
+    if rc != 0:
+        return False
+    return bool(out.decode("utf-8", errors="replace").strip())
+
+
+@router.get(
+    "/worktree/{repo}/{name}/file", response_model=FileViewResponse
+)
+async def get_file_view(
+    repo: str,
+    name: str,
+    path: str,
+    load_anyway: bool = False,
+) -> FileViewResponse:
+    """Render one file from the worktree on disk, with diff hunks
+    classified as committed-in-branch (vs the branch's merge-base) or
+    uncommitted (vs HEAD).
+
+    ``path`` is relative to the worktree root. Same path-traversal
+    guard as ``open-cursor``: any input that resolves outside the
+    worktree (absolute, parent-traversal, escaping symlink) returns 400.
+    """
+    if not path:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "path query parameter is required"
+        )
+
+    row = await asyncio.to_thread(svc.get_worktree_sync, repo, name)
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"worktree not found: {repo}/{name}"
+        )
+
+    wt_path = Path(row.path)
+    if not wt_path.is_dir():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"worktree path missing on disk: {wt_path}",
+        )
+
+    # Path-traversal guard: resolve `wt / path` and confirm it still
+    # lives under the worktree root. Catches absolute paths, parent
+    # traversal, and symlinks pointing outside the tree.
+    candidate = (wt_path / path).resolve()
+    try:
+        rel = candidate.relative_to(wt_path.resolve())
+    except ValueError as e:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"path must live under the worktree root: {path}",
+        ) from e
+
+    # Resolve config + branch + base ref.
+    config = await asyncio.to_thread(load_config)
+    repo_cfg = next((r for r in config.repos if r.name == row.repo), None)
+    default_branch = repo_cfg.default_branch if repo_cfg else "main"
+
+    workspace_branch_task = asyncio.create_task(git_cli.current_branch(wt_path))
+    base_ref_task = asyncio.create_task(git_cli.resolve_base_ref(wt_path, default_branch))
+
+    workspace_branch = await workspace_branch_task
+    base_ref = await base_ref_task
+
+    pr_branch = row.branch
+    branch_matches_pr = (
+        workspace_branch is not None and workspace_branch == pr_branch
+    )
+
+    # File-on-disk inspection.
+    content, line_count, is_binary, is_large, size_bytes = await asyncio.to_thread(
+        _read_file_safely, candidate, load_anyway
+    )
+    is_missing = not candidate.exists()
+    is_generated = _is_generated_or_lockfile(str(rel))
+
+    # Rename detection + "is this file in the PR?" both depend on the
+    # base ref. Run them in parallel since they're independent.
+    rename_task: asyncio.Task[str | None] | None = None
+    in_pr_task: asyncio.Task[bool] | None = None
+    if base_ref is not None and not is_missing:
+        rename_task = asyncio.create_task(
+            git_cli.rename_source(wt_path, base_ref, rel)
+        )
+        in_pr_task = asyncio.create_task(
+            _file_was_changed_vs_base(wt_path, base_ref, rel)
+        )
+
+    rename_from = await rename_task if rename_task else None
+    file_in_pr_diff = await in_pr_task if in_pr_task else False
+
+    # Diff hunks. Only compute when the file is renderable (not binary,
+    # not missing, content is loaded). For missing/binary/skipped-large,
+    # we just return empty hunks + the appropriate flag.
+    hunks: list[FileViewHunk] = []
+    if (
+        content is not None
+        and not is_binary
+        and not is_missing
+        and base_ref is not None
+    ):
+        merge_base_sha = await git_cli.merge_base(wt_path, base_ref)
+        committed_hunks: list[git_cli.GitDiffHunk] = []
+        if merge_base_sha is not None:
+            # Use the merge-base SHA directly so we compare to where the
+            # branch diverged, not to whatever has since landed on the
+            # base ref. ``diff <sha>..HEAD`` returns committed-only
+            # changes (the working tree is not included).
+            committed_hunks = await git_cli.diff_against_ref(
+                wt_path, f"{merge_base_sha}..HEAD", rel
+            )
+
+        tracked = await git_cli.is_tracked(wt_path, rel)
+        if tracked:
+            uncommitted_hunks = await git_cli.diff_against_ref(
+                wt_path, "HEAD", rel
+            )
+        else:
+            uncommitted_hunks = await git_cli.diff_against_ref_untracked(
+                wt_path, rel
+            )
+
+        committed_classified = _classify_diff_to_hunks(
+            committed_hunks, "committed_add", "committed_remove"
+        )
+        uncommitted_classified = _classify_diff_to_hunks(
+            uncommitted_hunks, "uncommitted_add", "uncommitted_remove"
+        )
+        # Stable sort by on-disk start so the frontend can render hunks
+        # in line-number order. Same-start hunks: committed first
+        # (matches "stacked blocks" — committed before uncommitted).
+        hunks = sorted(
+            committed_classified + uncommitted_classified,
+            key=lambda h: (h.on_disk_start, 0 if h.lines[0].kind.startswith("committed") else 1),
+        )
+
+    return FileViewResponse(
+        path=str(rel),
+        workspace_branch=workspace_branch,
+        pr_branch=pr_branch,
+        branch_matches_pr=branch_matches_pr,
+        file_in_pr_diff=file_in_pr_diff,
+        is_binary=is_binary,
+        is_large=is_large,
+        is_missing=is_missing,
+        size_bytes=size_bytes,
+        rename_from=rename_from,
+        on_disk_content=content,
+        line_count=line_count,
+        hunks=hunks,
+        is_generated_or_lockfile=is_generated,
+    )
 
 
 class ListWorktreesResponse(BaseModel):
