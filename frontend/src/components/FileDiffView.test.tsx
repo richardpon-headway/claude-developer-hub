@@ -13,6 +13,7 @@ const diff: DiffConfig = {
 function base(overrides: Partial<FileViewResponse>): FileViewResponse {
   return {
     path: "foo.py",
+    github_diff_anchor: "abc123",
     workspace_branch: "feature",
     pr_branch: "feature",
     branch_matches_pr: true,
