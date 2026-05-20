@@ -271,7 +271,7 @@ export function FileDiffView({ response, diff, expandAll }: Props) {
   return (
     <div className="font-mono text-xs">
       <div
-        className="flex flex-col rounded border border-zinc-800 bg-zinc-950"
+        className="flex flex-col overflow-x-auto rounded border border-zinc-800 bg-zinc-950"
         role="region"
         aria-label={`File diff for ${response.path}`}
       >
