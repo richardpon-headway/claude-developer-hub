@@ -6,7 +6,14 @@ import type {
   WorkspaceSkill,
 } from "./types";
 
+export interface DiffConfig {
+  default_context_lines: number;
+  expand_all_threshold: number;
+}
+
 export const getJiraConfig = () => apiGet<JiraConfig>("/api/config/jira");
+
+export const getDiffConfig = () => apiGet<DiffConfig>("/api/config/diff");
 
 export const getGlobalSkills = () =>
   apiGet<GlobalSkill[]>("/api/config/skills");

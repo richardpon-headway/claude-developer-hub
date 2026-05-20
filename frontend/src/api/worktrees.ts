@@ -63,6 +63,54 @@ export interface PrFilesResponse {
 export const getPrFiles = (repo: string, name: string) =>
   apiGet<PrFilesResponse>(`${workspacePath(repo, name)}/pr-files`);
 
+export type FileViewLineKind =
+  | "context"
+  | "committed_add"
+  | "committed_remove"
+  | "uncommitted_add"
+  | "uncommitted_remove";
+
+export interface FileViewHunkLine {
+  kind: FileViewLineKind;
+  content: string;
+  on_disk_lineno: number | null;
+}
+
+export interface FileViewHunk {
+  on_disk_start: number;
+  on_disk_end: number;
+  lines: FileViewHunkLine[];
+}
+
+export interface FileViewResponse {
+  path: string;
+  workspace_branch: string | null;
+  pr_branch: string | null;
+  branch_matches_pr: boolean;
+  file_in_pr_diff: boolean;
+  is_binary: boolean;
+  is_large: boolean;
+  is_missing: boolean;
+  size_bytes: number | null;
+  rename_from: string | null;
+  on_disk_content: string | null;
+  line_count: number | null;
+  hunks: FileViewHunk[];
+  is_generated_or_lockfile: boolean;
+}
+
+export const getFileView = (
+  repo: string,
+  name: string,
+  path: string,
+  loadAnyway = false,
+) =>
+  apiGet<FileViewResponse>(
+    `${workspacePath(repo, name)}/file?path=${encodeURIComponent(path)}${
+      loadAnyway ? "&load_anyway=true" : ""
+    }`,
+  );
+
 export const sendText = (
   repo: string,
   name: string,
