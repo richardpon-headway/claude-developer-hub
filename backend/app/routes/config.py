@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.config.loader import load_config
-from app.config.schema import GlobalSkill, JiraConfig, WorkspaceSkill
+from app.config.schema import DiffConfig, GlobalSkill, JiraConfig, WorkspaceSkill
 
 router = APIRouter(prefix="/api/config", tags=["config"])
 
@@ -17,6 +17,13 @@ router = APIRouter(prefix="/api/config", tags=["config"])
 @router.get("/jira", response_model=JiraConfig)
 async def get_jira_config() -> JiraConfig:
     return load_config().jira
+
+
+@router.get("/diff", response_model=DiffConfig)
+async def get_diff_config() -> DiffConfig:
+    """Diff-view rendering knobs (context lines, expand-all threshold).
+    The frontend reads these to set the collapse default per file."""
+    return load_config().diff
 
 
 @router.get("/skills", response_model=list[GlobalSkill])
