@@ -419,6 +419,9 @@ class FileViewHunk(BaseModel):
 
 class FileViewResponse(BaseModel):
     path: str
+    # sha256(path).hexdigest() — matches plan-39's PrFile.github_diff_anchor
+    # so the frontend can deep-link to /pull/<num>/files#diff-<anchor>.
+    github_diff_anchor: str
     # Workspace / branch context for the banner.
     workspace_branch: str | None     # worktree's current HEAD (short name)
     pr_branch: str | None            # PR branch from worktree row
@@ -682,8 +685,12 @@ async def get_file_view(
             key=lambda h: (h.on_disk_start, 0 if h.lines[0].kind.startswith("committed") else 1),
         )
 
+    import hashlib
+
+    rel_str = str(rel)
     return FileViewResponse(
-        path=str(rel),
+        path=rel_str,
+        github_diff_anchor=hashlib.sha256(rel_str.encode()).hexdigest(),
         workspace_branch=workspace_branch,
         pr_branch=pr_branch,
         branch_matches_pr=branch_matches_pr,

@@ -71,8 +71,8 @@ function FileViewPage({ repo, name, filePath }: FileViewPageProps) {
     (fv.line_count ?? 0) > diffConfig.data.expand_all_threshold;
 
   const githubHref =
-    row?.pr_number != null && row.pr_repo
-      ? `https://github.com/${row.pr_repo}/pull/${row.pr_number}/files`
+    row?.pr_number != null && row.pr_repo && fv?.github_diff_anchor
+      ? `https://github.com/${row.pr_repo}/pull/${row.pr_number}/files#diff-${fv.github_diff_anchor}`
       : null;
 
   return (
@@ -111,7 +111,7 @@ function FileViewPage({ repo, name, filePath }: FileViewPageProps) {
             rel="noopener noreferrer"
             className="rounded border border-zinc-700 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
           >
-            Open PR on GitHub
+            Open File in GitHub
           </a>
         )}
         {showExpandAllToggle && (
