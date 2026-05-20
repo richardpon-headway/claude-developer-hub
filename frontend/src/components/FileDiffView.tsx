@@ -244,12 +244,8 @@ interface Props {
 
 /** Renders the unified diff view: per-line content, classified colors,
  *  block borders, collapsed unchanged-region expanders, and the
- *  click-to-toggle line-number gutter. */
+ *  always-visible line-number gutter. */
 export function FileDiffView({ response, diff, expandAll }: Props) {
-  // Gutter state: visible by default; click to toggle hover-only.
-  // Not persisted across page loads (Q11 in plan-46).
-  const [gutterAlwaysVisible, setGutterAlwaysVisible] = useState(true);
-
   // Per-collapsed-block expansion state. Key = stable index based on the
   // block's hidden range; expanded blocks render their hidden lines.
   const [expandedCollapses, setExpandedCollapses] = useState<Set<number>>(
@@ -272,12 +268,8 @@ export function FileDiffView({ response, diff, expandAll }: Props) {
     return null;
   }
 
-  const gutterClass = gutterAlwaysVisible
-    ? "opacity-100"
-    : "opacity-0 group-hover:opacity-100 transition-opacity";
-
   return (
-    <div className="group relative font-mono text-xs">
+    <div className="font-mono text-xs">
       <div
         className="flex flex-col rounded border border-zinc-800 bg-zinc-950"
         role="region"
@@ -287,17 +279,11 @@ export function FileDiffView({ response, diff, expandAll }: Props) {
           if (isCollapsed(block)) {
             const expanded = expandedCollapses.has(idx);
             if (expanded) {
-              // Render the hidden lines that this collapse was masking.
-              // We reach back into the ungrouped list by walking allLines
-              // and finding the matching range — but for simplicity we
-              // just re-fetch from blocks state. For v1 we trust the
-              // stable-index keying.
               return (
                 <ExpandedFormerly
                   key={`expanded-${idx}`}
                   block={block}
                   blocks={allLines}
-                  gutterAlwaysVisible={gutterAlwaysVisible}
                 />
               );
             }
@@ -327,53 +313,26 @@ export function FileDiffView({ response, diff, expandAll }: Props) {
           return (
             <div key={`block-${idx}`} className={borderClass}>
               {block.lines.map((line, li) => (
-                <LineRow
-                  key={li}
-                  line={line}
-                  gutterClass={gutterClass}
-                  styles={styles}
-                />
+                <LineRow key={li} line={line} styles={styles} />
               ))}
             </div>
           );
         })}
       </div>
-      {/* The click-to-toggle area is the gutter itself, which sits
-          absolutely positioned over the left edge. Mouse-over reveals
-          line numbers when toggled to hover-only. */}
-      <button
-        type="button"
-        aria-label={
-          gutterAlwaysVisible
-            ? "Hide line numbers (hover-to-reveal)"
-            : "Show line numbers"
-        }
-        onClick={() => setGutterAlwaysVisible((v) => !v)}
-        className="absolute left-0 top-0 h-full w-12 cursor-pointer"
-        title={
-          gutterAlwaysVisible
-            ? "Click: hide line numbers"
-            : "Click: show line numbers"
-        }
-      />
     </div>
   );
 }
 
 function LineRow({
   line,
-  gutterClass,
   styles,
 }: {
   line: RenderedLine;
-  gutterClass: string;
   styles: (typeof KIND_STYLES)[FileViewLineKind];
 }) {
   return (
     <div className={`flex items-baseline ${styles.bg}`}>
-      <span
-        className={`inline-block w-12 select-none pr-2 text-right text-[10px] tabular-nums text-zinc-600 ${gutterClass}`}
-      >
+      <span className="inline-block w-12 select-none pr-2 text-right text-[10px] tabular-nums text-zinc-600">
         {line.lineno ?? ""}
       </span>
       <span
@@ -393,11 +352,9 @@ function LineRow({
 function ExpandedFormerly({
   block,
   blocks,
-  gutterAlwaysVisible,
 }: {
   block: CollapsedBlock;
   blocks: DiffBlock[];
-  gutterAlwaysVisible: boolean;
 }) {
   // Find the original context block this collapse came from. Match by
   // any line in its hidden range.
@@ -413,9 +370,6 @@ function ExpandedFormerly({
   );
   if (!source) return null;
   const styles = KIND_STYLES.context;
-  const gutterClass = gutterAlwaysVisible
-    ? "opacity-100"
-    : "opacity-0 group-hover:opacity-100 transition-opacity";
   return (
     <div className="border-l-2 border-transparent">
       {source.lines
@@ -426,12 +380,7 @@ function ExpandedFormerly({
             l.lineno <= block.hiddenEndLineno,
         )
         .map((line, li) => (
-          <LineRow
-            key={li}
-            line={line}
-            gutterClass={gutterClass}
-            styles={styles}
-          />
+          <LineRow key={li} line={line} styles={styles} />
         ))}
     </div>
   );
