@@ -1,0 +1,67 @@
+backend/tests/test_sidecar.py
+  s_c36f53c82ec712::t_0824bb8bf0d83d 87
+frontend/src/components/InboxList.test.tsx
+  s_c36f53c82ec712::t_bc942b1921e547 73,89,123
+backend/tests/test_inbox.py
+  s_c36f53c82ec712::t_e2d785b1c4031e 185,189,191
+  s_c36f53c82ec712::t_55fc682e20bd1f 452,483
+  s_c36f53c82ec712::t_c16b33348d94a2 371,377
+  s_c36f53c82ec712::t_d755995e501ad3 512
+  s_c36f53c82ec712::t_f4d24e41ee625d 48-49
+  s_c36f53c82ec712::t_87401a9b287e2c 484
+backend/tests/test_skills.py
+  s_c36f53c82ec712::t_abd57dd96d9ede 234
+backend/tests/test_gh_identity.py
+  s_c36f53c82ec712::t_946ecfd2aa0f57 35,45,94,99,115
+  s_c36f53c82ec712::t_221f6791cb3238 107
+  s_c36f53c82ec712::t_9b371582a0cbb6 31
+backend/app/routes/repos.py
+  s_c36f53c82ec712::t_f128c179688ec1 143
+backend/tests/test_iterm_send.py
+  s_c36f53c82ec712::t_b0db0d8a1bf3ba 265,273,307,312,362,366
+backend/tests/test_pr_state.py
+  s_c36f53c82ec712::t_2610329fd82561 414
+  s_c36f53c82ec712::t_22aef701157dd5 453,665
+  s_c36f53c82ec712::t_5809b8fcbde0be 67
+  s_c36f53c82ec712::t_64fb647789be33 673,713
+backend/tests/test_worktree_import.py
+  s_c36f53c82ec712::t_1a955726b640d0 117,120-121,133,144-145
+  s_c36f53c82ec712::t_865a4bba68839e 377,388
+backend/app/migrations/008_worktree_notes.sql
+  s_c36f53c82ec712::t_59415f12befd45 4-5
+README.md
+  s_c36f53c82ec712::t_88cad140dabb78 105
+frontend/src/components/WorkspaceNotes.test.tsx
+  s_c36f53c82ec712::t_80353b36e7f57e 46,48
+backend/app/services/sidecar.py
+  s_c36f53c82ec712::t_bb80d9dabeae5e 47-48
+backend/tests/test_worktrees.py
+  s_c36f53c82ec712::t_ea963f9264f272 894,897,906
+backend/app/services/inbox_search.py
+  s_c36f53c82ec712::t_a02538f5b1f98f 411
+frontend/src/components/WorkspaceList.test.tsx
+  s_c36f53c82ec712::t_91b228ca92f74a 341,364,381,385,400,449
+  s_c36f53c82ec712::t_ccd17dc44dd735 394
+  s_c36f53c82ec712::t_b4ab3829597d95 172-173,178,182,194-196
+.github/PULL_REQUEST_TEMPLATE.md
+  s_c36f53c82ec712::t_7694dabe3cd477 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "c9423a610de445d0d83a399dbf1ba3a0946690f8",
+  "prompts": {},
+  "sessions": {
+    "s_c36f53c82ec712": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "33c6313b-a5aa-4c52-aa73-cf61aaea2167",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
