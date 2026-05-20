@@ -163,6 +163,33 @@ class PollingConfig(BaseModel):
     )
 
 
+class DiffConfig(BaseModel):
+    """Tuning for the file-detail view's unified diff rendering."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    default_context_lines: int = Field(
+        25,
+        ge=0,
+        le=500,
+        description=(
+            "Lines of unchanged context kept around each diff hunk "
+            "in the file detail view. Stretches longer than this "
+            "collapse to a 'show N unchanged lines' expander."
+        ),
+    )
+    expand_all_threshold: int = Field(
+        200,
+        ge=0,
+        le=10_000,
+        description=(
+            "Files with this many lines or fewer render fully "
+            "expanded (no collapse chrome). Avoids fiddly UI on "
+            "small files."
+        ),
+    )
+
+
 class InboxConfig(BaseModel):
     """GitHub teams whose review-requested PRs should surface in the
     hub's Inbox section alongside the user's authored + directly-
@@ -206,3 +233,4 @@ class CDHConfig(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)
     inbox: InboxConfig = Field(default_factory=InboxConfig)
     polling: PollingConfig = Field(default_factory=PollingConfig)
+    diff: DiffConfig = Field(default_factory=DiffConfig)
