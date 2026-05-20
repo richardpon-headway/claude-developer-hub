@@ -280,7 +280,19 @@ def _count_checks(roll: list) -> PrChecks:
             conclusion = (c.get("conclusion") or "").lower()
             status = (c.get("status") or "").lower()
             state = (c.get("state") or "").lower()
-            fail_conclusions = {"failure", "timed_out", "cancelled", "action_required"}
+            # ``cancelled`` is intentionally NOT in this set. GitHub
+            # workflows cancel routinely due to ``concurrency:
+            # cancel-in-progress`` whenever a newer commit pushes —
+            # those runs are superseded, not failed. statusCheckRollup
+            # returns the union of check runs across all the PR's
+            # commits, so cancelled entries from old commits pile up
+            # even after the latest commit's runs go green. Treating
+            # them as failures lights up ``ci_failing`` on PRs that
+            # GitHub's own UI shows as clean. (Manual user-cancels do
+            # exist but are rare; the cost of missing them is much
+            # smaller than the cost of flagging every normal supersede
+            # as a failure.)
+            fail_conclusions = {"failure", "timed_out", "action_required"}
             pending_statuses = {"queued", "in_progress", "pending"}
             if conclusion == "success" or state == "success":
                 bucket = "pass"
