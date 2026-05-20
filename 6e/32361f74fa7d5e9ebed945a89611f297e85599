@@ -1,0 +1,24 @@
+backend/app/services/pr_state.py
+  s_bf7dfca5b39eba::t_b6d43f7994ddd0 283-295
+backend/tests/test_pr_state.py
+  s_bf7dfca5b39eba::t_606d9d23aea5d2 413-448
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.10",
+  "base_commit_sha": "6e32361f74fa7d5e9ebed945a89611f297e85599",
+  "prompts": {},
+  "sessions": {
+    "s_bf7dfca5b39eba": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4657f9bd-5598-498e-bf57-fa1337a5e64a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
