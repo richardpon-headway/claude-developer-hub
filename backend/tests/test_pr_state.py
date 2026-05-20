@@ -410,6 +410,42 @@ def test_count_checks_synthesizes_bucket_from_conclusion_or_state() -> None:
     assert out.pending == 1
 
 
+def test_count_checks_treats_cancelled_as_non_fail() -> None:
+    """Regression for the PROJ-222 case: a PR with 0 real failures
+    but many CANCELLED workflows (from concurrency: cancel-in-progress
+    on superseding pushes) was being flagged as ci_failing because
+    we counted CANCELLED as fail. GitHub's own UI doesn't treat these
+    as failures and neither should we. They remain in the `total`
+    count but don't tip the row into the NEEDS YOUR ACTION tier."""
+    roll = [
+        {"name": "a", "conclusion": "SUCCESS"},
+        {"name": "b", "conclusion": "CANCELLED"},
+        {"name": "c", "conclusion": "CANCELLED"},
+    ]
+    out = _count_checks(roll)
+    assert out.fail == 0
+    assert out.passed == 1
+    # Cancelled doesn't increment any of pass/fail/pending — it
+    # falls into the same neutral bucket as SKIPPED. total still
+    # counts the row so the rollup size stays honest.
+    assert out.pending == 0
+    assert out.total == 3
+
+
+def test_count_checks_keeps_failure_timed_out_action_required_as_fail() -> None:
+    """Genuine fail-states (real failure, timeout, requires manual
+    approval) must still tip the row into ci_failing. This pins the
+    set so future edits don't accidentally drop one alongside
+    CANCELLED."""
+    roll = [
+        {"name": "a", "conclusion": "FAILURE"},
+        {"name": "b", "conclusion": "TIMED_OUT"},
+        {"name": "c", "conclusion": "ACTION_REQUIRED"},
+    ]
+    out = _count_checks(roll)
+    assert out.fail == 3
+
+
 def test_count_comments_classifies_bot_vs_human() -> None:
     comments = [
         {"author": {"login": "alice"}},
