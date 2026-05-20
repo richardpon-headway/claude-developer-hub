@@ -25,6 +25,7 @@ README documents this limitation.
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 import subprocess
@@ -44,6 +45,7 @@ from app.services.worktree import (
     get_worktree_sync,
     insert_worktree_sync,
     list_worktree_paths_for_repo_sync,
+    update_worktree_pr_sync,
 )
 
 log = logging.getLogger(__name__)
@@ -246,6 +248,16 @@ def sync_worktrees_for_repo_sync(
             status="ready",
         )
         insert_worktree_sync(row, db_path)
+        # Immediately populate PR fields so the workspace lands in the
+        # right inbox tier and the inbox dedup join (which gates on
+        # ``pr_number IS NOT NULL``) catches the row right away. Failures
+        # (no PR yet, gh missing, auth/network) are silent — the
+        # pr_state poller retries on its next tick.
+        pr_info = _gh_pr_view_sync(wt_path)
+        if pr_info is not None:
+            update_worktree_pr_sync(
+                repo.name, name, pr_info[0], pr_info[1], db_path=db_path
+            )
         imported.append(
             {
                 "repo": repo.name,
@@ -280,6 +292,57 @@ def sync_worktrees_for_repo_sync(
             )
 
     return imported, removed, skipped
+
+
+def _gh_pr_view_sync(wt_path: Path) -> tuple[int, str] | None:
+    """Shell ``gh pr view --json number,headRepository,headRepositoryOwner``
+    in the worktree path. Returns ``(pr_number, "owner/name")`` if a PR
+    exists for the branch, ``None`` otherwise.
+
+    Every error path returns None: gh missing, not authed, no PR open
+    for the branch, network failure, JSON decode failure, unexpected
+    shape. The worktree import succeeds regardless — the pr_state
+    poller will retry on its next tick.
+    """
+    try:
+        proc = subprocess.run(
+            [
+                "gh",
+                "pr",
+                "view",
+                "--json",
+                "number,headRepository,headRepositoryOwner",
+            ],
+            cwd=str(wt_path),
+            capture_output=True,
+            timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        data = json.loads(proc.stdout.decode("utf-8", errors="replace"))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    pr_number = data.get("number")
+    head_repo = data.get("headRepository")
+    head_owner = data.get("headRepositoryOwner")
+    repo_name = (
+        head_repo.get("name") if isinstance(head_repo, dict) else None
+    )
+    owner_login = (
+        head_owner.get("login") if isinstance(head_owner, dict) else None
+    )
+    if (
+        not isinstance(pr_number, int)
+        or not isinstance(repo_name, str)
+        or not isinstance(owner_login, str)
+    ):
+        return None
+    return pr_number, f"{owner_login}/{repo_name}"
 
 
 def _get_worktree_by_path_sync(

@@ -4,9 +4,11 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services import worktree_import
 from app.services.worktree_import import (
     parse_worktree_list_porcelain,
 )
@@ -336,6 +338,97 @@ def test_sync_removes_worktree_gone_from_git(_isolate: dict[str, Path]) -> None:
     with TestClient(app) as client:
         r3 = client.get("/api/worktrees")
     assert r3.json()["worktrees"] == []
+
+
+def test_sync_populates_pr_fields_on_import(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``gh pr view`` runs after each insert so freshly-imported rows
+    have ``pr_number`` / ``pr_repo`` populated immediately. Without
+    this, the inbox dedup join (which requires both fields non-null)
+    misses the row and the PR shows up twice — once in inbox, once on
+    the workspace's ``no PR yet`` tier — until the pr_state poll runs.
+    """
+    repo_path = _isolate["dev_root"] / "myapp"
+    init_git_repo(repo_path, branches=["feature"])
+    make_worktree(
+        repo_path,
+        _isolate["dev_root"] / "myapp_worktree_feature",
+        "feature",
+    )
+    write_minimal_config(
+        _isolate["config_path"],
+        _isolate["dev_root"],
+        repos=[
+            {
+                "name": "myapp",
+                "path": str(repo_path),
+                "default_branch": "main",
+                "setup_steps": [],
+                "ticket_pattern": None,
+            }
+        ],
+        iterm2=True,
+    )
+
+    monkeypatch.setattr(
+        worktree_import,
+        "_gh_pr_view_sync",
+        lambda wt_path: (60476, "acme/acme"),
+    )
+
+    with TestClient(app) as client:
+        sync_resp = client.post("/api/worktrees/sync")
+        assert sync_resp.status_code == 200, sync_resp.text
+        rows = client.get("/api/worktrees").json()["worktrees"]
+
+    imported = [r for r in rows if r["name"] == "feature"]
+    assert len(imported) == 1
+    assert imported[0]["pr_number"] == 60476
+    assert imported[0]["pr_repo"] == "acme/acme"
+
+
+def test_sync_handles_no_pr_gracefully(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``_gh_pr_view_sync`` returning None (no PR yet for the branch,
+    or gh missing/unauthed) must not block the import — the row gets
+    inserted with null PR fields, same as the pre-fix behavior."""
+    repo_path = _isolate["dev_root"] / "myapp"
+    init_git_repo(repo_path, branches=["feature"])
+    make_worktree(
+        repo_path,
+        _isolate["dev_root"] / "myapp_worktree_feature",
+        "feature",
+    )
+    write_minimal_config(
+        _isolate["config_path"],
+        _isolate["dev_root"],
+        repos=[
+            {
+                "name": "myapp",
+                "path": str(repo_path),
+                "default_branch": "main",
+                "setup_steps": [],
+                "ticket_pattern": None,
+            }
+        ],
+        iterm2=True,
+    )
+
+    monkeypatch.setattr(
+        worktree_import, "_gh_pr_view_sync", lambda wt_path: None
+    )
+
+    with TestClient(app) as client:
+        sync_resp = client.post("/api/worktrees/sync")
+        assert sync_resp.status_code == 200, sync_resp.text
+        rows = client.get("/api/worktrees").json()["worktrees"]
+
+    imported = [r for r in rows if r["name"] == "feature"]
+    assert len(imported) == 1
+    assert imported[0]["pr_number"] is None
+    assert imported[0]["pr_repo"] is None
 
 
 def test_sync_does_not_remove_worktrees_in_other_repos(
