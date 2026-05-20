@@ -64,7 +64,7 @@ def test_bot_pattern_matches_known_actors() -> None:
 
 
 def test_bot_pattern_does_not_match_humans() -> None:
-    for login in ["alice", "rpon", "tylerjohn", "ada-lovelace"]:
+    for login in ["alice", "octocat", "tylerjohn", "ada-lovelace"]:
         assert not BOT_LOGIN_PATTERN.search(login), login
 
 
@@ -411,7 +411,7 @@ def test_count_checks_synthesizes_bucket_from_conclusion_or_state() -> None:
 
 
 def test_count_checks_treats_cancelled_as_non_fail() -> None:
-    """Regression for the COR-222 case: a PR with 0 real failures
+    """Regression for the PROJ-222 case: a PR with 0 real failures
     but many CANCELLED workflows (from concurrency: cancel-in-progress
     on superseding pushes) was being flagged as ci_failing because
     we counted CANCELLED as fail. GitHub's own UI doesn't treat these
@@ -450,7 +450,7 @@ def test_count_comments_classifies_bot_vs_human() -> None:
     comments = [
         {"author": {"login": "alice"}},
         {"author": {"login": "dependabot[bot]"}},
-        {"author": {"login": "rpon"}},
+        {"author": {"login": "octocat"}},
         {"author": {"login": "github-actions[bot]"}},
     ]
     out = _count_comments(comments)
@@ -662,7 +662,7 @@ def test_fetch_unresolved_threads_count_parses_graphql(
             "data": {
                 "repository": {
                     "pullRequest": {
-                        "author": {"login": "rpon"},
+                        "author": {"login": "octocat"},
                         "reviewThreads": {
                             "nodes": [
                                 # count — reviewer last
@@ -670,7 +670,7 @@ def test_fetch_unresolved_threads_count_parses_graphql(
                                 # count — reviewer last
                                 _thread(resolved=False, outdated=False, last_author="reviewer2"),
                                 # skip — author replied last
-                                _thread(resolved=False, outdated=False, last_author="rpon"),
+                                _thread(resolved=False, outdated=False, last_author="octocat"),
                                 # skip — resolved
                                 _thread(resolved=True, outdated=False, last_author="reviewer1"),
                                 # skip — outdated
@@ -710,7 +710,7 @@ def test_fetch_unresolved_threads_count_falls_back_when_author_missing(
                         "author": None,
                         "reviewThreads": {
                             "nodes": [
-                                _thread(resolved=False, outdated=False, last_author="rpon"),
+                                _thread(resolved=False, outdated=False, last_author="octocat"),
                                 _thread(resolved=False, outdated=False, last_author="reviewer1"),
                                 _thread(resolved=True, outdated=False, last_author="reviewer1"),
                             ]

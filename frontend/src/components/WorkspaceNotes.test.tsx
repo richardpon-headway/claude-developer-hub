@@ -43,9 +43,9 @@ describe("WorkspaceNotes", () => {
   });
 
   test("renders existing notes value in the textarea", () => {
-    renderNotes({ notes: "blocking COR-218" });
+    renderNotes({ notes: "blocking PROJ-218" });
     const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
-    expect(textarea.value).toBe("blocking COR-218");
+    expect(textarea.value).toBe("blocking PROJ-218");
   });
 
   test("does not save on initial mount when value matches props", async () => {

@@ -84,7 +84,7 @@ def _make_fake_jsonl(
 
 
 def test_encode_project_dir_replaces_slashes() -> None:
-    assert encode_project_dir(Path("/Users/rpon/dev/x")) == "-Users-rpon-dev-x"
+    assert encode_project_dir(Path("/Users/octocat/dev/x")) == "-Users-octocat-dev-x"
     assert encode_project_dir(Path("/a")) == "-a"
     # Periods, underscores, dashes pass through unchanged
     assert (

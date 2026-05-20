@@ -891,10 +891,10 @@ def test_update_notes_persists_to_db(_isolate: dict[str, Path]) -> None:
     with TestClient(app) as client:
         r = client.put(
             "/api/worktree/myapp/feature/notes",
-            json={"notes": "blocking COR-218, keep open"},
+            json={"notes": "blocking PROJ-218, keep open"},
         )
     assert r.status_code == 200
-    assert r.json() == {"notes": "blocking COR-218, keep open"}
+    assert r.json() == {"notes": "blocking PROJ-218, keep open"}
 
     conn = sqlite3.connect(_isolate["db_path"])
     try:
@@ -903,7 +903,7 @@ def test_update_notes_persists_to_db(_isolate: dict[str, Path]) -> None:
         ).fetchone()
     finally:
         conn.close()
-    assert row == ("blocking COR-218, keep open",)
+    assert row == ("blocking PROJ-218, keep open",)
 
 
 def test_update_notes_overwrites_existing(_isolate: dict[str, Path]) -> None:

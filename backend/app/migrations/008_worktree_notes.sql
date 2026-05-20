@@ -1,8 +1,8 @@
 -- Add a free-form notes column to the worktree table.
 --
 -- Each worktree gets a single TEXT slot for the user's own
--- annotations — "blocking COR-218, don't archive", "sent review
--- request in #cor-engineering Tuesday", "reviewer asked for
+-- annotations — "blocking PROJ-218, don't archive", "sent review
+-- request in #acme-engineering Tuesday", "reviewer asked for
 -- follow-up before merging". The hub renders the same value on
 -- both the workspace row and the detail page so the user can
 -- compare context across workspaces without clicking through.

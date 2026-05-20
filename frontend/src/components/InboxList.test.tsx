@@ -70,7 +70,7 @@ describe("InboxList", () => {
       pr({
         pr_number: 2,
         title: "Their PR",
-        sources: ["team:headway/corrections"],
+        sources: ["team:acme/corrections"],
         head_ref: "feat/their",
       }),
     ]);
@@ -86,7 +86,7 @@ describe("InboxList", () => {
       pr({
         pr_number: 2,
         title: "Team-reviewed",
-        sources: ["team:headway/corrections"],
+        sources: ["team:acme/corrections"],
         head_ref: "feat/y",
       }),
       pr({
@@ -120,7 +120,7 @@ describe("InboxList", () => {
       pr({
         pr_number: 5,
         title: "Multi-source PR",
-        sources: ["author", "team:headway/corrections"],
+        sources: ["author", "team:acme/corrections"],
       }),
     ]);
     expect(screen.getByText("author")).toBeInTheDocument();

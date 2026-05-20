@@ -140,7 +140,7 @@ def _build_inspection_prompt(path: Path, session_id: str, callback_url: str) -> 
         "  - `default_branch`: `git symbolic-ref refs/remotes/origin/HEAD` (strip "
         "the `refs/remotes/origin/` prefix), or `main` as a fallback.\n"
         "  - `github_repo`: `gh repo view --json nameWithOwner -q .nameWithOwner` "
-        "in the repo path. Returns `owner/name` (e.g. `headway/headway`). "
+        "in the repo path. Returns `owner/name` (e.g. `acme/acme`). "
         "Default `null` if the repo isn't on GitHub or `gh` isn't available. "
         "Used by the inbox to match a remote PR to this local checkout.\n\n"
         "When done, POST your proposal as JSON to:\n"

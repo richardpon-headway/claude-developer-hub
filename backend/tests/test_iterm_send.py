@@ -262,7 +262,7 @@ def test_send_text_auto_spawns_when_no_claude_session(
         client.app.state.iterm = SimpleNamespace(connection=MagicMock())
         r = client.post(
             "/api/worktree/r/wt/send-text",
-            json={"text": "look at COR-12"},
+            json={"text": "look at PROJ-12"},
         )
 
     assert r.status_code == 200, r.text
@@ -270,7 +270,7 @@ def test_send_text_auto_spawns_when_no_claude_session(
     # Claude launched with the user's text as the positional initial
     # prompt — that's what fires it at startup without needing a
     # follow-up send_text keystroke.
-    assert "claude 'look at COR-12'" in sent
+    assert "claude 'look at PROJ-12'" in sent
 
 
 def test_send_text_prunes_stale_row_and_respawns(
@@ -304,12 +304,12 @@ def test_send_text_prunes_stale_row_and_respawns(
         client.app.state.iterm = SimpleNamespace(connection=MagicMock())
         r = client.post(
             "/api/worktree/r/wt/send-text",
-            json={"text": "look at COR-12"},
+            json={"text": "look at PROJ-12"},
         )
 
     assert r.status_code == 200, r.text
     sent = fake_window.current_tab.current_session.async_send_text.await_args.args[0]
-    assert "claude 'look at COR-12'" in sent
+    assert "claude 'look at PROJ-12'" in sent
 
     # iterm_session row should now point at the NEW window, not the stale one.
     conn = sqlite3.connect(_isolate["db_path"])
@@ -359,11 +359,11 @@ def test_send_text_happy_path(
         client.app.state.iterm = SimpleNamespace(connection=MagicMock())
         r = client.post(
             "/api/worktree/r/wt/send-text",
-            json={"text": "look at COR-12", "press_enter": True},
+            json={"text": "look at PROJ-12", "press_enter": True},
         )
     assert r.status_code == 200
     assert r.json() == {"sent": True}
-    session.async_send_text.assert_awaited_once_with("look at COR-12\r")
+    session.async_send_text.assert_awaited_once_with("look at PROJ-12\r")
 
 
 # --- /api/worktree/{repo}/{name}/run-skill endpoint ----------------------

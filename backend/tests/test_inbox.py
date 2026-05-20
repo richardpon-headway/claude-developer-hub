@@ -45,8 +45,8 @@ def test_inbox_config_team_validation_rejects_bad_slugs() -> None:
 
 
 def test_inbox_config_accepts_owner_team_format() -> None:
-    cfg = InboxConfig(teams=["headway/corrections", "acme/build-team_1"])
-    assert cfg.teams == ["headway/corrections", "acme/build-team_1"]
+    cfg = InboxConfig(teams=["corp/corrections", "acme/build-team_1"])
+    assert cfg.teams == ["corp/corrections", "acme/build-team_1"]
 
 
 # --- ci status reduction -------------------------------------------------
@@ -182,13 +182,13 @@ def test_explicit_github_repo_excludes_basename_collisions() -> None:
         RepoConfig(
             name="myapp",
             path=Path("/tmp/myapp"),
-            github_repo="headway/myapp",
+            github_repo="corp/myapp",
         )
     ]
     idx = configured_repos_index(repos)
-    assert lookup_configured_repo("headway/myapp", idx) is not None
+    assert lookup_configured_repo("corp/myapp", idx) is not None
     assert lookup_configured_repo("acme/myapp", idx) is None
-    assert lookup_configured_repo("headway/other", idx) is None
+    assert lookup_configured_repo("corp/other", idx) is None
 
 
 # --- dedup pull from worktree + pr_state --------------------------------
@@ -368,13 +368,13 @@ def test_source_accumulation_across_queries(
 
     import asyncio
 
-    result = asyncio.run(inbox_search.fetch_inbox_prs(["headway/corrections"]))
+    result = asyncio.run(inbox_search.fetch_inbox_prs(["acme/corrections"]))
     assert len(result) == 1
     # All three sources accumulated in priority order (call order).
     assert result[0].sources == [
         "author",
         "mentions",
-        "team:headway/corrections",
+        "team:acme/corrections",
     ]
     # author + reviewer + assignee + mentions + 1 team = 5 queries.
     assert call_count["n"] == 5
@@ -449,7 +449,7 @@ def test_reviewer_filter_keeps_direct_user_request(
         {
             ("o/r", 1): [
                 {"__typename": "User", "login": "me"},
-                {"__typename": "Team", "slug": "headway/insurance-platform"},
+                {"__typename": "Team", "slug": "acme/insurance-platform"},
             ],
         },
     )
@@ -480,8 +480,8 @@ def test_reviewer_filter_drops_team_mediated_only(
         {
             ("o/r", 1): [
                 # 28-team broadcast, no direct user request to @me
-                {"__typename": "Team", "slug": "headway/insurance-platform"},
-                {"__typename": "Team", "slug": "headway/payer"},
+                {"__typename": "Team", "slug": "acme/insurance-platform"},
+                {"__typename": "Team", "slug": "acme/payer"},
             ],
         },
     )
@@ -509,7 +509,7 @@ def test_reviewer_filter_strips_reviewer_but_keeps_other_sources(
         monkeypatch,
         {
             ("o/r", 1): [
-                {"__typename": "Team", "slug": "headway/broadcast"},
+                {"__typename": "Team", "slug": "acme/broadcast"},
             ],
         },
     )

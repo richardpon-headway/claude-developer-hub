@@ -44,8 +44,8 @@ DEFAULT_TIMEOUT_SECONDS = 30.0
 
 def encode_project_dir(absolute_path: Path) -> str:
     """Apply Claude Code's project-dir naming rule: each '/' becomes '-'
-    on the absolute path. ``/Users/rpon/foo`` →
-    ``-Users-rpon-foo``."""
+    on the absolute path. ``/Users/octocat/foo`` →
+    ``-Users-octocat-foo``."""
     return str(absolute_path).replace("/", "-")
 
 

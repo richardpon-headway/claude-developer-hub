@@ -231,7 +231,7 @@ def test_freeform_503_when_iterm_disconnected(_isolate: dict[str, Path]) -> None
         client.app.state.iterm = SimpleNamespace(connection=None)
         r = client.post(
             "/api/skills/global/freeform",
-            json={"prompt": "what is the status of COR-218?"},
+            json={"prompt": "what is the status of PROJ-218?"},
         )
     assert r.status_code == 503
 

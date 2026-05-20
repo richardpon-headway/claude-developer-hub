@@ -169,17 +169,17 @@ describe("WorkspaceList", () => {
   });
 
   test("within Needs your action: approval-ready rows sort above blocker-only rows", () => {
-    // COR-100 has only unaddressed (blocker), no approval.
-    // COR-200 has unaddressed AND ready_to_merge (one comment-resolve
+    // PROJ-100 has only unaddressed (blocker), no approval.
+    // PROJ-200 has unaddressed AND ready_to_merge (one comment-resolve
     // away from merge). The latter should appear first inside the
     // tier even though "C200" sorts after "C100" alphabetically.
     renderWorkspaces([
       wt({
-        name: "COR-100_aaa_unaddressed",
+        name: "PROJ-100_aaa_unaddressed",
         pr_state: prState("unresolved_comments", ["unresolved_comments"]),
       }),
       wt({
-        name: "COR-200_zzz_approved_with_unaddressed",
+        name: "PROJ-200_zzz_approved_with_unaddressed",
         pr_state: prState("unresolved_comments", [
           "unresolved_comments",
           "ready_to_merge",
@@ -191,9 +191,9 @@ describe("WorkspaceList", () => {
       // Workspace title is rendered as a <Link>; in tests Link is
       // stubbed to <a>. Its text is the worktree name.
       .map((a) => a.textContent ?? "")
-      .filter((t) => t.startsWith("COR-"));
-    expect(titles[0]).toContain("COR-200_zzz_approved_with_unaddressed");
-    expect(titles[1]).toContain("COR-100_aaa_unaddressed");
+      .filter((t) => t.startsWith("PROJ-"));
+    expect(titles[0]).toContain("PROJ-200_zzz_approved_with_unaddressed");
+    expect(titles[1]).toContain("PROJ-100_aaa_unaddressed");
   });
 
   test("renders the unaddressed chip when unresolved_comments is present", () => {
@@ -338,7 +338,7 @@ describe("WorkspaceList", () => {
           pr_state: prState("unresolved_comments"),
         }),
       ],
-      "rpon",
+      "octocat",
     );
     const headings = screen
       .getAllByRole("heading", { level: 3 })
@@ -361,7 +361,7 @@ describe("WorkspaceList", () => {
           pr_state: prState("merged"),
         }),
       ],
-      "rpon",
+      "octocat",
     );
     // Reviewing tier has the row.
     const reviewingHeading = screen.getByRole("heading", { name: /Reviewing/i });
@@ -378,11 +378,11 @@ describe("WorkspaceList", () => {
       [
         wt({
           name: "mine",
-          pr_author_login: "rpon",
+          pr_author_login: "octocat",
           pr_state: prState("ci_failing"),
         }),
       ],
-      "rpon",
+      "octocat",
     );
     const needsActionHeading = screen.getByRole("heading", {
       name: /Needs your action/i,
@@ -391,13 +391,13 @@ describe("WorkspaceList", () => {
       "mine",
     );
     // No author chip on owner rows.
-    expect(screen.queryByText("@rpon")).not.toBeInTheDocument();
+    expect(screen.queryByText("@octocat")).not.toBeInTheDocument();
   });
 
   test("null pr_author_login sorts by state-tier (legacy / pre-backfill rows)", () => {
     renderWorkspaces(
       [wt({ name: "legacy", pr_state: prState("ci_failing") })],
-      "rpon",
+      "octocat",
     );
     const needsActionHeading = screen.getByRole("heading", {
       name: /Needs your action/i,
@@ -446,7 +446,7 @@ describe("WorkspaceList", () => {
           ]),
         }),
       ],
-      "rpon",
+      "octocat",
     );
     const reviewingHeading = screen.getByRole("heading", { name: /Reviewing/i });
     const section = reviewingHeading.closest("section")!;

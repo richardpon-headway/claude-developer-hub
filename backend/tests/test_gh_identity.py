@@ -28,11 +28,11 @@ async def test_get_user_login_returns_login_from_gh(
 
     async def fake_run_gh_json(args: list[str], **_: Any) -> dict:
         assert args == ["api", "user"]
-        return {"login": "rpon", "id": 1, "name": "Richard"}
+        return {"login": "octocat", "id": 1, "name": "Octo Cat"}
 
     monkeypatch.setattr(gh_identity, "run_gh_json", fake_run_gh_json)
 
-    assert await gh_identity.get_user_login() == "rpon"
+    assert await gh_identity.get_user_login() == "octocat"
 
 
 async def test_get_user_login_caches_after_first_call(
@@ -42,7 +42,7 @@ async def test_get_user_login_caches_after_first_call(
 
     async def fake_run_gh_json(args: list[str], **_: Any) -> dict:
         calls["n"] += 1
-        return {"login": "rpon"}
+        return {"login": "octocat"}
 
     monkeypatch.setattr(gh_identity, "run_gh_json", fake_run_gh_json)
 
@@ -91,12 +91,12 @@ async def test_get_user_login_does_not_cache_failures(
         if state["first_call"]:
             state["first_call"] = False
             return None
-        return {"login": "rpon"}
+        return {"login": "octocat"}
 
     monkeypatch.setattr(gh_identity, "run_gh_json", fake_run_gh_json)
 
     assert await gh_identity.get_user_login() is None
-    assert await gh_identity.get_user_login() == "rpon"
+    assert await gh_identity.get_user_login() == "octocat"
 
 
 async def test_get_user_login_uses_no_jq_filter(
@@ -104,7 +104,7 @@ async def test_get_user_login_uses_no_jq_filter(
 ) -> None:
     """Regression for the ``could not parse \`gh api user\` output``
     warning on startup. Earlier code called ``gh api user --jq .login``,
-    which emits the bare string ``rpon\\n`` — not valid JSON, so
+    which emits the bare string ``octocat\\n`` — not valid JSON, so
     ``run_gh_json`` swallowed the result as None and the REVIEWING
     tier silently disabled itself. Pin the args list so future edits
     don't reintroduce the filter."""
@@ -112,7 +112,7 @@ async def test_get_user_login_uses_no_jq_filter(
 
     async def fake_run_gh_json(args: list[str], **_: Any) -> dict:
         captured["args"] = args
-        return {"login": "rpon"}
+        return {"login": "octocat"}
 
     monkeypatch.setattr(gh_identity, "run_gh_json", fake_run_gh_json)
     await gh_identity.get_user_login()

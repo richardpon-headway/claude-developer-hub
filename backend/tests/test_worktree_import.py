@@ -114,11 +114,11 @@ def test_discover_happy_path(_isolate: dict[str, Path]) -> None:
 
 def test_discover_ticket_extraction(_isolate: dict[str, Path]) -> None:
     repo_path = _isolate["dev_root"] / "myapp"
-    init_git_repo(repo_path, branches=["alice/COR-77_login-flow-fix"])
+    init_git_repo(repo_path, branches=["alice/PROJ-77_login-flow-fix"])
     make_worktree(
         repo_path,
-        _isolate["dev_root"] / "myapp_worktree_COR-77_login_flow_fix",
-        "alice/COR-77_login-flow-fix",
+        _isolate["dev_root"] / "myapp_worktree_PROJ-77_login_flow_fix",
+        "alice/PROJ-77_login-flow-fix",
     )
     write_minimal_config(
         _isolate["config_path"],
@@ -130,7 +130,7 @@ def test_discover_ticket_extraction(_isolate: dict[str, Path]) -> None:
                 "default_branch": "main",
                 "branch_prefix": "alice/",
                 "setup_steps": [],
-                "ticket_pattern": r"COR-\d+",
+                "ticket_pattern": r"PROJ-\d+",
             }
         ],
         iterm2=True,
@@ -141,8 +141,8 @@ def test_discover_ticket_extraction(_isolate: dict[str, Path]) -> None:
     body = r.json()
     assert len(body["imported"]) == 1
     entry = body["imported"][0]
-    assert entry["ticket"] == "COR-77"
-    assert entry["branch"] == "alice/COR-77_login-flow-fix"
+    assert entry["ticket"] == "PROJ-77"
+    assert entry["branch"] == "alice/PROJ-77_login-flow-fix"
 
 
 def test_discover_skips_already_tracked(_isolate: dict[str, Path]) -> None:
@@ -374,7 +374,7 @@ def test_sync_populates_pr_fields_on_import(
     monkeypatch.setattr(
         worktree_import,
         "_gh_pr_view_sync",
-        lambda wt_path: (60476, "headway/headway"),
+        lambda wt_path: (60476, "acme/acme"),
     )
 
     with TestClient(app) as client:
@@ -385,7 +385,7 @@ def test_sync_populates_pr_fields_on_import(
     imported = [r for r in rows if r["name"] == "feature"]
     assert len(imported) == 1
     assert imported[0]["pr_number"] == 60476
-    assert imported[0]["pr_repo"] == "headway/headway"
+    assert imported[0]["pr_repo"] == "acme/acme"
 
 
 def test_sync_handles_no_pr_gracefully(

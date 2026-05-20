@@ -12,7 +12,7 @@
 ### Checklist
 
 - [ ] Branched from `main`; no direct-to-main commits
-- [ ] No Headway-, employer-, or user-specific values introduced (paths,
+- [ ] No employer- or user-specific values introduced (paths,
       branch prefixes, ticket regexes, window sizes — all of those
       belong in `~/.config/cdh/config.yaml`, not in source)
 - [ ] No telemetry, analytics, or phone-home added

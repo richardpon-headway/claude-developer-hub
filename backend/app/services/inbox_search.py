@@ -408,7 +408,7 @@ def lookup_configured_repo(pr_repo: str, index: ReposIndex) -> Any | None:
 
     Excluding repos that have ``github_repo`` set from the basename
     fallback prevents a misleading "configured" match: if the user
-    explicitly told CDH "this repo is ``headway/myapp``", a PR from
+    explicitly told CDH "this repo is ``corp/myapp``", a PR from
     ``acme/myapp`` shouldn't piggy-back on that config — the user
     opted into precision when they set the field.
     """
