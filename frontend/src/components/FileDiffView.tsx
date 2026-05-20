@@ -41,7 +41,17 @@ function isCollapsed(b: Block): b is CollapsedBlock {
 }
 
 /** Walk on-disk content + hunks and produce a flat per-line list, with
- *  ghost-removes inserted at each hunk's anchor on-disk lineno. */
+ *  ghost-removes inserted at the right anchor on-disk lineno.
+ *
+ *  Anchor convention varies by hunk shape (matches git diff -U0 output):
+ *  - **Mixed hunk** (has at least one add): removes precede the first
+ *    add at on_disk_start, so anchor = on_disk_start (insert BEFORE
+ *    that line).
+ *  - **Pure-delete hunk** (no adds): the new-side header reports the
+ *    "last unchanged line before the deletion" as on_disk_start, so
+ *    removes belong AFTER that line. Anchor = on_disk_start + 1.
+ *  - Anchor 0 (delete-at-start-of-file) and anchors past EOF
+ *    (delete-at-end) are handled as top/bottom bookends. */
 function buildLines(response: FileViewResponse): RenderedLine[] {
   if (response.on_disk_content == null) return [];
   const raw = response.on_disk_content;
@@ -57,8 +67,17 @@ function buildLines(response: FileViewResponse): RenderedLine[] {
     number,
     { kind: FileViewLineKind; content: string }[]
   >();
+  const removesAtTop: { kind: FileViewLineKind; content: string }[] = [];
+  const removesAtBottom: { kind: FileViewLineKind; content: string }[] = [];
+
+  const lastLineno = onDisk.length;
 
   for (const hunk of response.hunks) {
+    const pureDelete = hunk.lines.every(
+      (l) =>
+        l.kind === "committed_remove" || l.kind === "uncommitted_remove",
+    );
+
     for (const line of hunk.lines) {
       if (line.kind === "committed_add" || line.kind === "uncommitted_add") {
         if (line.on_disk_lineno != null) {
@@ -77,17 +96,26 @@ function buildLines(response: FileViewResponse): RenderedLine[] {
         line.kind === "committed_remove" ||
         line.kind === "uncommitted_remove"
       ) {
-        const anchor = hunk.on_disk_start;
-        if (!removesBefore.has(anchor)) removesBefore.set(anchor, []);
-        removesBefore.get(anchor)!.push({
-          kind: line.kind,
-          content: line.content,
-        });
+        const anchor = pureDelete
+          ? hunk.on_disk_start + 1
+          : hunk.on_disk_start;
+        const entry = { kind: line.kind, content: line.content };
+        if (anchor <= 0) {
+          removesAtTop.push(entry);
+        } else if (anchor > lastLineno) {
+          removesAtBottom.push(entry);
+        } else {
+          if (!removesBefore.has(anchor)) removesBefore.set(anchor, []);
+          removesBefore.get(anchor)!.push(entry);
+        }
       }
     }
   }
 
   const out: RenderedLine[] = [];
+  for (const r of removesAtTop) {
+    out.push({ kind: r.kind, content: r.content, lineno: null });
+  }
   for (let i = 0; i < onDisk.length; i++) {
     const lineno = i + 1;
     const removes = removesBefore.get(lineno);
@@ -102,15 +130,8 @@ function buildLines(response: FileViewResponse): RenderedLine[] {
       lineno,
     });
   }
-  // Anchors past EOF (rare; trailing pure-remove hunks): drop their
-  // ghosts at the end so the user still sees them.
-  const lastLineno = onDisk.length;
-  for (const [anchor, removes] of removesBefore.entries()) {
-    if (anchor > lastLineno) {
-      for (const r of removes) {
-        out.push({ kind: r.kind, content: r.content, lineno: null });
-      }
-    }
+  for (const r of removesAtBottom) {
+    out.push({ kind: r.kind, content: r.content, lineno: null });
   }
   return out;
 }
@@ -181,31 +202,37 @@ function applyCollapse(
 }
 
 // Diff-color CSS for each line kind. Border colors apply to the wrapping
-// block <div>; background tints apply per line.
+// block <div>; background tints apply per line. Tints are stronger than
+// you'd see in a typical text editor's diff overlay — review-focused UI,
+// the change blocks are supposed to draw your eye.
 const KIND_STYLES: Record<
   FileViewLineKind,
-  { border: string; bg: string; sigil: string }
+  { border: string; bg: string; sigil: string; sigilColor: string }
 > = {
-  context: { border: "", bg: "", sigil: " " },
+  context: { border: "", bg: "", sigil: " ", sigilColor: "text-zinc-600" },
   committed_add: {
-    border: "border-green-900",
-    bg: "bg-green-500/10",
+    border: "border-green-700",
+    bg: "bg-green-500/20",
     sigil: "+",
+    sigilColor: "text-green-400",
   },
   committed_remove: {
-    border: "border-red-900",
-    bg: "bg-red-500/10",
+    border: "border-red-700",
+    bg: "bg-red-500/20",
     sigil: "−",
+    sigilColor: "text-red-400",
   },
   uncommitted_add: {
-    border: "border-amber-700",
-    bg: "bg-amber-500/10",
+    border: "border-amber-600",
+    bg: "bg-amber-500/20",
     sigil: "+",
+    sigilColor: "text-amber-300",
   },
   uncommitted_remove: {
-    border: "border-orange-800",
-    bg: "bg-orange-500/10",
+    border: "border-orange-700",
+    bg: "bg-orange-500/20",
     sigil: "−",
+    sigilColor: "text-orange-300",
   },
 };
 
@@ -351,7 +378,7 @@ function LineRow({
       </span>
       <span
         aria-hidden="true"
-        className="inline-block w-3 select-none text-center text-zinc-600"
+        className={`inline-block w-3 select-none text-center ${styles.sigilColor}`}
       >
         {styles.sigil}
       </span>
