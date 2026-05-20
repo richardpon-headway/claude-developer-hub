@@ -84,6 +84,7 @@ export interface FileViewHunk {
 
 export interface FileViewResponse {
   path: string;
+  github_diff_anchor: string;
   workspace_branch: string | null;
   pr_branch: string | null;
   branch_matches_pr: boolean;
