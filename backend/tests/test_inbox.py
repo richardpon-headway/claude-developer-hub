@@ -45,8 +45,8 @@ def test_inbox_config_team_validation_rejects_bad_slugs() -> None:
 
 
 def test_inbox_config_accepts_owner_team_format() -> None:
-    cfg = InboxConfig(teams=["acme/corrections", "acme/build-team_1"])
-    assert cfg.teams == ["acme/corrections", "acme/build-team_1"]
+    cfg = InboxConfig(teams=["corp/corrections", "acme/build-team_1"])
+    assert cfg.teams == ["corp/corrections", "acme/build-team_1"]
 
 
 # --- ci status reduction -------------------------------------------------

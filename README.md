@@ -102,7 +102,7 @@ See [`config.example.yaml`](config.example.yaml) for the full shape with
 every block's defaults, and
 [`backend/app/config/schema.py`](backend/app/config/schema.py) for the
 authoritative Pydantic schema (unknown keys are rejected). All defaults
-are generic — no Acme-specific or user-specific data is baked into
+are generic — no employer-specific or user-specific data is baked into
 the codebase.
 
 If your repo lives under `development_root` (default `~/development`),

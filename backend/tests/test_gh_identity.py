@@ -28,7 +28,7 @@ async def test_get_user_login_returns_login_from_gh(
 
     async def fake_run_gh_json(args: list[str], **_: Any) -> dict:
         assert args == ["api", "user"]
-        return {"login": "octocat", "id": 1, "name": "Richard"}
+        return {"login": "octocat", "id": 1, "name": "Octo Cat"}
 
     monkeypatch.setattr(gh_identity, "run_gh_json", fake_run_gh_json)
 
