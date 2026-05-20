@@ -25,7 +25,7 @@ vi.mock("../api/config");
 
 // Import after the mocks so the page picks them up.
 import * as configApi from "../api/config";
-import { WorkspacePage } from "./workspace.$repo.$name";
+import { WorkspacePage } from "./workspace.$repo.$name.index";
 
 function renderPage(repo = "myrepo", name = "feature") {
   const queryClient = new QueryClient({
