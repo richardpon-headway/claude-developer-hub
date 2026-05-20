@@ -76,7 +76,7 @@ function FileViewPage({ repo, name, filePath }: FileViewPageProps) {
       : null;
 
   return (
-    <main className="mx-auto max-w-5xl p-8">
+    <main className="p-8">
       <Link
         to="/workspace/$repo/$name"
         params={{ repo, name }}
