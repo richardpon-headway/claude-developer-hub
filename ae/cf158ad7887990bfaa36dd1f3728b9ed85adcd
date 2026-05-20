@@ -1,0 +1,22 @@
+frontend/src/components/FileDiffView.tsx
+  s_b29a1827517997::t_e50fc602429a45 274
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "aecf158ad7887990bfaa36dd1f3728b9ed85adcd",
+  "prompts": {},
+  "sessions": {
+    "s_b29a1827517997": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7596a70e-e8e8-4ff5-a5cc-526cdfa1944b",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
