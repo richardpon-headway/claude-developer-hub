@@ -1,0 +1,46 @@
+frontend/src/routes/workspace.$repo.$name.tsx
+  s_b29a1827517997::t_c993b9cd385305 256-260,262
+backend/app/services/git_cli.py
+  s_b29a1827517997::t_486c70968993ef 1-296
+frontend/src/api/config.ts
+  s_b29a1827517997::t_5a3bcdd19b044b 9-13,16
+frontend/src/components/FileDiffView.tsx
+  s_b29a1827517997::t_8d9ded7d58b020 1-411
+backend/app/routes/config.py
+  s_b29a1827517997::t_f577960e2c0bc0 12,22-26
+config.example.yaml
+  s_b29a1827517997::t_33ee0b1cfc4592 48-51
+backend/app/config/schema.py
+  s_b29a1827517997::t_99295561802ea2 236
+  s_b29a1827517997::t_61909a69ea7782 166-192
+backend/tests/test_file_view.py
+  s_b29a1827517997::t_564f9f55111c8d 1-529
+frontend/src/routes/workspace.$repo.$name.files.$.tsx
+  s_b29a1827517997::t_970d1cc2e28489 1-169,171-250
+  s_b29a1827517997::t_755d9ca345d06e 170
+backend/app/routes/worktrees.py
+  s_b29a1827517997::t_9ca2d7ebf0fd27 10,13
+  s_b29a1827517997::t_84c2fd2d6816bd 20
+  s_b29a1827517997::t_2a8b77848e48dd 361-702
+frontend/src/api/worktrees.ts
+  s_b29a1827517997::t_4a08194e9816ee 66-113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "5af631d041b2d13f6882eea05438b6d77640ebac",
+  "prompts": {},
+  "sessions": {
+    "s_b29a1827517997": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7596a70e-e8e8-4ff5-a5cc-526cdfa1944b",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
