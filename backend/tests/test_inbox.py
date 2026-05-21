@@ -1,4 +1,9 @@
-"""Tests for the read-only inbox slice (slice 1)."""
+"""Tests for the persistent-inbox slice (plan-48).
+
+The previous ephemeral ``InboxCache`` is gone. Inbox rows live in
+SQLite. Tests seed via :func:`tests.fixtures.inbox.seed_inbox_row` and
+assert via DB reads or HTTP responses.
+"""
 from __future__ import annotations
 
 import sqlite3
@@ -11,8 +16,7 @@ from fastapi.testclient import TestClient
 
 from app.config.schema import CDHConfig, InboxConfig
 from app.main import app
-from app.services import inbox_poll, inbox_search
-from app.services.inbox_poll import InboxCache, InboxPr
+from app.services import inbox_db, inbox_poll, inbox_search
 from app.services.inbox_search import (
     InboxPrRaw,
     _ci_status_from_rollup,
@@ -20,12 +24,11 @@ from app.services.inbox_search import (
     configured_repos_index,
     is_repo_configured,
 )
-from app.services.inbox_stack import annotate_stacks
 from tests.fixtures.config import write_minimal_config, write_repo_config
 from tests.fixtures.inbox import (
-    build_enriched_pr,
+    build_inbox_row,
     build_raw_pr,
-    seed_inbox_cache,
+    seed_inbox_row,
 )
 from tests.fixtures.pr_state import seed_pr_state
 from tests.fixtures.worktree import seed_worktree
@@ -34,6 +37,8 @@ from tests.fixtures.worktree import seed_worktree
 
 
 def test_inbox_config_default_empty_teams() -> None:
+    """``inbox.teams`` is still validated for back-compat with existing
+    YAML configs even though the poller no longer reads it."""
     cfg = CDHConfig()
     assert cfg.inbox.teams == []
 
@@ -78,10 +83,6 @@ def test_ci_status_pass_when_all_success() -> None:
 
 
 def test_row_from_gh_parses_typical_entry() -> None:
-    # Shape matches what `gh search prs --json` actually returns: a
-    # repository object with `name` + `nameWithOwner`, no nested
-    # `owner.login`, and no head/base ref or statusCheckRollup
-    # (those are `gh pr view` fields, unavailable from search).
     entry = {
         "number": 42,
         "title": "feat: do thing",
@@ -92,19 +93,18 @@ def test_row_from_gh_parses_typical_entry() -> None:
         "repository": {"name": "r", "nameWithOwner": "o/r"},
         "state": "OPEN",
     }
-    row = _row_from_gh(entry, source="author")
+    row = _row_from_gh(entry, source="reviewer")
     assert row is not None
     assert row.pr_repo == "o/r"
     assert row.pr_number == 42
     # Placeholders since search doesn't return these fields.
     assert row.head_ref == ""
     assert row.ci_status == "none"
-    assert row.sources == ["author"]
+    assert row.sources == ["reviewer"]
 
 
 def test_row_from_gh_returns_none_on_missing_fields() -> None:
-    assert _row_from_gh({}, source="author") is None
-    # number present but no repository.nameWithOwner.
+    assert _row_from_gh({}, source="reviewer") is None
     assert _row_from_gh(
         {
             "number": 1,
@@ -112,56 +112,14 @@ def test_row_from_gh_returns_none_on_missing_fields() -> None:
             "url": "https://x",
             "repository": {"name": "r"},
         },
-        source="author",
+        source="reviewer",
     ) is None
-
-
-# --- stack annotation ----------------------------------------------------
-
-
-def test_stack_annotation_single_pr() -> None:
-    prs = [build_raw_pr(repo="o/r", number=1, head="feat/a")]
-    ann = annotate_stacks(prs)
-    a = ann[("o/r", 1)]
-    assert a.stack_size == 1
-    assert a.stack_position == 1
-    assert a.stack_top_pr_number is None
-
-
-def test_stack_annotation_three_pr_chain() -> None:
-    # Stack: A (head=feat/a, base=main) → B (head=feat/b, base=feat/a)
-    # → C (head=feat/c, base=feat/b). C is the top.
-    prs = [
-        build_raw_pr(repo="o/r", number=1, head="feat/a", base="main"),
-        build_raw_pr(repo="o/r", number=2, head="feat/b", base="feat/a"),
-        build_raw_pr(repo="o/r", number=3, head="feat/c", base="feat/b"),
-    ]
-    ann = annotate_stacks(prs)
-    assert ann[("o/r", 1)].stack_top_pr_number == 3
-    assert ann[("o/r", 1)].stack_size == 3
-    assert ann[("o/r", 1)].stack_position == 1  # bottom (closest to main)
-    assert ann[("o/r", 2)].stack_position == 2
-    assert ann[("o/r", 3)].stack_position == 3  # top
-
-
-def test_stack_annotation_does_not_cross_repos() -> None:
-    # A PR in repo X with base_ref matching a head_ref in repo Y must
-    # NOT form a stack — stacks are repo-local.
-    prs = [
-        build_raw_pr(repo="o/x", number=1, head="feat/shared"),
-        build_raw_pr(repo="o/y", number=2, head="feat/top", base="feat/shared"),
-    ]
-    ann = annotate_stacks(prs)
-    assert ann[("o/x", 1)].stack_size == 1
-    assert ann[("o/y", 2)].stack_size == 1
 
 
 # --- repo configuration matching ---------------------------------------
 
 
 def test_is_repo_configured_matches_on_basename_fallback() -> None:
-    """When ``github_repo`` isn't set, fall back to matching the basename
-    portion of ``pr_repo`` against ``RepoConfig.name``."""
     from app.config.schema import RepoConfig
 
     repos = [RepoConfig(name="myapp", path=Path("/tmp/myapp"))]
@@ -172,9 +130,6 @@ def test_is_repo_configured_matches_on_basename_fallback() -> None:
 
 
 def test_explicit_github_repo_excludes_basename_collisions() -> None:
-    """When ``github_repo`` is set, only the explicit owner/name matches.
-    A different-owner PR with the same basename does NOT piggy-back on
-    the basename fallback — the user opted into precision."""
     from app.config.schema import RepoConfig
     from app.services.inbox_search import lookup_configured_repo
 
@@ -208,12 +163,8 @@ def test_tracked_keys_reads_from_worktree_columns(_isolate: dict[str, Path]) -> 
 
 
 def test_tracked_keys_reads_from_pr_state_url(_isolate: dict[str, Path]) -> None:
-    """pr_state's payload carries the PR URL. Dedup must extract
-    owner/name from there directly — it can't rely on a worktree row
-    having pr_repo set, since pr_repo is only populated lazily on
-    PR-button click."""
-    # Worktree exists but has no pr_repo (the common case after
-    # creating a worktree + waiting for pr_state polling).
+    """Worktree exists but has no pr_repo — dedup must extract
+    owner/name from the pr_state payload URL."""
     seed_worktree(
         _isolate["db_path"], "myapp", "feat1", branch="feat/x"
     )
@@ -227,8 +178,6 @@ def test_tracked_keys_reads_from_pr_state_url(_isolate: dict[str, Path]) -> None
 def test_tracked_keys_handles_pr_state_with_malformed_url(
     _isolate: dict[str, Path],
 ) -> None:
-    """A pr_state row whose payload URL isn't a github.com PR URL
-    shouldn't crash dedup — just gets skipped."""
     import json
 
     seed_worktree(
@@ -253,139 +202,137 @@ def test_tracked_keys_handles_pr_state_with_malformed_url(
     assert inbox_poll._tracked_pr_keys_sync() == set()
 
 
-# --- endpoint ------------------------------------------------------------
+# --- inbox_db helpers ----------------------------------------------------
 
 
-def test_endpoint_returns_empty_before_first_poll(_isolate: dict[str, Path]) -> None:
-    write_minimal_config(_isolate["config_path"])
-    with TestClient(app) as client:
-        # Force the cache to a known-empty state (lifespan would have
-        # initialized it via the poll loop; we replace it here).
-        client.app.state.inbox = InboxCache()
-        r = client.get("/api/inbox")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["prs"] == []
-    assert body["checked_at"] is None
-
-
-def test_endpoint_returns_cached_after_poll(_isolate: dict[str, Path]) -> None:
-    write_minimal_config(_isolate["config_path"])
-    cached = InboxCache(
-        prs=[
-            InboxPr(
-                pr_repo="o/r",
-                pr_number=1,
-                title="t",
-                author_login="me",
-                head_ref="feat/x",
-                base_ref="main",
-                is_draft=False,
-                url="https://github.com/o/r/pull/1",
-                updated_at="2026-05-14T00:00:00Z",
-                ci_status="pass",
-                sources=["author"],
-                stack_top_pr_number=None,
-                stack_size=1,
-                stack_position=1,
-                repo_configured=False,
-            )
-        ],
-        checked_at="2026-05-14T00:00:00Z",
+def test_upsert_inbox_inserts_and_then_updates(_isolate: dict[str, Path]) -> None:
+    """Insert then upsert refreshes search-driven fields but preserves
+    notes and added_at."""
+    row = build_inbox_row(
+        pr_repo="o/r",
+        pr_number=1,
+        title="first",
+        notes="my notes",
+        added_at="2026-05-14T00:00:00Z",
+        last_seen_at="2026-05-14T00:00:00Z",
     )
-    with TestClient(app) as client:
-        client.app.state.inbox = cached
-        r = client.get("/api/inbox")
-    body = r.json()
-    assert len(body["prs"]) == 1
-    assert body["prs"][0]["pr_repo"] == "o/r"
-    assert body["prs"][0]["sources"] == ["author"]
-    assert body["checked_at"] == "2026-05-14T00:00:00Z"
+    inbox_db.upsert_inbox_sync(row, db_path=_isolate["db_path"])
+
+    refreshed = build_inbox_row(
+        pr_repo="o/r",
+        pr_number=1,
+        title="second",
+        notes=None,                            # user-edited; must NOT clobber
+        added_at="2099-01-01T00:00:00Z",        # must NOT clobber
+        last_seen_at="2026-05-21T00:00:00Z",    # MUST advance
+        pr_updated_at="2026-05-21T00:00:00Z",   # MUST advance
+    )
+    inbox_db.upsert_inbox_sync(refreshed, db_path=_isolate["db_path"])
+
+    out = inbox_db.get_inbox_sync("o/r", 1, db_path=_isolate["db_path"])
+    assert out is not None
+    assert out.title == "second"
+    assert out.notes == "my notes"                    # preserved
+    assert out.added_at == "2026-05-14T00:00:00Z"     # preserved
+    assert out.last_seen_at == "2026-05-21T00:00:00Z"
+    assert out.pr_updated_at == "2026-05-21T00:00:00Z"
 
 
-def test_endpoint_when_state_has_no_inbox_attr(_isolate: dict[str, Path]) -> None:
-    """If the route fires before the lifespan poller has initialized
-    the cache, return empty rather than 500."""
-    write_minimal_config(_isolate["config_path"])
-    with TestClient(app) as client:
-        # Remove the attribute that lifespan set up.
-        if hasattr(client.app.state, "inbox"):
-            delattr(client.app.state, "inbox")
-        r = client.get("/api/inbox")
-    assert r.status_code == 200
-    assert r.json() == {"prs": [], "checked_at": None}
+def test_list_inbox_filters_archived(_isolate: dict[str, Path]) -> None:
+    seed_inbox_row(_isolate["db_path"], pr_repo="o/r", pr_number=1)
+    seed_inbox_row(_isolate["db_path"], pr_repo="o/r", pr_number=2)
+    inbox_db.archive_inbox_sync(
+        "o/r", 2, "2026-05-14T00:00:00Z", db_path=_isolate["db_path"]
+    )
+
+    rows = inbox_db.list_inbox_sync(db_path=_isolate["db_path"])
+    assert [(r.pr_repo, r.pr_number) for r in rows] == [("o/r", 1)]
 
 
-def test_refresh_endpoint_runs_tick_and_returns_fresh_cache(
-    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The hub's Sync button hits this endpoint to force an immediate
-    inbox tick. Should run one full tick and return the post-tick cache."""
-    write_minimal_config(_isolate["config_path"])
-
-    fetched: list[InboxPrRaw] = [build_raw_pr(repo="o/r", number=99, head="feat/refresh")]
-
-    async def fake_fetch(teams: list) -> list[InboxPrRaw]:
-        return fetched
-
-    monkeypatch.setattr(inbox_poll, "fetch_inbox_prs", fake_fetch)
-
-    with TestClient(app) as client:
-        client.app.state.inbox = InboxCache()
-        r = client.post("/api/inbox/refresh")
-
-    assert r.status_code == 200
-    body = r.json()
-    assert body["checked_at"] is not None
-    assert len(body["prs"]) == 1
-    assert body["prs"][0]["pr_number"] == 99
+def test_archive_is_idempotent(_isolate: dict[str, Path]) -> None:
+    seed_inbox_row(_isolate["db_path"], pr_repo="o/r", pr_number=1)
+    inbox_db.archive_inbox_sync(
+        "o/r", 1, "2026-05-14T00:00:00Z", db_path=_isolate["db_path"]
+    )
+    # Second archive — same PR, must not raise.
+    inbox_db.archive_inbox_sync(
+        "o/r", 1, "2026-05-21T00:00:00Z", db_path=_isolate["db_path"]
+    )
+    assert inbox_db.archived_keys_sync(db_path=_isolate["db_path"]) == {("o/r", 1)}
 
 
-# --- source attribution + filter ----------------------------------------
+def test_delete_inbox_clears_archive_shadow(_isolate: dict[str, Path]) -> None:
+    """Auto-removal sweep deletes both the inbox row and any matching
+    inbox_archived row so a future PR with the same number isn't
+    silently filtered out."""
+    seed_inbox_row(_isolate["db_path"], pr_repo="o/r", pr_number=1)
+    inbox_db.archive_inbox_sync(
+        "o/r", 1, "2026-05-14T00:00:00Z", db_path=_isolate["db_path"]
+    )
+    inbox_db.delete_inbox_sync("o/r", 1, db_path=_isolate["db_path"])
+    assert inbox_db.get_inbox_sync("o/r", 1, db_path=_isolate["db_path"]) is None
+    assert inbox_db.archived_keys_sync(db_path=_isolate["db_path"]) == set()
+
+
+def test_list_stale_inbox_orders_oldest_first(_isolate: dict[str, Path]) -> None:
+    seed_inbox_row(
+        _isolate["db_path"], pr_repo="o/r", pr_number=1,
+        last_seen_at="2026-05-01T00:00:00Z",
+    )
+    seed_inbox_row(
+        _isolate["db_path"], pr_repo="o/r", pr_number=2,
+        last_seen_at="2026-05-10T00:00:00Z",
+    )
+    seed_inbox_row(
+        _isolate["db_path"], pr_repo="o/r", pr_number=3,
+        last_seen_at="2026-05-20T00:00:00Z",   # not stale vs cutoff
+    )
+    stale = inbox_db.list_stale_inbox_sync(
+        "2026-05-15T00:00:00Z", limit=10, db_path=_isolate["db_path"]
+    )
+    assert stale == [("o/r", 1), ("o/r", 2)]
+
+
+# --- source accumulation across queries (auth dropped, team dropped) ----
 
 
 def test_source_accumulation_across_queries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A PR returned by multiple queries accumulates all sources,
-    priority-ordered by call order (author > reviewer > assignee >
-    mentions > team:*)."""
+    priority-ordered by call order (reviewer > assignee > mentions)."""
 
     call_count = {"n": 0}
 
     async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
         call_count["n"] += 1
-        # PR #42 hits author, mentions, AND the team query.
-        if "author:@me" in query:
-            return [build_raw_pr(repo="o/r", number=42, head="feat/x", source="author")]
+        if "review-requested:@me" in query:
+            return [build_raw_pr(repo="o/r", number=42, head="feat/x", source="reviewer")]
         if "mentions:@me" in query:
             return [build_raw_pr(repo="o/r", number=42, head="feat/x", source="mentions")]
-        if "team-review-requested:" in query:
-            return [build_raw_pr(repo="o/r", number=42, head="feat/x", source=source)]
         return []
 
     monkeypatch.setattr(inbox_search, "_search", fake_search)
 
+    # Also stub the reviewer post-filter so it doesn't try to call
+    # `gh pr view` for the synthetic row.
+    async def fake_me_login() -> str | None:
+        return None
+
+    monkeypatch.setattr(inbox_search, "_get_me_login", fake_me_login)
+
     import asyncio
 
-    result = asyncio.run(inbox_search.fetch_inbox_prs(["corp/team_name"]))
+    result = asyncio.run(inbox_search.fetch_inbox_prs())
     assert len(result) == 1
-    # All three sources accumulated in priority order (call order).
-    assert result[0].sources == [
-        "author",
-        "mentions",
-        "team:corp/team_name",
-    ]
-    # author + reviewer + assignee + mentions + 1 team = 5 queries.
-    assert call_count["n"] == 5
+    assert result[0].sources == ["reviewer", "mentions"]
+    # reviewer + assignee + mentions = 3 queries
+    assert call_count["n"] == 3
 
 
 def test_assignee_and_mentions_sources(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Confirms the new assignee:@me and mentions:@me queries fire and
-    their results carry the right source tag."""
-
     async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
         if "assignee:@me" in query:
             return [build_raw_pr(repo="o/r", number=100, head="feat/a", source=source)]
@@ -395,9 +342,14 @@ def test_assignee_and_mentions_sources(
 
     monkeypatch.setattr(inbox_search, "_search", fake_search)
 
+    async def fake_me_login() -> str | None:
+        return None
+
+    monkeypatch.setattr(inbox_search, "_get_me_login", fake_me_login)
+
     import asyncio
 
-    result = asyncio.run(inbox_search.fetch_inbox_prs([]))
+    result = asyncio.run(inbox_search.fetch_inbox_prs())
     by_number = {p.pr_number: p for p in result}
     assert by_number[100].sources == ["assignee"]
     assert by_number[101].sources == ["mentions"]
@@ -407,9 +359,6 @@ def test_assignee_and_mentions_sources(
 
 
 def _patch_me_login(monkeypatch: pytest.MonkeyPatch, login: str | None) -> None:
-    """Stub the daemon's @me-login resolver. Setting None simulates
-    `gh api user` being unavailable / unauthed."""
-
     async def fake_get() -> str | None:
         return login
 
@@ -420,10 +369,6 @@ def _patch_review_requests(
     monkeypatch: pytest.MonkeyPatch,
     review_requests_by_pr: dict[tuple[str, int], list[dict] | None],
 ) -> None:
-    """Stub `_is_directly_review_requested` by intercepting the
-    `gh pr view --json reviewRequests` call. ``None`` for a PR's
-    entry simulates a `gh` failure (fail-open path)."""
-
     async def fake_is_direct(
         pr_repo: str, pr_number: int, me_login: str
     ) -> bool | None:
@@ -463,7 +408,7 @@ def test_reviewer_filter_keeps_direct_user_request(
 
     import asyncio
 
-    result = asyncio.run(inbox_search.fetch_inbox_prs([]))
+    result = asyncio.run(inbox_search.fetch_inbox_prs())
     assert len(result) == 1
     assert result[0].sources == ["reviewer"]
 
@@ -471,15 +416,11 @@ def test_reviewer_filter_keeps_direct_user_request(
 def test_reviewer_filter_drops_team_mediated_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A PR matched only via team membership (the user isn't a direct
-    User reviewer) drops the ``reviewer`` source. With no other source
-    left, the row falls out of the inbox entirely."""
     _patch_me_login(monkeypatch, "me")
     _patch_review_requests(
         monkeypatch,
         {
             ("o/r", 1): [
-                # 28-team broadcast, no direct user request to @me
                 {"__typename": "Team", "slug": "acme/insurance-platform"},
                 {"__typename": "Team", "slug": "acme/payer"},
             ],
@@ -495,48 +436,15 @@ def test_reviewer_filter_drops_team_mediated_only(
 
     import asyncio
 
-    result = asyncio.run(inbox_search.fetch_inbox_prs([]))
+    result = asyncio.run(inbox_search.fetch_inbox_prs())
     assert result == []
-
-
-def test_reviewer_filter_strips_reviewer_but_keeps_other_sources(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """When a PR matches both author AND a team-mediated reviewer
-    request, the reviewer chip drops but the PR stays under author."""
-    _patch_me_login(monkeypatch, "me")
-    _patch_review_requests(
-        monkeypatch,
-        {
-            ("o/r", 1): [
-                {"__typename": "Team", "slug": "acme/broadcast"},
-            ],
-        },
-    )
-
-    async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
-        if "author:@me" in query:
-            return [build_raw_pr(repo="o/r", number=1, head="feat/a", source="author")]
-        if "review-requested:@me" in query:
-            return [build_raw_pr(repo="o/r", number=1, head="feat/a", source="reviewer")]
-        return []
-
-    monkeypatch.setattr(inbox_search, "_search", fake_search)
-
-    import asyncio
-
-    result = asyncio.run(inbox_search.fetch_inbox_prs([]))
-    assert len(result) == 1
-    assert result[0].sources == ["author"]
 
 
 def test_reviewer_filter_fail_open_on_gh_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """If ``_is_directly_review_requested`` returns ``None`` (gh failed),
-    keep the ``reviewer`` source rather than silently dropping the row."""
     _patch_me_login(monkeypatch, "me")
-    _patch_review_requests(monkeypatch, {("o/r", 1): None})  # signal: gh failed
+    _patch_review_requests(monkeypatch, {("o/r", 1): None})
 
     async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
         if "review-requested:@me" in query:
@@ -547,7 +455,7 @@ def test_reviewer_filter_fail_open_on_gh_error(
 
     import asyncio
 
-    result = asyncio.run(inbox_search.fetch_inbox_prs([]))
+    result = asyncio.run(inbox_search.fetch_inbox_prs())
     assert len(result) == 1
     assert result[0].sources == ["reviewer"]
 
@@ -555,8 +463,6 @@ def test_reviewer_filter_fail_open_on_gh_error(
 def test_reviewer_filter_skipped_when_me_login_unknown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """If ``_get_me_login`` returns ``None``, skip the filter and
-    return PRs unchanged (no way to identify @me)."""
     _patch_me_login(monkeypatch, None)
 
     async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
@@ -568,46 +474,34 @@ def test_reviewer_filter_skipped_when_me_login_unknown(
 
     import asyncio
 
-    result = asyncio.run(inbox_search.fetch_inbox_prs([]))
+    result = asyncio.run(inbox_search.fetch_inbox_prs())
     assert len(result) == 1
     assert result[0].sources == ["reviewer"]
 
 
-def test_filter_out_worktree_prs_drops_matches() -> None:
-    prs = [
-        build_raw_pr(repo="o/r", number=1, head="feat/a"),
-        build_raw_pr(repo="o/r", number=2, head="feat/b"),
-    ]
-    out = inbox_search.filter_out_worktree_prs(prs, tracked={("o/r", 1)})
-    assert [p.pr_number for p in out] == [2]
+# --- poll tick end-to-end ----------------------------------------------
 
 
-# --- poll tick end-to-end with mocks ------------------------------------
-
-
-def test_tick_populates_cache(
+def test_tick_persists_new_row(
     _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     write_minimal_config(_isolate["config_path"])
 
-    raw_rows = [build_raw_pr(repo="o/r", number=42, head="feat/x")]
-
-    async def fake_fetch(teams: list[str]) -> list[InboxPrRaw]:
-        return raw_rows
+    async def fake_fetch() -> list[InboxPrRaw]:
+        return [build_raw_pr(repo="o/r", number=42, head="feat/x")]
 
     monkeypatch.setattr(inbox_poll, "fetch_inbox_prs", fake_fetch)
 
-    state = SimpleNamespace(inbox=InboxCache())
+    state = SimpleNamespace()
     import asyncio
 
     asyncio.run(inbox_poll._tick(state))
 
-    assert state.inbox.checked_at is not None
-    assert len(state.inbox.prs) == 1
-    assert state.inbox.prs[0].pr_number == 42
+    rows = inbox_db.list_inbox_sync(db_path=_isolate["db_path"])
+    assert [(r.pr_repo, r.pr_number) for r in rows] == [("o/r", 42)]
 
 
-def test_tick_dedup_against_worktree(
+def test_tick_dedups_against_worktree(
     _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     write_minimal_config(_isolate["config_path"])
@@ -620,42 +514,342 @@ def test_tick_dedup_against_worktree(
         pr_number=42,
     )
 
-    raw_rows = [
-        build_raw_pr(repo="o/r", number=42, head="feat/x"),
-        build_raw_pr(repo="o/r", number=43, head="feat/y"),
-    ]
-
-    async def fake_fetch(teams: list[str]) -> list[InboxPrRaw]:
-        return raw_rows
+    async def fake_fetch() -> list[InboxPrRaw]:
+        return [
+            build_raw_pr(repo="o/r", number=42, head="feat/x"),
+            build_raw_pr(repo="o/r", number=43, head="feat/y"),
+        ]
 
     monkeypatch.setattr(inbox_poll, "fetch_inbox_prs", fake_fetch)
 
-    state = SimpleNamespace(inbox=InboxCache())
+    state = SimpleNamespace()
     import asyncio
 
     asyncio.run(inbox_poll._tick(state))
 
-    # #42 dropped (already a worktree), #43 surfaces.
-    assert [p.pr_number for p in state.inbox.prs] == [43]
+    rows = inbox_db.list_inbox_sync(db_path=_isolate["db_path"])
+    assert [(r.pr_repo, r.pr_number) for r in rows] == [("o/r", 43)]
 
 
-# --- POST /api/inbox/.../pull-down --------------------------------------
+def test_tick_skips_archived_rows(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Archived PR re-appearing in gh search results must NOT re-enter
+    the active inbox view."""
+    write_minimal_config(_isolate["config_path"])
+    inbox_db.archive_inbox_sync(
+        "o/r", 42, "2026-05-14T00:00:00Z", db_path=_isolate["db_path"]
+    )
+
+    async def fake_fetch() -> list[InboxPrRaw]:
+        return [build_raw_pr(repo="o/r", number=42, head="feat/x")]
+
+    monkeypatch.setattr(inbox_poll, "fetch_inbox_prs", fake_fetch)
+
+    state = SimpleNamespace()
+    import asyncio
+
+    asyncio.run(inbox_poll._tick(state))
+
+    # No row inserted; list filtered (archive shadow exists but inbox row doesn't).
+    assert inbox_db.list_inbox_sync(db_path=_isolate["db_path"]) == []
 
 
-def test_pull_down_404_when_pr_not_in_cache(_isolate: dict[str, Path]) -> None:
+def test_tick_auto_removes_closed_pr(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A PR that's no longer in gh search results is probed via
+    gh pr view; if state != open, the inbox row is deleted."""
+    write_minimal_config(_isolate["config_path"])
+    seed_inbox_row(
+        _isolate["db_path"],
+        pr_repo="o/r",
+        pr_number=99,
+        last_seen_at="2026-05-01T00:00:00Z",
+    )
+
+    async def fake_fetch() -> list[InboxPrRaw]:
+        return []  # PR no longer appearing in search
+
+    async def fake_pr_state(pr_repo: str, pr_number: int) -> str | None:
+        assert (pr_repo, pr_number) == ("o/r", 99)
+        return "merged"
+
+    monkeypatch.setattr(inbox_poll, "fetch_inbox_prs", fake_fetch)
+    monkeypatch.setattr(inbox_poll, "_gh_pr_state", fake_pr_state)
+
+    state = SimpleNamespace()
+    import asyncio
+
+    asyncio.run(inbox_poll._tick(state))
+    assert inbox_db.list_inbox_sync(db_path=_isolate["db_path"]) == []
+
+
+def test_tick_keeps_still_open_stale_row(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A still-open PR that's no longer in gh search results stays in
+    the inbox (sticky); last_seen_at is bumped so we don't re-probe
+    every tick."""
+    write_minimal_config(_isolate["config_path"])
+    seed_inbox_row(
+        _isolate["db_path"],
+        pr_repo="o/r",
+        pr_number=99,
+        last_seen_at="2026-05-01T00:00:00Z",
+    )
+
+    async def fake_fetch() -> list[InboxPrRaw]:
+        return []
+
+    async def fake_pr_state(pr_repo: str, pr_number: int) -> str | None:
+        return "open"
+
+    monkeypatch.setattr(inbox_poll, "fetch_inbox_prs", fake_fetch)
+    monkeypatch.setattr(inbox_poll, "_gh_pr_state", fake_pr_state)
+
+    state = SimpleNamespace()
+    import asyncio
+
+    asyncio.run(inbox_poll._tick(state))
+
+    rows = inbox_db.list_inbox_sync(db_path=_isolate["db_path"])
+    assert len(rows) == 1
+    assert rows[0].last_seen_at != "2026-05-01T00:00:00Z"  # bumped
+
+
+def test_tick_extracts_ticket_via_configured_pattern(
+    _isolate: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When a configured repo defines a ticket_pattern, the poll uses
+    it against PR titles for inbox rows too."""
+    repo_path = tmp_path / "myapp"
+    repo_path.mkdir()
+    write_repo_config(
+        _isolate["config_path"],
+        tmp_path,
+        repo_path,
+        name="myapp",
+        ticket_pattern=r"[A-Z]+-\d+",
+    )
+
+    async def fake_fetch() -> list[InboxPrRaw]:
+        return [build_raw_pr(
+            repo="acme/myapp", number=1, head="feat/x",
+            title="PROJ-218: thing",
+        )]
+
+    monkeypatch.setattr(inbox_poll, "fetch_inbox_prs", fake_fetch)
+
+    state = SimpleNamespace()
+    import asyncio
+
+    asyncio.run(inbox_poll._tick(state))
+    rows = inbox_db.list_inbox_sync(db_path=_isolate["db_path"])
+    assert len(rows) == 1
+    assert rows[0].ticket == "PROJ-218"
+
+
+# --- endpoint: GET /api/inbox ------------------------------------------
+
+
+def test_get_inbox_returns_empty_when_db_empty(
+    _isolate: dict[str, Path],
+) -> None:
     write_minimal_config(_isolate["config_path"])
     with TestClient(app) as client:
-        client.app.state.inbox = seed_inbox_cache()
+        r = client.get("/api/inbox")
+    assert r.status_code == 200
+    assert r.json() == {"prs": []}
+
+
+def test_get_inbox_returns_persisted_rows(
+    _isolate: dict[str, Path],
+) -> None:
+    write_minimal_config(_isolate["config_path"])
+    seed_inbox_row(
+        _isolate["db_path"],
+        pr_repo="o/r",
+        pr_number=1,
+        title="hello",
+        author_login="alice",
+        notes="my note",
+        ticket="PROJ-1",
+    )
+    with TestClient(app) as client:
+        r = client.get("/api/inbox")
+    body = r.json()
+    assert len(body["prs"]) == 1
+    pr = body["prs"][0]
+    assert pr["pr_repo"] == "o/r"
+    assert pr["title"] == "hello"
+    assert pr["author_login"] == "alice"
+    assert pr["notes"] == "my note"
+    assert pr["ticket"] == "PROJ-1"
+    assert pr["repo_configured"] is False
+
+
+def test_get_inbox_filters_archived_rows(
+    _isolate: dict[str, Path],
+) -> None:
+    write_minimal_config(_isolate["config_path"])
+    seed_inbox_row(_isolate["db_path"], pr_repo="o/r", pr_number=1)
+    seed_inbox_row(_isolate["db_path"], pr_repo="o/r", pr_number=2)
+    inbox_db.archive_inbox_sync(
+        "o/r", 2, "2026-05-14T00:00:00Z", db_path=_isolate["db_path"]
+    )
+
+    with TestClient(app) as client:
+        r = client.get("/api/inbox")
+    body = r.json()
+    nums = sorted(p["pr_number"] for p in body["prs"])
+    assert nums == [1]
+
+
+def test_get_inbox_repo_configured_flag(
+    _isolate: dict[str, Path], tmp_path: Path,
+) -> None:
+    repo_path = tmp_path / "myapp"
+    repo_path.mkdir()
+    write_repo_config(
+        _isolate["config_path"],
+        tmp_path,
+        repo_path,
+        name="myapp",
+        github_repo="acme/myapp",
+    )
+    seed_inbox_row(_isolate["db_path"], pr_repo="acme/myapp", pr_number=1)
+    seed_inbox_row(_isolate["db_path"], pr_repo="other/elsewhere", pr_number=2)
+
+    with TestClient(app) as client:
+        r = client.get("/api/inbox")
+    by_num = {p["pr_number"]: p for p in r.json()["prs"]}
+    assert by_num[1]["repo_configured"] is True
+    assert by_num[2]["repo_configured"] is False
+
+
+# --- endpoint: POST /api/inbox/refresh ----------------------------------
+
+
+def test_refresh_endpoint_runs_tick_and_returns_rows(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_minimal_config(_isolate["config_path"])
+
+    async def fake_fetch() -> list[InboxPrRaw]:
+        return [build_raw_pr(repo="o/r", number=99, head="feat/refresh")]
+
+    monkeypatch.setattr(inbox_poll, "fetch_inbox_prs", fake_fetch)
+
+    with TestClient(app) as client:
+        r = client.post("/api/inbox/refresh")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["prs"]) == 1
+    assert body["prs"][0]["pr_number"] == 99
+
+
+# --- endpoint: archive --------------------------------------------------
+
+
+def test_archive_endpoint_hides_row_from_list(
+    _isolate: dict[str, Path],
+) -> None:
+    write_minimal_config(_isolate["config_path"])
+    seed_inbox_row(_isolate["db_path"], pr_repo="o/r", pr_number=1)
+    with TestClient(app) as client:
+        r1 = client.post("/api/inbox/o/r/1/archive")
+        assert r1.status_code == 200
+
+        r2 = client.get("/api/inbox")
+        assert r2.json()["prs"] == []
+
+
+def test_archive_endpoint_is_idempotent(_isolate: dict[str, Path]) -> None:
+    write_minimal_config(_isolate["config_path"])
+    seed_inbox_row(_isolate["db_path"], pr_repo="o/r", pr_number=1)
+    with TestClient(app) as client:
+        client.post("/api/inbox/o/r/1/archive")
+        r = client.post("/api/inbox/o/r/1/archive")
+    assert r.status_code == 200
+
+
+def test_archive_endpoint_404_when_row_missing(
+    _isolate: dict[str, Path],
+) -> None:
+    write_minimal_config(_isolate["config_path"])
+    with TestClient(app) as client:
+        r = client.post("/api/inbox/o/r/999/archive")
+    assert r.status_code == 404
+
+
+# --- endpoint: notes ----------------------------------------------------
+
+
+def test_notes_endpoint_updates_row(
+    _isolate: dict[str, Path],
+) -> None:
+    write_minimal_config(_isolate["config_path"])
+    seed_inbox_row(_isolate["db_path"], pr_repo="o/r", pr_number=1)
+    with TestClient(app) as client:
+        r = client.put(
+            "/api/inbox/o/r/1/notes",
+            json={"notes": "blocked on COR-218"},
+        )
+    assert r.status_code == 200
+    assert r.json()["notes"] == "blocked on COR-218"
+
+    row = inbox_db.get_inbox_sync("o/r", 1, db_path=_isolate["db_path"])
+    assert row is not None
+    assert row.notes == "blocked on COR-218"
+
+
+def test_notes_endpoint_accepts_empty_string(
+    _isolate: dict[str, Path],
+) -> None:
+    write_minimal_config(_isolate["config_path"])
+    seed_inbox_row(
+        _isolate["db_path"], pr_repo="o/r", pr_number=1, notes="prior"
+    )
+    with TestClient(app) as client:
+        r = client.put(
+            "/api/inbox/o/r/1/notes", json={"notes": ""}
+        )
+    assert r.status_code == 200
+    row = inbox_db.get_inbox_sync("o/r", 1, db_path=_isolate["db_path"])
+    assert row is not None
+    assert row.notes == ""
+
+
+def test_notes_endpoint_404_when_row_missing(
+    _isolate: dict[str, Path],
+) -> None:
+    write_minimal_config(_isolate["config_path"])
+    with TestClient(app) as client:
+        r = client.put(
+            "/api/inbox/o/r/999/notes", json={"notes": "x"}
+        )
+    assert r.status_code == 404
+
+
+# --- endpoint: POST /api/inbox/.../pull-down ----------------------------
+
+
+def test_pull_down_404_when_pr_not_in_inbox(
+    _isolate: dict[str, Path],
+) -> None:
+    write_minimal_config(_isolate["config_path"])
+    with TestClient(app) as client:
         r = client.post("/api/inbox/o/r/42/pull-down")
     assert r.status_code == 404
 
 
-def test_pull_down_400_when_repo_not_configured(_isolate: dict[str, Path]) -> None:
+def test_pull_down_400_when_repo_not_configured(
+    _isolate: dict[str, Path],
+) -> None:
     write_minimal_config(_isolate["config_path"])
+    seed_inbox_row(_isolate["db_path"], pr_repo="acme/other", pr_number=42)
     with TestClient(app) as client:
-        client.app.state.inbox = seed_inbox_cache(
-            build_enriched_pr(pr_repo="acme/other", pr_number=42, repo_configured=False)
-        )
         r = client.post("/api/inbox/acme/other/42/pull-down")
     assert r.status_code == 400
     assert "not configured" in r.json()["detail"]
@@ -672,10 +866,8 @@ def test_pull_down_400_when_repo_path_missing_on_disk(
         name="myapp",
         github_repo="acme/myapp",
     )
+    seed_inbox_row(_isolate["db_path"], pr_repo="acme/myapp", pr_number=42)
     with TestClient(app) as client:
-        client.app.state.inbox = seed_inbox_cache(
-            build_enriched_pr(pr_repo="acme/myapp", pr_number=42)
-        )
         r = client.post("/api/inbox/acme/myapp/42/pull-down")
     assert r.status_code == 400
     assert "missing on disk" in r.json()["detail"]
@@ -685,12 +877,11 @@ def test_pull_down_same_repo_happy_path(
     _isolate: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Same-repo PR: no pre-fetch needed; create_worktree's built-in
-    fetch handles it. Verify the worktree is created with the head_ref
-    branch and the pr_number/pr_repo columns are populated."""
+    fetch handles it. Verify the worktree row is created and that
+    pr_number / pr_repo / pr_author_login were persisted from the
+    inbox row's author_login."""
     import subprocess
 
-    # Init a real local repo so create_worktree's git invocations work
-    # against a non-mock filesystem.
     repo_path = tmp_path / "myapp"
     repo_path.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo_path, check=True)
@@ -709,7 +900,6 @@ def test_pull_down_same_repo_happy_path(
         github_repo="acme/myapp",
     )
 
-    # Mock `gh pr view` (same-repo)
     from app.routes import inbox as inbox_route
 
     async def fake_run_gh_json(args: list, **kwargs: Any) -> dict:
@@ -724,26 +914,21 @@ def test_pull_down_same_repo_happy_path(
 
     monkeypatch.setattr(inbox_route, "_fetch_pr_ref", fake_fetch_pr_ref)
 
+    seed_inbox_row(
+        _isolate["db_path"],
+        pr_repo="acme/myapp",
+        pr_number=42,
+        author_login="sarah-h",
+    )
+
     with TestClient(app) as client:
-        client.app.state.inbox = seed_inbox_cache(
-            build_enriched_pr(
-                pr_repo="acme/myapp",
-                pr_number=42,
-                head_ref="feat/x",
-                author_login="sarah-h",
-            )
-        )
         r = client.post("/api/inbox/acme/myapp/42/pull-down")
 
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["repo"] == "myapp"
-    # Same-repo: no fork-ref fetch
     assert fetch_called["n"] == 0
 
-    # pr_number + pr_repo + pr_author_login persisted on the new
-    # worktree row — the author captured here is what powers the
-    # hub's REVIEWING tier split.
     conn = sqlite3.connect(_isolate["db_path"])
     try:
         row = conn.execute(
@@ -759,8 +944,7 @@ def test_pull_down_fork_pr_fetches_pull_ref(
     _isolate: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Fork PR: must pre-fetch refs/pull/<n>/head into a local branch
-    before create_worktree runs (otherwise verify-remote fails since
-    the head ref doesn't live on origin)."""
+    before create_worktree runs."""
     import subprocess
 
     repo_path = tmp_path / "myapp"
@@ -789,9 +973,8 @@ def test_pull_down_fork_pr_fetches_pull_ref(
 
     async def fake_fetch_pr_ref(repo_p: Path, pr_n: int, local_b: str) -> None:
         fetch_args_seen.append((repo_p, pr_n, local_b))
-        # Simulate the fork-ref fetch creating the local branch (so
-        # create_worktree's verify-local step passes). Async-spawned
-        # to keep ruff's ASYNC221 happy.
+        # Simulate the fork-ref fetch creating the local branch so
+        # create_worktree's verify-local step passes.
         import asyncio as _asyncio
 
         proc = await _asyncio.create_subprocess_exec(
@@ -804,29 +987,28 @@ def test_pull_down_fork_pr_fetches_pull_ref(
     monkeypatch.setattr(inbox_route, "run_gh_json", fake_run_gh_json)
     monkeypatch.setattr(inbox_route, "_fetch_pr_ref", fake_fetch_pr_ref)
 
+    seed_inbox_row(
+        _isolate["db_path"], pr_repo="acme/myapp", pr_number=58,
+    )
+
     with TestClient(app) as client:
-        client.app.state.inbox = seed_inbox_cache(
-            build_enriched_pr(pr_repo="acme/myapp", pr_number=58, head_ref="feat/forked")
-        )
         r = client.post("/api/inbox/acme/myapp/58/pull-down")
 
     assert r.status_code == 200, r.text
-    # Pre-fetch was invoked with the expected branch name
     assert len(fetch_args_seen) == 1
     _, pr_n, local_b = fetch_args_seen[0]
     assert pr_n == 58
     assert local_b == "cdh-pr-58-feat/forked"
 
 
-# --- POST /api/inbox/.../configure-and-pull-down -------------------------
+# --- endpoint: configure-and-pull-down ----------------------------------
 
 
-def test_configure_and_pull_down_404_when_pr_not_in_cache(
+def test_configure_and_pull_down_404_when_pr_not_in_inbox(
     _isolate: dict[str, Path],
 ) -> None:
     write_minimal_config(_isolate["config_path"])
     with TestClient(app) as client:
-        client.app.state.inbox = seed_inbox_cache()
         client.app.state.iterm = SimpleNamespace(connection=object())
         r = client.post("/api/inbox/acme/myapp/42/configure-and-pull-down")
     assert r.status_code == 404
@@ -844,10 +1026,8 @@ def test_configure_and_pull_down_409_when_repo_already_configured(
         name="myapp",
         github_repo="acme/myapp",
     )
+    seed_inbox_row(_isolate["db_path"], pr_repo="acme/myapp", pr_number=42)
     with TestClient(app) as client:
-        client.app.state.inbox = seed_inbox_cache(
-            build_enriched_pr(pr_repo="acme/myapp", pr_number=42)
-        )
         client.app.state.iterm = SimpleNamespace(connection=object())
         r = client.post("/api/inbox/acme/myapp/42/configure-and-pull-down")
     assert r.status_code == 409
@@ -858,11 +1038,9 @@ def test_configure_and_pull_down_503_when_iterm_disconnected(
     _isolate: dict[str, Path],
 ) -> None:
     write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
+    seed_inbox_row(_isolate["db_path"], pr_repo="acme/myapp", pr_number=42)
 
     with TestClient(app) as client:
-        client.app.state.inbox = seed_inbox_cache(
-            build_enriched_pr(pr_repo="acme/myapp", pr_number=42, repo_configured=False)
-        )
         client.app.state.iterm = SimpleNamespace(connection=None)
         r = client.post("/api/inbox/acme/myapp/42/configure-and-pull-down")
     assert r.status_code == 503
@@ -871,9 +1049,6 @@ def test_configure_and_pull_down_503_when_iterm_disconnected(
 def test_configure_and_pull_down_spawns_iterm_returns_session_id(
     _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Happy path: mock the iTerm2 spawn, assert the prompt includes a
-    clone instruction and that an onboard session is minted with a
-    pull_down follow_up."""
     dev_root = _isolate["dev_root"]
     write_minimal_config(_isolate["config_path"], dev_root)
 
@@ -889,10 +1064,9 @@ def test_configure_and_pull_down_spawns_iterm_returns_session_id(
 
     monkeypatch.setattr(inbox_route, "spawn_global_claude_window", fake_spawn)
 
+    seed_inbox_row(_isolate["db_path"], pr_repo="acme/myapp", pr_number=42)
+
     with TestClient(app) as client:
-        client.app.state.inbox = seed_inbox_cache(
-            build_enriched_pr(pr_repo="acme/myapp", pr_number=42, repo_configured=False)
-        )
         client.app.state.iterm = SimpleNamespace(connection=object())
         r = client.post("/api/inbox/acme/myapp/42/configure-and-pull-down")
 
@@ -900,13 +1074,11 @@ def test_configure_and_pull_down_spawns_iterm_returns_session_id(
     session_id = r.json()["session_id"]
     assert session_id
 
-    # Prompt has the clone instruction + the standard inspection body
     assert "Ensure a local clone".lower() in spawn_args_seen["prompt"].lower()
     assert "acme/myapp" in spawn_args_seen["prompt"]
     assert str(dev_root / "myapp") in spawn_args_seen["prompt"]
     assert spawn_args_seen["cwd"] == dev_root
 
-    # The session in the in-memory store carries the follow_up
     session = repos_route._sessions[session_id]
     assert session.follow_up == {
         "kind": "pull_down",
@@ -932,37 +1104,30 @@ def test_onboard_complete_fires_follow_up_pull_down(
     from app.routes import inbox as inbox_route
     from app.routes import repos as repos_route
 
-    # Skip the iTerm2 spawn — we just want to mint a session.
     async def fake_spawn(*args: Any, **kwargs: Any) -> Any:
         return SimpleNamespace(window_id="W1", claude_session_id="S1")
 
     monkeypatch.setattr(inbox_route, "spawn_global_claude_window", fake_spawn)
 
-    # Stub _perform_pull_down so the test doesn't depend on real gh +
-    # git network operations. The task fires in the TestClient's event
-    # loop; the test thread polls a shared dict for its side effect.
     pull_down_call: dict[str, Any] = {}
 
-    async def fake_pull_down(pr_repo, pr_number, *, cache):  # type: ignore[no-untyped-def]
+    async def fake_pull_down(pr_repo: str, pr_number: int) -> Any:
         pull_down_call["args"] = (pr_repo, pr_number)
         return SimpleNamespace(repo="myapp", name="feat_x")
 
     monkeypatch.setattr(inbox_route, "_perform_pull_down", fake_pull_down)
 
+    seed_inbox_row(_isolate["db_path"], pr_repo="acme/myapp", pr_number=42)
+
     import time as _time
 
     with TestClient(app) as client:
-        client.app.state.inbox = seed_inbox_cache(
-            build_enriched_pr(pr_repo="acme/myapp", pr_number=42, repo_configured=False)
-        )
         client.app.state.iterm = SimpleNamespace(connection=object())
 
-        # 1. Kick off configure-and-pull-down (mints session + follow_up).
         r1 = client.post("/api/inbox/acme/myapp/42/configure-and-pull-down")
         assert r1.status_code == 200
         session_id = r1.json()["session_id"]
 
-        # 2. Simulate Claude POSTing the proposed_entry back.
         r2 = client.post(
             "/api/repos/onboard/complete",
             json={
@@ -979,10 +1144,6 @@ def test_onboard_complete_fires_follow_up_pull_down(
         )
         assert r2.status_code == 200, r2.text
 
-        # 3. The follow-up task was scheduled in the TestClient's event
-        # loop before onboard_complete returned. Fire one more no-op
-        # request — TestClient runs the loop until the response arrives,
-        # which gives the create_task'd follow-up a chance to drain.
         for _ in range(20):
             client.get("/api/health")
             if "args" in pull_down_call:
@@ -990,5 +1151,4 @@ def test_onboard_complete_fires_follow_up_pull_down(
             _time.sleep(0.05)
 
     assert pull_down_call.get("args") == ("acme/myapp", 42)
-    # Session is marked saved
     assert repos_route._sessions[session_id].state == "saved"

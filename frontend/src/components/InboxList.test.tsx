@@ -1,4 +1,4 @@
-import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -8,16 +8,16 @@ vi.mock("../api/inbox");
 import * as inboxApi from "../api/inbox";
 
 import { InboxList } from "./InboxList";
-import type { InboxPr } from "../api/types";
+import type { InboxPr, JiraConfig } from "../api/types";
 
-function renderInbox(prs: InboxPr[]) {
+function renderInbox(prs: InboxPr[], jira: JiraConfig | null = null) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={client}>
       <RadixTooltip.Provider>
-        <InboxList inboxOverride={{ prs, checked_at: "2026-05-14T00:00:00Z" }} />
+        <InboxList jira={jira} inboxOverride={{ prs }} />
       </RadixTooltip.Provider>
     </QueryClientProvider>,
   );
@@ -29,16 +29,15 @@ function pr(overrides: Partial<InboxPr> = {}): InboxPr {
     pr_number: 1,
     title: "default title",
     author_login: "me",
-    head_ref: "feat/x",
-    base_ref: "main",
     is_draft: false,
     url: "https://github.com/o/r/pull/1",
-    updated_at: "2026-05-14T00:00:00Z",
     ci_status: "pass",
-    sources: ["author"],
-    stack_top_pr_number: null,
-    stack_size: 1,
-    stack_position: 1,
+    sources: ["reviewer"],
+    notes: null,
+    ticket: null,
+    pr_updated_at: "2026-05-14T00:00:00Z",
+    added_at: "2026-05-14T00:00:00Z",
+    last_seen_at: "2026-05-14T00:00:00Z",
     repo_configured: true,
     ...overrides,
   };
@@ -47,6 +46,8 @@ function pr(overrides: Partial<InboxPr> = {}): InboxPr {
 beforeEach(() => {
   vi.mocked(inboxApi.pullDownPr).mockReset();
   vi.mocked(inboxApi.configureAndPullDown).mockReset();
+  vi.mocked(inboxApi.archiveInboxPr).mockReset();
+  vi.mocked(inboxApi.updateInboxNotes).mockReset();
 });
 
 afterEach(() => {
@@ -56,63 +57,31 @@ afterEach(() => {
 describe("InboxList", () => {
   test("renders the empty-state when there are no PRs", () => {
     renderInbox([]);
-    // Section header is visible so the feature is discoverable even
-    // when the inbox is empty.
     expect(screen.getByText(/^Inbox$/)).toBeInTheDocument();
     expect(screen.getByText(/no prs need your attention/i)).toBeInTheDocument();
-    // Hint references inbox.teams config
-    expect(screen.getByText(/inbox\.teams/i)).toBeInTheDocument();
   });
 
-  test("groups by source: authored vs reviewer subsections", () => {
+  test("renders source chips for reviewer / assignee / mentions", () => {
     renderInbox([
-      pr({ pr_number: 1, title: "My PR", sources: ["author"] }),
       pr({
-        pr_number: 2,
-        title: "Their PR",
-        sources: ["team:corp/team_name"],
-        head_ref: "feat/their",
+        pr_number: 1,
+        title: "Direct-reviewed",
+        sources: ["reviewer"],
       }),
-    ]);
-    expect(screen.getByText(/\[YOU AUTHORED\]/i)).toBeInTheDocument();
-    expect(screen.getByText(/\[REVIEWER\]/i)).toBeInTheDocument();
-    expect(screen.getByText("My PR")).toBeInTheDocument();
-    expect(screen.getByText("Their PR")).toBeInTheDocument();
-  });
-
-  test("renders the source chip per row (descriptive label per source)", () => {
-    renderInbox([
-      pr({ pr_number: 1, title: "Authored", sources: ["author"] }),
       pr({
         pr_number: 2,
-        title: "Team-reviewed",
-        sources: ["team:corp/team_name"],
-        head_ref: "feat/y",
+        title: "Assigned",
+        sources: ["assignee"],
       }),
       pr({
         pr_number: 3,
-        title: "Direct-reviewed",
-        sources: ["reviewer"],
-        head_ref: "feat/z",
-      }),
-      pr({
-        pr_number: 4,
-        title: "Assigned",
-        sources: ["assignee"],
-        head_ref: "feat/a",
-      }),
-      pr({
-        pr_number: 5,
         title: "Mentioned",
         sources: ["mentions"],
-        head_ref: "feat/m",
       }),
     ]);
-    expect(screen.getByText("author")).toBeInTheDocument();
     expect(screen.getByText("reviewer")).toBeInTheDocument();
     expect(screen.getByText("assignee")).toBeInTheDocument();
     expect(screen.getByText("mention")).toBeInTheDocument();
-    expect(screen.getByText("corrections")).toBeInTheDocument();
   });
 
   test("renders multiple source chips when a PR matches multiple queries", () => {
@@ -120,79 +89,44 @@ describe("InboxList", () => {
       pr({
         pr_number: 5,
         title: "Multi-source PR",
-        sources: ["author", "team:corp/team_name"],
+        sources: ["reviewer", "assignee"],
       }),
     ]);
-    expect(screen.getByText("author")).toBeInTheDocument();
-    expect(screen.getByText("corrections")).toBeInTheDocument();
+    expect(screen.getByText("reviewer")).toBeInTheDocument();
+    expect(screen.getByText("assignee")).toBeInTheDocument();
   });
 
   test("ci status maps to a visible badge", () => {
     renderInbox([
       pr({ pr_number: 1, title: "passing", ci_status: "pass" }),
-      pr({
-        pr_number: 2,
-        title: "failing",
-        ci_status: "fail",
-        head_ref: "feat/fail",
-      }),
+      pr({ pr_number: 2, title: "failing", ci_status: "fail" }),
     ]);
     expect(screen.getByText("ci ✓")).toBeInTheDocument();
     expect(screen.getByText("ci ✗")).toBeInTheDocument();
   });
 
-  test("stack of 3 renders in a bordered group with a Graphite-linked title", () => {
-    const stack: InboxPr[] = [
-      pr({
-        pr_number: 10,
-        title: "bottom",
-        head_ref: "feat/a",
-        base_ref: "main",
-        stack_top_pr_number: 12,
-        stack_size: 3,
-        stack_position: 1,
-        sources: ["reviewer"],
-      }),
-      pr({
-        pr_number: 11,
-        title: "middle",
-        head_ref: "feat/b",
-        base_ref: "feat/a",
-        stack_top_pr_number: 12,
-        stack_size: 3,
-        stack_position: 2,
-        sources: ["reviewer"],
-      }),
-      pr({
-        pr_number: 12,
-        title: "top",
-        head_ref: "feat/c",
-        base_ref: "feat/b",
-        stack_top_pr_number: 12,
-        stack_size: 3,
-        stack_position: 3,
-        sources: ["reviewer"],
-      }),
-    ];
-    renderInbox(stack);
-
-    const stackTitle = screen.getByRole("link", { name: /Graphite · 3-PR stack/i });
-    expect(stackTitle).toBeInTheDocument();
-    expect(stackTitle).toHaveAttribute(
-      "href",
-      "https://app.graphite.com/github/pr/o/r/12",
+  test("renders the ticket as a Jira link when jira config is set", () => {
+    renderInbox(
+      [pr({ pr_number: 1, ticket: "PROJ-218" })],
+      {
+        tool: "none",
+        base_url: "https://acme.atlassian.net",
+        list_jql: null,
+      },
     );
-
-    // Top of stack reads first inside the box.
-    const stackBox = stackTitle.parentElement!;
-    const items = within(stackBox).getAllByRole("link", { name: /top|middle|bottom/ });
-    expect(items.map((el) => el.textContent)).toEqual(["top", "middle", "bottom"]);
+    const link = screen.getByRole("link", { name: "PROJ-218" });
+    expect(link).toHaveAttribute(
+      "href",
+      "https://acme.atlassian.net/browse/PROJ-218",
+    );
   });
 
-  test("single PR renders without a stack box", () => {
-    renderInbox([pr({ pr_number: 7, title: "lone PR" })]);
-    expect(screen.queryByRole("link", { name: /Graphite/ })).not.toBeInTheDocument();
-    expect(screen.getByText("lone PR")).toBeInTheDocument();
+  test("renders ticket as plain text when jira config has no base_url", () => {
+    renderInbox([pr({ pr_number: 1, ticket: "PROJ-218" })]);
+    expect(screen.getByText(/PROJ-218/)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "PROJ-218" }),
+    ).not.toBeInTheDocument();
   });
 
   test("Configure-and-pull-down button shows when repo isn't configured", () => {
@@ -260,5 +194,38 @@ describe("InboxList", () => {
         screen.getByRole("button", { name: /pulled/i }),
       ).toBeDisabled();
     });
+  });
+
+  test("Remove (archive) button fires the API", async () => {
+    vi.mocked(inboxApi.archiveInboxPr).mockResolvedValue(
+      pr({ pr_repo: "acme/myapp", pr_number: 42 }),
+    );
+    renderInbox([
+      pr({
+        pr_repo: "acme/myapp",
+        pr_number: 42,
+        title: "archive me",
+      }),
+    ]);
+    const btn = screen.getByRole("button", { name: /^remove$/i });
+    fireEvent.click(btn);
+
+    await waitFor(() => {
+      expect(inboxApi.archiveInboxPr).toHaveBeenCalledWith("acme/myapp", 42);
+    });
+  });
+
+  test("notes editor renders with existing notes pre-populated", () => {
+    renderInbox([
+      pr({
+        pr_number: 1,
+        title: "PR with notes",
+        notes: "blocked on COR-218",
+      }),
+    ]);
+    // Textarea is empty by default ('+ Add note' placeholder) and
+    // pre-filled when notes are present.
+    const textarea = screen.getByRole("textbox");
+    expect(textarea).toHaveValue("blocked on COR-218");
   });
 });
