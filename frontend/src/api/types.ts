@@ -262,6 +262,22 @@ export interface InboxResponse {
   prs: InboxPr[];
 }
 
+export interface AuthoredPr {
+  pr_repo: string;
+  pr_number: number;
+  title: string;
+  url: string;
+  is_draft: boolean;
+  ci_status: InboxCiStatus;
+  ticket: string | null;
+  pr_updated_at: string;
+  repo_configured: boolean;
+}
+
+export interface AuthoredPrListResponse {
+  authored_prs: AuthoredPr[];
+}
+
 export type BookmarkState = "open" | "closed" | "merged";
 
 export interface BookmarkPr {
