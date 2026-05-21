@@ -14,6 +14,7 @@ from fastapi import FastAPI
 
 from app.db import apply_migrations
 from app.routes import (
+    bookmarks,
     config,
     inbox,
     repos,
@@ -22,6 +23,7 @@ from app.routes import (
     workspace,
     worktrees,
 )
+from app.services.bookmark_poll import bookmark_poll_loop
 from app.services.inbox_poll import inbox_poll_loop
 from app.services.iterm_supervisor import iterm_supervisor
 from app.services.pr_state_poll import pr_state_poll_loop
@@ -33,7 +35,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     supervisor_task = asyncio.create_task(iterm_supervisor(app.state))
     pr_state_task = asyncio.create_task(pr_state_poll_loop(app.state))
     inbox_task = asyncio.create_task(inbox_poll_loop(app.state))
-    background_tasks = (supervisor_task, pr_state_task, inbox_task)
+    bookmark_task = asyncio.create_task(bookmark_poll_loop(app.state))
+    background_tasks = (supervisor_task, pr_state_task, inbox_task, bookmark_task)
     try:
         yield
     finally:
@@ -55,6 +58,7 @@ app.include_router(token_usage.router)
 app.include_router(config.router)
 app.include_router(skills.router)
 app.include_router(inbox.router)
+app.include_router(bookmarks.router)
 
 
 @app.get("/api/health")

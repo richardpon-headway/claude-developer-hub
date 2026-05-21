@@ -7,6 +7,7 @@ import { refreshInbox } from "../api/inbox";
 import { listRepos } from "../api/repos";
 import { listWorktrees, syncWorktrees } from "../api/worktrees";
 import { AddRepoModal } from "../components/AddRepoModal";
+import { BookmarkList } from "../components/BookmarkList";
 import { Button } from "../components/Button";
 import { GlobalSkillsTile } from "../components/GlobalSkillsTile";
 import { InboxList } from "../components/InboxList";
@@ -89,6 +90,7 @@ export function HubPage() {
             </div>
           )}
           <InboxList jira={jira} />
+          <BookmarkList jira={jira} />
           <section>
             <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
               Workspaces

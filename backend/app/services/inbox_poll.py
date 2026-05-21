@@ -30,7 +30,7 @@ from app.config.schema import RepoConfig
 from app.db import get_db_path, open_db
 from app.models.inbox import InboxRow
 from app.models.worktree import now_iso
-from app.services import inbox_db
+from app.services import bookmark_db, inbox_db
 from app.services.gh_cli import GhNotFound, run_gh_json
 from app.services.inbox_search import InboxPrRaw, fetch_inbox_prs
 
@@ -164,12 +164,15 @@ async def _tick(state) -> None:  # type: ignore[no-untyped-def]
 
     tracked = await asyncio.to_thread(_tracked_pr_keys_sync)
     archived = await asyncio.to_thread(inbox_db.archived_keys_sync)
+    bookmarked = await asyncio.to_thread(bookmark_db.bookmark_pr_keys_sync)
     now = now_iso()
 
     upserts = 0
     for r in raw:
         key = (r.pr_repo, r.pr_number)
-        if key in tracked or key in archived:
+        # Bookmarks are explicit — if the user pinned a PR manually,
+        # don't double-render it in the auto-watched inbox.
+        if key in tracked or key in archived or key in bookmarked:
             continue
         row = _row_from_raw(r, now=now, repos=config.repos)
         await asyncio.to_thread(inbox_db.upsert_inbox_sync, row)
