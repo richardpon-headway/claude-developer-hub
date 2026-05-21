@@ -1,13 +1,23 @@
-"""Inbox HTTP endpoints.
+"""Inbox HTTP endpoints (persistent-inbox redesign — see plan-48).
 
-- ``GET /api/inbox`` — read the latest cached inbox poll result.
-- ``POST /api/inbox/{pr_repo}/{pr_number}/pull-down`` — fetch the
-  PR's branch and create a local worktree for it.
+- ``GET /api/inbox`` — list rows from the ``inbox`` table (joined out
+  against ``inbox_archived``).
+- ``POST /api/inbox/refresh`` — force an immediate poll tick.
+- ``POST /api/inbox/{pr_repo}/{pr_number}/archive`` — sticky-dismiss
+  a row (records into ``inbox_archived``; never resurfaces from the
+  next ``gh search prs`` tick).
+- ``PUT /api/inbox/{pr_repo}/{pr_number}/notes`` — overwrite the
+  ``inbox.notes`` column. Empty string clears the note.
+- ``POST /api/inbox/{pr_repo}/{pr_number}/pull-down`` — fetch the PR's
+  branch and create a local worktree. Reads the matching row from the
+  persisted inbox (the ephemeral cache is gone).
+- ``POST /api/inbox/{pr_repo}/{pr_number}/configure-and-pull-down`` —
+  spawn Claude to onboard the upstream repo, with a follow-up that
+  triggers pull-down once onboarding completes.
 
 The poll loop in :mod:`app.services.inbox_poll` runs every 60s and
-writes to ``app.state.inbox``. The read endpoint just serializes that;
-if the first poll hasn't completed yet, ``prs=[]`` / ``checked_at=null``
-is returned and the frontend renders a quiet loading state.
+upserts into ``inbox``. Read endpoints just query SQLite — no
+in-memory state.
 """
 from __future__ import annotations
 
@@ -17,13 +27,15 @@ import re
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.config.loader import load_config
-from app.services import inbox_poll
+from app.config.schema import RepoConfig
+from app.models.inbox import InboxCiStatus, InboxRow
+from app.models.worktree import now_iso
+from app.services import inbox_db, inbox_poll
 from app.services import worktree as wt_svc
 from app.services.gh_cli import GhFailed, GhNotFound, run_gh_json
-from app.services.inbox_poll import InboxCache, InboxPr
 from app.services.inbox_search import configured_repos_index, lookup_configured_repo
 from app.services.iterm_spawn import spawn_global_claude_window
 
@@ -32,83 +44,154 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["inbox"])
 
 
+# Soft upper bound for inbox notes. Matches worktree notes (10K) — a
+# runaway paste shouldn't blow up the DB, but normal usage is a few
+# short lines.
+_NOTES_MAX_LENGTH = 10_000
+
+
+# ---------------------------------------------------------------------
+# Response payload
+# ---------------------------------------------------------------------
+
+
 class InboxPrPayload(BaseModel):
+    """Wire shape for one inbox row. Mirrors :class:`InboxRow` plus
+    derived UI fields (``repo_configured``)."""
+
     pr_repo: str
     pr_number: int
     title: str
     author_login: str
-    head_ref: str
-    base_ref: str
-    is_draft: bool
     url: str
-    updated_at: str
-    ci_status: str
+    is_draft: bool
+    ci_status: InboxCiStatus
     sources: list[str]
-    stack_top_pr_number: int | None = None
-    stack_size: int
-    stack_position: int
+    notes: str | None = None
+    ticket: str | None = None
+    pr_updated_at: str
+    added_at: str
+    last_seen_at: str
+    # Derived at serialize time from the live config so the frontend
+    # can disable Pull-down when the upstream repo isn't onboarded.
     repo_configured: bool
 
 
 class InboxResponse(BaseModel):
     prs: list[InboxPrPayload]
-    checked_at: str | None = None
 
 
-def _to_payload(pr: InboxPr) -> InboxPrPayload:
+def _payload_from_row(row: InboxRow, *, repos: list[RepoConfig]) -> InboxPrPayload:
+    idx = configured_repos_index(repos)
     return InboxPrPayload(
-        pr_repo=pr.pr_repo,
-        pr_number=pr.pr_number,
-        title=pr.title,
-        author_login=pr.author_login,
-        head_ref=pr.head_ref,
-        base_ref=pr.base_ref,
-        is_draft=pr.is_draft,
-        url=pr.url,
-        updated_at=pr.updated_at,
-        ci_status=pr.ci_status,
-        sources=list(pr.sources),
-        stack_top_pr_number=pr.stack_top_pr_number,
-        stack_size=pr.stack_size,
-        stack_position=pr.stack_position,
-        repo_configured=pr.repo_configured,
+        pr_repo=row.pr_repo,
+        pr_number=row.pr_number,
+        title=row.title,
+        author_login=row.author_login,
+        url=row.url,
+        is_draft=row.is_draft,
+        ci_status=row.ci_status,
+        sources=list(row.sources),
+        notes=row.notes,
+        ticket=row.ticket,
+        pr_updated_at=row.pr_updated_at,
+        added_at=row.added_at,
+        last_seen_at=row.last_seen_at,
+        repo_configured=lookup_configured_repo(row.pr_repo, idx) is not None,
     )
+
+
+# ---------------------------------------------------------------------
+# Read endpoints
+# ---------------------------------------------------------------------
 
 
 @router.get("/inbox", response_model=InboxResponse)
-async def get_inbox(request: Request) -> InboxResponse:
-    cache: InboxCache | None = getattr(request.app.state, "inbox", None)
-    if cache is None:
-        return InboxResponse(prs=[], checked_at=None)
-    return InboxResponse(
-        prs=[_to_payload(p) for p in cache.prs],
-        checked_at=cache.checked_at,
-    )
+async def get_inbox() -> InboxResponse:
+    rows = await asyncio.to_thread(inbox_db.list_inbox_sync)
+    repos = (await asyncio.to_thread(load_config)).repos
+    return InboxResponse(prs=[_payload_from_row(r, repos=repos) for r in rows])
 
 
 @router.post("/inbox/refresh", response_model=InboxResponse)
 async def refresh_inbox(request: Request) -> InboxResponse:
-    """Force an immediate inbox poll tick. Used by the hub's Sync
-    button so the user doesn't have to wait up to 60s for the next
-    background refresh.
+    """Force an immediate inbox poll tick + return the post-tick list.
 
-    The background loop in :mod:`app.services.inbox_poll` keeps running
-    independently — this just runs one extra tick on demand. ``gh``
-    failures inside the tick are swallowed by the same handler as the
-    background path, so this endpoint is safe to call even when
-    ``gh`` is misbehaving.
+    Used by the hub's Sync button so the user doesn't have to wait up
+    to 60s for the next background refresh. ``gh`` failures inside the
+    tick are swallowed by the same handler as the background path, so
+    this endpoint is safe to call even when ``gh`` is misbehaving.
     """
     await inbox_poll._tick(request.app.state)
-    cache: InboxCache | None = getattr(request.app.state, "inbox", None)
-    if cache is None:
-        return InboxResponse(prs=[], checked_at=None)
-    return InboxResponse(
-        prs=[_to_payload(p) for p in cache.prs],
-        checked_at=cache.checked_at,
+    return await get_inbox()
+
+
+# ---------------------------------------------------------------------
+# Archive (sticky dismissal)
+# ---------------------------------------------------------------------
+
+
+@router.post(
+    "/inbox/{pr_repo:path}/{pr_number}/archive",
+    response_model=InboxPrPayload,
+)
+async def archive_inbox(pr_repo: str, pr_number: int) -> InboxPrPayload:
+    """Mark the row as user-dismissed. Idempotent; archiving twice is
+    a no-op. The row stays in ``inbox`` (so its notes survive a future
+    un-archive) but is filtered out of ``GET /api/inbox``.
+
+    Refuses (404) when no matching inbox row exists — guards against
+    archiving a row the poll already auto-removed (close/merge race).
+    """
+    row = await asyncio.to_thread(inbox_db.get_inbox_sync, pr_repo, pr_number)
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"PR {pr_repo}#{pr_number} not in inbox",
+        )
+    await asyncio.to_thread(
+        inbox_db.archive_inbox_sync, pr_repo, pr_number, now_iso()
     )
+    repos = (await asyncio.to_thread(load_config)).repos
+    return _payload_from_row(row, repos=repos)
 
 
-# --- pull-down ----------------------------------------------------------
+# ---------------------------------------------------------------------
+# Notes
+# ---------------------------------------------------------------------
+
+
+class UpdateNotesRequest(BaseModel):
+    notes: str = Field(..., max_length=_NOTES_MAX_LENGTH)
+
+
+class UpdateNotesResponse(BaseModel):
+    notes: str
+
+
+@router.put(
+    "/inbox/{pr_repo:path}/{pr_number}/notes",
+    response_model=UpdateNotesResponse,
+)
+async def update_notes(
+    pr_repo: str, pr_number: int, req: UpdateNotesRequest
+) -> UpdateNotesResponse:
+    """Overwrite the row's notes. Empty string is valid (clears).
+    Refuses (404) when no matching row exists."""
+    affected = await asyncio.to_thread(
+        inbox_db.update_inbox_notes_sync, pr_repo, pr_number, req.notes
+    )
+    if affected == 0:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"PR {pr_repo}#{pr_number} not in inbox",
+        )
+    return UpdateNotesResponse(notes=req.notes)
+
+
+# ---------------------------------------------------------------------
+# Pull-down
+# ---------------------------------------------------------------------
 
 
 class PullDownResponse(BaseModel):
@@ -157,30 +240,21 @@ async def _fetch_pr_ref(
         )
 
 
-async def _perform_pull_down(
-    pr_repo: str, pr_number: int, *, cache: InboxCache | None
-) -> PullDownResponse:
+async def _perform_pull_down(pr_repo: str, pr_number: int) -> PullDownResponse:
     """Pure pull-down logic, independent of any HTTP request object.
 
-    Raises :class:`HTTPException` for the same conditions as the
-    request handler so the configure-and-pull-down follow-up can log
-    a structured failure. Callers in a background context catch broad
-    Exception around this; the inbox-route caller lets it bubble.
+    Reads the PR row from the persistent inbox to recover the author
+    login (stored on the new worktree row) + assert the PR was
+    actually in the inbox (404 protection against pulling down random
+    PRs by URL guessing).
     """
-    matching_pr: InboxPr | None = None
-    if cache is not None:
-        matching_pr = next(
-            (
-                p
-                for p in cache.prs
-                if p.pr_repo == pr_repo and p.pr_number == pr_number
-            ),
-            None,
-        )
+    matching_pr = await asyncio.to_thread(
+        inbox_db.get_inbox_sync, pr_repo, pr_number
+    )
     if matching_pr is None:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
-            f"PR {pr_repo}#{pr_number} not in inbox cache",
+            f"PR {pr_repo}#{pr_number} not in inbox",
         )
 
     config = load_config()
@@ -198,8 +272,8 @@ async def _perform_pull_down(
         )
 
     # Resolve the PR's head branch + fork-ness from gh (authoritative —
-    # the inbox cache is up to 60s stale and the fork bit can flip via
-    # a PR re-target).
+    # the inbox row's title is enriched but we never captured headRefName
+    # from `gh search prs`, so we need a real `gh pr view` here).
     try:
         data = await run_gh_json(
             [
@@ -255,10 +329,9 @@ async def _perform_pull_down(
         )
         raise HTTPException(code, msg) from e
 
-    # Set pr_number + pr_repo on the new worktree row so the inbox dedup
-    # filter applies on the next poll (and so the PR-URL button on the
-    # hub can short-circuit without re-shelling `gh pr view`). Also
-    # persist the PR author so the hub can split owner vs. reviewing
+    # Set pr_number + pr_repo + pr_author_login on the new worktree
+    # row. The dedup filter in the inbox poll will then exclude this
+    # PR on the next tick, and the hub can split owner vs. reviewing
     # workspaces without re-querying gh.
     await asyncio.to_thread(
         wt_svc.update_worktree_pr_sync,
@@ -276,26 +349,25 @@ async def _perform_pull_down(
     "/inbox/{pr_repo:path}/{pr_number}/pull-down",
     response_model=PullDownResponse,
 )
-async def pull_down(
-    pr_repo: str, pr_number: int, request: Request
-) -> PullDownResponse:
+async def pull_down(pr_repo: str, pr_number: int) -> PullDownResponse:
     """Fetch the PR's branch into the configured local repo (handling
     same-repo and fork PRs) and create a worktree for it.
 
     Refuses when:
 
-    - The PR isn't in the most recent inbox poll (404). Prevents pulling
-      down something the user wasn't actually looking at.
+    - The PR isn't in the persisted inbox (404). Prevents pulling
+      down random PRs by URL guessing.
     - The PR's repo doesn't match any configured ``RepoConfig`` (400).
       The frontend uses ``repo_configured`` to disable the button, but
       the backend re-checks since config could have changed between
       the poll and the click.
     """
-    cache: InboxCache | None = getattr(request.app.state, "inbox", None)
-    return await _perform_pull_down(pr_repo, pr_number, cache=cache)
+    return await _perform_pull_down(pr_repo, pr_number)
 
 
-# --- configure-and-pull-down --------------------------------------------
+# ---------------------------------------------------------------------
+# Configure-and-pull-down (onboard the upstream repo, then pull down)
+# ---------------------------------------------------------------------
 
 
 class ConfigureAndPullDownResponse(BaseModel):
@@ -320,18 +392,16 @@ async def configure_and_pull_down(
 
     Refuses when:
 
-    - The PR isn't in the most recent inbox poll (404).
+    - The PR isn't in the persisted inbox (404).
     - The repo IS already configured (409) — the regular pull-down
       endpoint covers that case.
     - iTerm2 isn't connected (503).
     """
-    cache: InboxCache | None = getattr(request.app.state, "inbox", None)
-    if cache is None or not any(
-        p.pr_repo == pr_repo and p.pr_number == pr_number for p in cache.prs
-    ):
+    row = await asyncio.to_thread(inbox_db.get_inbox_sync, pr_repo, pr_number)
+    if row is None:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
-            f"PR {pr_repo}#{pr_number} not in inbox cache",
+            f"PR {pr_repo}#{pr_number} not in inbox",
         )
 
     config = load_config()

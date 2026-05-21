@@ -64,12 +64,10 @@ beforeEach(() => {
   vi.mocked(inboxApi.getInbox).mockReset();
   vi.mocked(inboxApi.getInbox).mockResolvedValue({
     prs: [],
-    checked_at: null,
   });
   vi.mocked(inboxApi.refreshInbox).mockReset();
   vi.mocked(inboxApi.refreshInbox).mockResolvedValue({
     prs: [],
-    checked_at: "2026-05-15T00:00:00Z",
   });
 });
 

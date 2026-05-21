@@ -1,8 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError } from "../api/client";
-import { configureAndPullDown, getInbox, pullDownPr } from "../api/inbox";
-import type { InboxCiStatus, InboxPr } from "../api/types";
+import {
+  archiveInboxPr,
+  configureAndPullDown,
+  getInbox,
+  pullDownPr,
+} from "../api/inbox";
+import type { InboxCiStatus, InboxPr, JiraConfig } from "../api/types";
+import { InboxNotes } from "./InboxNotes";
 import { Tooltip } from "./Tooltip";
 
 const CI_STYLE: Record<InboxCiStatus, { label: string; cls: string }> = {
@@ -12,64 +18,34 @@ const CI_STYLE: Record<InboxCiStatus, { label: string; cls: string }> = {
   none: { label: "no ci", cls: "border-zinc-700 bg-zinc-800 text-zinc-400" },
 };
 
-// Map source tag → short chip label. Each chip answers "why is this
-// row in my inbox?", so we name the relationship rather than the user.
 function sourceChipLabel(source: string): string {
-  if (source === "author") return "author";
   if (source === "reviewer") return "reviewer";
   if (source === "assignee") return "assignee";
   if (source === "mentions") return "mention";
-  if (source.startsWith("team:")) {
-    const slug = source.slice(5);
-    const parts = slug.split("/", 2);
-    return parts.length === 2 ? parts[1] : slug;
-  }
   return source;
 }
 
-// Hover tooltip per source chip. Each one answers "why am I seeing
-// this row?" in slightly more detail than the chip label can carry.
 function sourceChipTooltip(source: string): string {
-  if (source === "author") return "You opened this PR.";
   if (source === "reviewer") {
     return (
-      "You were directly added as a reviewer (post-filtered — " +
-      "team-mediated review requests are dropped)."
+      "You were directly added as a reviewer (team-mediated review " +
+      "requests are post-filtered out)."
     );
   }
   if (source === "assignee") return "You're an assignee on this PR.";
   if (source === "mentions") {
     return "The PR body or comments mention `@you` directly.";
   }
-  if (source.startsWith("team:")) {
-    return (
-      "This team in your `inbox.teams` config was requested as a reviewer."
-    );
-  }
   return source;
 }
 
-function primarySource(pr: InboxPr): string {
-  // The backend orders sources by priority (author > reviewer > team:*),
-  // so sources[0] is the highest-priority signal. Empty fallback exists
-  // only for defensive guards against malformed payloads.
-  return pr.sources[0] ?? "reviewer";
-}
-
-// graphite.com renders the whole stack regardless of which PR in the
-// stack the URL points at; we pick the top of stack since it's the
-// "current" / "newest" PR.
-function graphiteStackUrl(pr: InboxPr): string {
-  const top = pr.stack_top_pr_number ?? pr.pr_number;
-  return `https://app.graphite.com/github/pr/${pr.pr_repo}/${top}`;
-}
-
 interface Props {
+  jira: JiraConfig | null;
   // Render-only for testing.
-  inboxOverride?: { prs: InboxPr[]; checked_at: string | null };
+  inboxOverride?: { prs: InboxPr[] };
 }
 
-export function InboxList({ inboxOverride }: Props = {}) {
+export function InboxList({ jira, inboxOverride }: Props) {
   const inboxQuery = useQuery({
     queryKey: ["inbox"],
     queryFn: getInbox,
@@ -80,18 +56,10 @@ export function InboxList({ inboxOverride }: Props = {}) {
   const data = inboxOverride ?? inboxQuery.data;
 
   if (!data) {
-    // First load, no cached payload yet — render nothing rather than a
-    // jumpy spinner. The poll cadence is 60s on the backend; this
-    // resolves quickly enough that an empty placeholder is fine.
     return null;
   }
 
   const prs = data.prs;
-  // Subsection placement uses the highest-priority source only — a
-  // PR you authored that's also team-review-requested sits under
-  // "You authored", but both chips render on the row.
-  const authored = prs.filter((p) => primarySource(p) === "author");
-  const reviewer = prs.filter((p) => primarySource(p) !== "author");
 
   return (
     <section>
@@ -105,170 +73,111 @@ export function InboxList({ inboxOverride }: Props = {}) {
             No PRs need your attention.
           </p>
           <p className="mt-1 text-xs text-zinc-500">
-            Open PRs you authored, were assigned to, were directly
-            review-requested on, were @mentioned in, or that a team in{" "}
-            <code className="text-zinc-400">inbox.teams</code> was
-            review-requested on (and don't already have a local
-            worktree) will appear here.
+            PRs where you're directly review-requested, assigned, or
+            @-mentioned (and that don't already have a local worktree)
+            appear here. Reviewed PRs stay until they close, merge, or
+            you archive them.
           </p>
         </div>
       ) : (
-        <div className="mt-3 space-y-6">
-          {authored.length > 0 && (
-            <Subsection label="You authored" prs={authored} />
-          )}
-          {reviewer.length > 0 && (
-            <Subsection label="Reviewer" prs={reviewer} />
-          )}
-        </div>
+        <ul className="mt-3 space-y-2">
+          {prs.map((pr) => (
+            <PrRow
+              key={`${pr.pr_repo}#${pr.pr_number}`}
+              pr={pr}
+              jira={jira}
+            />
+          ))}
+        </ul>
       )}
     </section>
   );
 }
 
-interface SubsectionProps {
-  label: string;
-  prs: InboxPr[];
-}
-
-function Subsection({ label, prs }: SubsectionProps) {
-  // Group consecutive stack members so the box renders once per stack.
-  // Stack identity = (pr_repo, stack_top_pr_number). Single PRs (no
-  // stack) have stack_top_pr_number = null → each gets its own
-  // "group of 1" and renders as a plain row.
-  const groups = groupByStack(prs);
-
-  return (
-    <div>
-      <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
-        [{label.toUpperCase()}]
-      </h3>
-      <div className="space-y-3">
-        {groups.map((group) =>
-          group.isStack ? (
-            <StackGroup key={group.key} prs={group.prs} />
-          ) : (
-            <PrRow key={group.key} pr={group.prs[0]} />
-          ),
-        )}
-      </div>
-    </div>
-  );
-}
-
-interface PrGroup {
-  key: string;
-  isStack: boolean;
-  prs: InboxPr[];
-}
-
-function groupByStack(prs: InboxPr[]): PrGroup[] {
-  const stacks = new Map<string, InboxPr[]>();
-  const singles: InboxPr[] = [];
-
-  for (const pr of prs) {
-    if (pr.stack_top_pr_number !== null && pr.stack_size > 1) {
-      const k = `${pr.pr_repo}#${pr.stack_top_pr_number}`;
-      if (!stacks.has(k)) stacks.set(k, []);
-      stacks.get(k)!.push(pr);
-    } else {
-      singles.push(pr);
-    }
-  }
-
-  const groups: PrGroup[] = [];
-  // Stacks first (newest stack-top by updated_at across members), then
-  // singles by updated_at desc.
-  const stackEntries = Array.from(stacks.entries()).sort(([, a], [, b]) => {
-    const aLatest = a.reduce((m, p) => (p.updated_at > m ? p.updated_at : m), "");
-    const bLatest = b.reduce((m, p) => (p.updated_at > m ? p.updated_at : m), "");
-    return bLatest.localeCompare(aLatest);
-  });
-
-  for (const [key, members] of stackEntries) {
-    // Display order: bottom (closest to main) first inside the box,
-    // matching the spec where the top of stack reads at the top
-    // visually. stack_position 1 = bottom; sort DESC so the top
-    // (highest stack_position) renders first.
-    const sorted = [...members].sort((a, b) => b.stack_position - a.stack_position);
-    groups.push({ key, isStack: true, prs: sorted });
-  }
-
-  singles.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-  for (const pr of singles) {
-    groups.push({ key: `${pr.pr_repo}#${pr.pr_number}`, isStack: false, prs: [pr] });
-  }
-
-  return groups;
-}
-
-function StackGroup({ prs }: { prs: InboxPr[] }) {
-  const top = prs[0]; // highest stack_position by the sort above
-  const graphiteUrl = graphiteStackUrl(top);
-  return (
-    <div className="relative rounded-md border border-zinc-700 bg-zinc-900/40 px-3 pb-2 pt-5">
-      <a
-        href={graphiteUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="absolute -top-3 left-3 rounded border border-zinc-700 bg-zinc-950 px-2 py-0.5 text-[11px] font-medium text-zinc-300 hover:text-indigo-300"
-      >
-        ↗ Graphite · {prs.length}-PR stack
-      </a>
-      <ul className="space-y-1">
-        {prs.map((pr) => (
-          <li key={`${pr.pr_repo}#${pr.pr_number}`}>
-            <PrRow pr={pr} inStack />
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-interface PrRowProps {
+interface RowProps {
   pr: InboxPr;
-  inStack?: boolean;
+  jira: JiraConfig | null;
 }
 
-function PrRow({ pr, inStack = false }: PrRowProps) {
+function PrRow({ pr, jira }: RowProps) {
   const ci = CI_STYLE[pr.ci_status];
   return (
-    <div
-      className={
-        inStack
-          ? "flex items-center gap-3 py-1"
-          : "flex items-center gap-3 rounded-md border border-zinc-800 bg-zinc-900/40 px-3 py-2"
-      }
-    >
-      <a
-        href={pr.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="min-w-0 flex-1 truncate text-sm text-zinc-100 hover:text-indigo-300"
-        title={pr.title}
-      >
-        {pr.title}
-      </a>
-      <span className="shrink-0 font-mono text-xs text-zinc-500">
-        #{pr.pr_number}
-      </span>
-      <span
-        className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] ${ci.cls}`}
-      >
-        {ci.label}
-      </span>
-      {pr.sources.map((source) => (
-        <Tooltip key={source} text={sourceChipTooltip(source)}>
-          <span
-            className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400"
+    <li className="rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-3">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <a
+            href={pr.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="min-w-0 truncate font-medium text-zinc-100 hover:text-indigo-300"
+            title={pr.title}
           >
-            {sourceChipLabel(source)}
+            {pr.title}
+          </a>
+          <span className="shrink-0 font-mono text-xs text-zinc-500">
+            #{pr.pr_number}
           </span>
-        </Tooltip>
-      ))}
-      <PullDownButton pr={pr} />
-    </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+          <span
+            className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] ${ci.cls}`}
+          >
+            {ci.label}
+          </span>
+          {pr.sources.map((source) => (
+            <Tooltip key={source} text={sourceChipTooltip(source)}>
+              <span className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">
+                {sourceChipLabel(source)}
+              </span>
+            </Tooltip>
+          ))}
+        </div>
+      </div>
+      <div className="mt-2 flex items-end justify-between gap-4">
+        <div className="min-w-0 flex-1 space-y-0.5 text-xs text-zinc-500">
+          <div>
+            @{pr.author_login}{" "}
+            <span className="text-zinc-600">· {pr.pr_repo}</span>
+          </div>
+          {pr.ticket && (
+            <div>
+              ticket: <TicketValue ticket={pr.ticket} jira={jira} />
+            </div>
+          )}
+        </div>
+        <div className="flex shrink-0 items-start gap-2">
+          <PullDownButton pr={pr} />
+          <ArchiveButton pr={pr} />
+        </div>
+      </div>
+      <div className="mt-3">
+        <InboxNotes
+          prRepo={pr.pr_repo}
+          prNumber={pr.pr_number}
+          notes={pr.notes}
+        />
+      </div>
+    </li>
+  );
+}
+
+interface TicketValueProps {
+  ticket: string;
+  jira: JiraConfig | null;
+}
+
+function TicketValue({ ticket, jira }: TicketValueProps) {
+  if (!jira?.base_url) return <>{ticket}</>;
+  const base = jira.base_url.replace(/\/+$/, "");
+  return (
+    <a
+      href={`${base}/browse/${ticket}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-zinc-400 underline decoration-zinc-700 underline-offset-2 hover:text-indigo-300 hover:decoration-indigo-400"
+    >
+      {ticket}
+    </a>
   );
 }
 
@@ -282,8 +191,6 @@ function PullDownButton({ pr }: PullDownButtonProps) {
   const pullDownMutation = useMutation({
     mutationFn: () => pullDownPr(pr.pr_repo, pr.pr_number),
     onSuccess: () => {
-      // The new worktree's pr_number/pr_repo dedup hides this row on
-      // the next poll, but invalidate both queries now for snappy UX.
       queryClient.invalidateQueries({ queryKey: ["worktrees"] });
       queryClient.invalidateQueries({ queryKey: ["inbox"] });
     },
@@ -291,16 +198,10 @@ function PullDownButton({ pr }: PullDownButtonProps) {
 
   const configureMutation = useMutation({
     mutationFn: () => configureAndPullDown(pr.pr_repo, pr.pr_number),
-    // Note: success here means iTerm2 has been spawned and an onboard
-    // session minted. The worktree appears later, after Claude POSTs
-    // the proposed_entry back and the auto-fired pull-down runs. The
-    // inbox + worktrees queries refetch on their poll cadence; no
-    // optimistic invalidation here.
   });
 
   const isConfigureFlow = !pr.repo_configured;
   const mutation = isConfigureFlow ? configureMutation : pullDownMutation;
-
   const disabled = mutation.isPending || mutation.isSuccess;
 
   const label = isConfigureFlow
@@ -321,7 +222,7 @@ function PullDownButton({ pr }: PullDownButtonProps) {
       : String(mutation.error)
     : isConfigureFlow
       ? `Opens Claude in your development_root to onboard ${pr.pr_repo}, then automatically pulls this PR into a worktree once onboarding completes.`
-      : "Fetch this PR's branch and create a local worktree";
+      : "Fetch this PR's branch and create a local worktree.";
 
   return (
     <Tooltip text={tooltip}>
@@ -329,9 +230,45 @@ function PullDownButton({ pr }: PullDownButtonProps) {
         type="button"
         onClick={() => mutation.mutate()}
         disabled={disabled}
-        className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-2.5 py-0.5 text-[11px] text-zinc-200 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+        className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {label}
+      </button>
+    </Tooltip>
+  );
+}
+
+interface ArchiveButtonProps {
+  pr: InboxPr;
+}
+
+function ArchiveButton({ pr }: ArchiveButtonProps) {
+  const queryClient = useQueryClient();
+  const archiveMutation = useMutation({
+    mutationFn: () => archiveInboxPr(pr.pr_repo, pr.pr_number),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inbox"] });
+    },
+  });
+
+  const tooltip = archiveMutation.error
+    ? archiveMutation.error instanceof ApiError
+      ? archiveMutation.error.detail
+      : String(archiveMutation.error)
+    : (
+      "Remove this PR from the inbox. Sticky — it won't reappear " +
+      "even if GitHub keeps including it in search results."
+    );
+
+  return (
+    <Tooltip text={tooltip}>
+      <button
+        type="button"
+        onClick={() => archiveMutation.mutate()}
+        disabled={archiveMutation.isPending}
+        className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {archiveMutation.isPending ? "Removing…" : "Remove"}
       </button>
     </Tooltip>
   );
