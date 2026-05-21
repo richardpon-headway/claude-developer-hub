@@ -240,23 +240,20 @@ async def _fetch_pr_ref(
         )
 
 
-async def _perform_pull_down(pr_repo: str, pr_number: int) -> PullDownResponse:
+async def _perform_pull_down(
+    pr_repo: str, pr_number: int, *, author_login: str | None = None
+) -> PullDownResponse:
     """Pure pull-down logic, independent of any HTTP request object.
 
-    Reads the PR row from the persistent inbox to recover the author
-    login (stored on the new worktree row) + assert the PR was
-    actually in the inbox (404 protection against pulling down random
-    PRs by URL guessing).
-    """
-    matching_pr = await asyncio.to_thread(
-        inbox_db.get_inbox_sync, pr_repo, pr_number
-    )
-    if matching_pr is None:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND,
-            f"PR {pr_repo}#{pr_number} not in inbox",
-        )
+    The caller is responsible for any "PR exists in some surface"
+    guard appropriate to the entry point (inbox row, authored-PR list,
+    onboard-complete callback). This function just wires up the gh
+    fetch + worktree creation.
 
+    ``author_login`` is passed through to the worktree row so the hub
+    can split owner vs. reviewing tiers without re-querying gh. ``None``
+    is acceptable — the pr_state poll backfills it on its next tick.
+    """
     config = load_config()
     repo = lookup_configured_repo(pr_repo, configured_repos_index(config.repos))
     if repo is None:
@@ -339,7 +336,7 @@ async def _perform_pull_down(pr_repo: str, pr_number: int) -> PullDownResponse:
         worktree.name,
         pr_number,
         pr_repo,
-        matching_pr.author_login,
+        author_login,
     )
 
     return PullDownResponse(repo=repo.name, name=worktree.name)
@@ -362,7 +359,15 @@ async def pull_down(pr_repo: str, pr_number: int) -> PullDownResponse:
       the backend re-checks since config could have changed between
       the poll and the click.
     """
-    return await _perform_pull_down(pr_repo, pr_number)
+    row = await asyncio.to_thread(inbox_db.get_inbox_sync, pr_repo, pr_number)
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"PR {pr_repo}#{pr_number} not in inbox",
+        )
+    return await _perform_pull_down(
+        pr_repo, pr_number, author_login=row.author_login
+    )
 
 
 # ---------------------------------------------------------------------

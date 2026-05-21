@@ -14,6 +14,7 @@ from fastapi import FastAPI
 
 from app.db import apply_migrations
 from app.routes import (
+    authored_prs,
     bookmarks,
     config,
     inbox,
@@ -59,6 +60,7 @@ app.include_router(config.router)
 app.include_router(skills.router)
 app.include_router(inbox.router)
 app.include_router(bookmarks.router)
+app.include_router(authored_prs.router)
 
 
 @app.get("/api/health")
