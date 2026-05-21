@@ -7,6 +7,7 @@ import { refreshInbox } from "../api/inbox";
 import { listRepos } from "../api/repos";
 import { listWorktrees, syncWorktrees } from "../api/worktrees";
 import { AddRepoModal } from "../components/AddRepoModal";
+import { AuthoredPrTier } from "../components/AuthoredPrTier";
 import { BookmarkList } from "../components/BookmarkList";
 import { Button } from "../components/Button";
 import { GlobalSkillsTile } from "../components/GlobalSkillsTile";
@@ -115,7 +116,8 @@ export function HubPage() {
                 sync failed: {String(sync.error)}
               </p>
             )}
-            <div className="mt-3">
+            <div className="mt-3 space-y-4">
+              <AuthoredPrTier jira={jira} />
               {worktreesQuery.isLoading && (
                 <p className="text-sm text-zinc-500">Loading…</p>
               )}
