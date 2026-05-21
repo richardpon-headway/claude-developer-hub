@@ -1,0 +1,62 @@
+frontend/src/api/authored.ts
+  s_d539edabd061de::t_09758022469fb7 1-16
+frontend/src/components/AuthoredPrTier.test.tsx
+  s_d539edabd061de::t_f81fd8b51524b3 1-130
+frontend/src/api/types.ts
+  s_d539edabd061de::t_98fb055e449701 236,239-240,242-257
+  s_d539edabd061de::t_d10b77cf505749 265-280
+  s_d539edabd061de::t_8036f57eccc378 281-299
+backend/app/routes/authored_prs.py
+  s_d539edabd061de::t_1497a62f086b28 1-18,20-54
+  s_d539edabd061de::t_a42919a68d2cd4 19
+backend/app/routes/repos.py
+  s_d539edabd061de::t_f4ad806d9e8509 396
+  s_d539edabd061de::t_b484a0b0dd1953 405,408,410-413,415-417
+backend/app/services/authored_prs.py
+  s_d539edabd061de::t_8c7aa035bb4378 1-110
+backend/app/models/authored_pr.py
+  s_d539edabd061de::t_79e4938ba4116f 1-34
+frontend/src/components/AuthoredPrTier.tsx
+  s_d539edabd061de::t_99fe748467b526 1-191
+frontend/src/routes/index.tsx
+  s_d539edabd061de::t_6f39c3f44456a5 10
+  s_d539edabd061de::t_c06e977c54b510 11
+  s_d539edabd061de::t_1e0a6b55dd70d9 92
+  s_d539edabd061de::t_15ca44d584ed13 94
+  s_d539edabd061de::t_c89ca99b3fdf2d 119-120
+backend/tests/test_inbox.py
+  s_d539edabd061de::t_5b76148a5398d4 1-6,19,29,31,40-41,96,103,107,115,166-167,205,208-217,219,221-246,248-249,252-261,264-274,277-293,296,303,309-310,317-323,326,328-330,345-349,352,411,439,443,447,458,460,463,466,477,482-486,488,490-491,493,495,498,500-501,504-521,523-528,530-531,533-534,537-538,540-542,544-545,549,554-555,558,561-562,564,567-568,571-634,636-640,644,648-653,655-663,666-689,692-694,696-701,703-782,786-809,811-813,815-816,818-852,869,880-882,917-923,947,976-977,990-993,1004,1007,1029,1041,1067-1068,1123-1124
+  s_d539edabd061de::t_03e4de638eab05 1114-1116,1118
+backend/app/routes/inbox.py
+  s_d539edabd061de::t_1d0e659e4fe7e1 1-16,19-20,30,33-36,47-57,59-61,67-68,70-76,84-85,87-100,104-108,110-113,118-123,126-182,184-189,192-194,272-273,329-331,349,355-356,373-375,400,405-406,409
+  s_d539edabd061de::t_08d49a995c2821 243-245,248-251,253-256
+  s_d539edabd061de::t_b59123b0626134 339,362-370
+backend/tests/test_authored_prs.py
+  s_d539edabd061de::t_30fe5cbd00c5e9 1-229,233,242-357
+  s_d539edabd061de::t_7407c482f478f0 230-232,234-241
+backend/app/main.py
+  s_d539edabd061de::t_de8ea6d0ffb302 17
+  s_d539edabd061de::t_874858ae9985b2 18,27
+  s_d539edabd061de::t_f111c9e90cac79 39-40
+  s_d539edabd061de::t_ba40a2c89ebc2f 62
+  s_d539edabd061de::t_a9e2299fbcfb5c 63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "bb6333a83dfc44b410265f41ac022bf1ee8819b3",
+  "prompts": {},
+  "sessions": {
+    "s_d539edabd061de": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6c1e236c-125c-43bb-92ef-372c23753481",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
