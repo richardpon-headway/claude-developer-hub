@@ -262,6 +262,25 @@ export interface InboxResponse {
   prs: InboxPr[];
 }
 
+export type BookmarkState = "open" | "closed" | "merged";
+
+export interface BookmarkPr {
+  pr_repo: string;
+  pr_number: number;
+  title: string;
+  author_login: string;
+  url: string;
+  state: BookmarkState;
+  notes: string | null;
+  ticket: string | null;
+  bookmarked_at: string;
+  last_refreshed_at: string;
+}
+
+export interface BookmarkListResponse {
+  bookmarks: BookmarkPr[];
+}
+
 export interface GlobalSkill {
   name: string;
   label: string;
