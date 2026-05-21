@@ -1,0 +1,58 @@
+backend/tests/test_bookmarks.py
+  s_d539edabd061de::t_965d04e4c2228b 1-214,217-407
+  s_d539edabd061de::t_38874bc8cf92ee 215-216
+backend/app/services/inbox_poll.py
+  s_d539edabd061de::t_ec506132bc0ae4 167,173-175
+  s_d539edabd061de::t_816aa7387b5805 33
+frontend/src/api/types.ts
+  s_d539edabd061de::t_8036f57eccc378 265-283
+backend/app/services/bookmark_db.py
+  s_d539edabd061de::t_a1e35b5961a9b8 1-203
+frontend/src/routes/index.tsx
+  s_d539edabd061de::t_c06e977c54b510 10
+  s_d539edabd061de::t_15ca44d584ed13 93
+frontend/src/components/BookmarkList.tsx
+  s_d539edabd061de::t_97d64e60011c59 1-253
+backend/tests/fixtures/bookmark.py
+  s_d539edabd061de::t_1fbb867ee65d89 1-40
+frontend/src/api/bookmarks.ts
+  s_d539edabd061de::t_49c7972da54bfe 1-28
+backend/app/models/bookmark.py
+  s_d539edabd061de::t_b1bb4a9b8f3f45 1-37
+backend/app/routes/bookmarks.py
+  s_d539edabd061de::t_71befec7d82c7c 175-179,185-193
+  s_d539edabd061de::t_6f9ebb1be05ed5 1-168,180-183,194-294
+  s_d539edabd061de::t_a8721a19607cb4 169-174,184
+frontend/src/api/client.ts
+  s_d539edabd061de::t_8cfc81e7f308e5 47
+frontend/src/components/BookmarkNotes.tsx
+  s_d539edabd061de::t_0d5fddbecb2827 1-23
+frontend/src/components/BookmarkList.test.tsx
+  s_d539edabd061de::t_857f81881136d1 1-142,146-148
+  s_d539edabd061de::t_898bbd32447666 143-145
+backend/app/services/bookmark_poll.py
+  s_d539edabd061de::t_a6246b2b7a441a 1-101
+backend/app/main.py
+  s_d539edabd061de::t_874858ae9985b2 17,26
+  s_d539edabd061de::t_f111c9e90cac79 38-39
+  s_d539edabd061de::t_ba40a2c89ebc2f 61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "f5f172278967665204d806241ec98f88b38dc805",
+  "prompts": {},
+  "sessions": {
+    "s_d539edabd061de": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6c1e236c-125c-43bb-92ef-372c23753481",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
