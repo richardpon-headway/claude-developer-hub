@@ -232,26 +232,34 @@ export interface InboxPr {
   pr_number: number;
   title: string;
   author_login: string;
-  head_ref: string;
-  base_ref: string;
-  is_draft: boolean;
   url: string;
-  updated_at: string;
+  is_draft: boolean;
   ci_status: InboxCiStatus;
   // Every reason the PR is in this user's inbox, priority-ordered.
-  // First entry is the primary signal (used for subsection placement).
-  // Values: "author" | "reviewer" | "team:<owner/slug>"
+  // First entry is the primary signal. Values after the persistent-
+  // inbox redesign: "reviewer" | "assignee" | "mentions".
   sources: string[];
-  stack_top_pr_number: number | null;
-  stack_size: number;
-  // 1 = bottom of stack (closest to main); stack_size = top of stack
-  stack_position: number;
+  // Free-form per-row notes. Same UX as Worktree.notes. Null/"" means
+  // the row has no notes; the editor renders the empty state.
+  notes: string | null;
+  // Extracted ticket id (e.g. "PROJ-123") when one of the configured
+  // repos' ticket_pattern matched the PR title. Drives the Jira link.
+  ticket: string | null;
+  // PR's updatedAt from gh; used to sort the inbox newest-first.
+  pr_updated_at: string;
+  // First time the inbox poller saw this PR. Never updated.
+  added_at: string;
+  // Most recent tick where gh search returned this PR. The auto-
+  // removal sweep uses this to bound how many `gh pr view` probes
+  // fire per tick.
+  last_seen_at: string;
+  // True when the inbox row's `pr_repo` maps to a locally-configured
+  // RepoConfig. Drives "Pull down" vs "Configure repo + pull down".
   repo_configured: boolean;
 }
 
 export interface InboxResponse {
   prs: InboxPr[];
-  checked_at: string | null;
 }
 
 export interface GlobalSkill {

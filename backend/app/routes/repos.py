@@ -387,14 +387,13 @@ async def onboard_complete(
         _schedule_pull_down_follow_up(
             pr_repo=follow_up["pr_repo"],
             pr_number=follow_up["pr_number"],
-            app_state=request.app.state,
         )
 
     return OnboardCompleteResponse(state="saved", saved_entry=req.proposed_entry)
 
 
 def _schedule_pull_down_follow_up(
-    *, pr_repo: str, pr_number: int, app_state: object
+    *, pr_repo: str, pr_number: int
 ) -> None:
     """Spawn a background task that runs the inbox pull-down for the
     PR that triggered configure-and-pull-down. Failures only log —
@@ -407,9 +406,8 @@ def _schedule_pull_down_follow_up(
         # routes/repos.py and routes/inbox.py.
         from app.routes.inbox import _perform_pull_down
 
-        cache = getattr(app_state, "inbox", None)
         try:
-            await _perform_pull_down(pr_repo, pr_number, cache=cache)
+            await _perform_pull_down(pr_repo, pr_number)
         except Exception as e:
             log.warning(
                 "post-onboard pull-down failed for %s#%s: %s",

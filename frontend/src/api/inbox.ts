@@ -1,5 +1,5 @@
-import { apiGet, apiPost } from "./client";
-import type { InboxResponse } from "./types";
+import { apiGet, apiPost, apiPut } from "./client";
+import type { InboxPr, InboxResponse } from "./types";
 
 export const getInbox = () => apiGet<InboxResponse>("/api/inbox");
 
@@ -28,3 +28,19 @@ export const configureAndPullDown = (prRepo: string, prNumber: number) =>
     `/api/inbox/${prRepo}/${prNumber}/configure-and-pull-down`,
     {},
   );
+
+export const archiveInboxPr = (prRepo: string, prNumber: number) =>
+  apiPost<InboxPr>(`/api/inbox/${prRepo}/${prNumber}/archive`, {});
+
+export interface UpdateNotesResponse {
+  notes: string;
+}
+
+export const updateInboxNotes = (
+  prRepo: string,
+  prNumber: number,
+  notes: string,
+) =>
+  apiPut<UpdateNotesResponse>(`/api/inbox/${prRepo}/${prNumber}/notes`, {
+    notes,
+  });

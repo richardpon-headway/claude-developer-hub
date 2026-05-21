@@ -1,22 +1,23 @@
 """Cross-repo PR inbox: shell ``gh search prs`` for the user's open PRs
 across all repos they have access to.
 
-Three serial searches per poll, in priority order so the same PR can't
-be attributed to a lower-priority source if a higher one already
-matched:
+Three serial searches per poll, in priority order so the primary source
+chip (``sources[0]``) reflects the highest-priority signal:
 
-1. ``author:@me`` → ``source="author"``
-2. ``review-requested:@me`` → ``source="reviewer"``
-3. For each configured team, ``team-review-requested:<owner>/<slug>`` →
-   ``source="team:<owner>/<slug>"``
+1. ``review-requested:@me`` → ``source="reviewer"`` (post-filtered to
+   drop team-mediated hits — see :func:`_filter_team_mediated_reviewers`).
+2. ``assignee:@me`` → ``source="assignee"``
+3. ``mentions:@me`` → ``source="mentions"``
+
+``author:@me`` and ``team-review-requested:<team>`` were both dropped
+in the persistent-inbox redesign — see plan-48. Author-routed PRs
+surface in the Workspaces section (auto-promote tier); team-mediated
+review requests are no longer auto-watched at all (bookmark them
+manually if you want one in your inbox).
 
 ``gh search prs`` is a single network round-trip per call and runs
-without a ``cwd`` (it queries github.com directly). Three sequential
-calls at 60s cadence is well under any reasonable rate ceiling.
-
-The service returns rows with raw fields + a coarse ``ci_status``
-classifier; stack detection happens in :mod:`app.services.inbox_stack`
-so the search code stays a thin adapter around ``gh``.
+without a ``cwd`` (it queries github.com directly). The service
+returns rows with raw fields + a coarse ``ci_status`` classifier.
 """
 from __future__ import annotations
 
@@ -309,18 +310,18 @@ async def _filter_team_mediated_reviewers(
     return out
 
 
-async def fetch_inbox_prs(teams: list[str]) -> list[InboxPrRaw]:
+async def fetch_inbox_prs() -> list[InboxPrRaw]:
     """Run every per-source search query and merge results.
 
     Unlike a priority-dedup, this accumulates *every* source a PR
-    matches — a PR returned by both ``author:@me`` and
-    ``team-review-requested:<team>`` carries both labels. The first
-    row for a given ``(pr_repo, pr_number)`` is kept as the carrier
-    of the immutable fields (title etc.); subsequent matches just
-    append to its ``sources`` list.
+    matches — a PR returned by both ``review-requested:@me`` and
+    ``mentions:@me`` carries both labels. The first row for a given
+    ``(pr_repo, pr_number)`` is kept as the carrier of the immutable
+    fields (title etc.); subsequent matches just append to its
+    ``sources`` list.
 
     Call order defines the source priority (sources[0] = primary):
-    ``author`` → ``reviewer`` → ``assignee`` → ``mentions`` → ``team:*``.
+    ``reviewer`` → ``assignee`` → ``mentions``.
 
     Raises :class:`app.services.gh_cli.GhNotFound` if ``gh`` is missing —
     callers (the polling loop) catch and log once.
@@ -342,35 +343,18 @@ async def fetch_inbox_prs(teams: list[str]) -> list[InboxPrRaw]:
                     existing.sources.append(s)
 
     try:
-        _absorb(await _search("author:@me", source="author"))
         _absorb(await _search("review-requested:@me", source="reviewer"))
         _absorb(await _search("assignee:@me", source="assignee"))
         _absorb(await _search("mentions:@me", source="mentions"))
-        for team in teams:
-            _absorb(
-                await _search(f"team-review-requested:{team}", source=f"team:{team}")
-            )
     except GhNotFound:
         # Re-raise so the polling loop can log once-per-tick.
         raise
 
-    # `review-requested:@me` is the only source-of-the-five that
-    # GitHub silently expands via team membership. Strip the
-    # ``reviewer`` tag from team-mediated hits so the inbox only
-    # shows direct user reviews (plus explicit ``inbox.teams``
-    # entries, which travel via the team-review-requested queries
-    # above).
+    # ``review-requested:@me`` is the one source GitHub silently
+    # expands via team membership. Strip ``reviewer`` from any hit
+    # where @me is requested only via a team, so the inbox only shows
+    # direct user review requests.
     return await _filter_team_mediated_reviewers(list(seen.values()))
-
-
-def filter_out_worktree_prs(
-    prs: list[InboxPrRaw], tracked: set[tuple[str, int]]
-) -> list[InboxPrRaw]:
-    """Drop any inbox PR whose ``(pr_repo, pr_number)`` matches a
-    locally-tracked worktree. ``tracked`` is built by the polling loop
-    from a union of the ``worktree`` and ``pr_state`` tables (the two
-    sources can disagree; we accept matches from either)."""
-    return [p for p in prs if (p.pr_repo, p.pr_number) not in tracked]
 
 
 @dataclass
