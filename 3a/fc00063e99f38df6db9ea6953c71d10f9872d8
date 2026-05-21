@@ -1,0 +1,57 @@
+frontend/src/api/inbox.ts
+  s_d539edabd061de::t_c4a861519f8181 1-2,31-46
+backend/app/migrations/009_persistent_inbox_bookmarks.sql
+  s_d539edabd061de::t_77913ec9646839 1-79
+frontend/src/api/types.ts
+  s_d539edabd061de::t_98fb055e449701 236,239-240,242-257
+backend/app/services/inbox_poll.py
+  s_d539edabd061de::t_4c65b63e041ff3 1-19,29,31,33-35,41-45,48,51,56-57,90-106,108-126,130-132,134-137,145,156,160,166-260
+frontend/src/routes/index.tsx
+  s_d539edabd061de::t_1e0a6b55dd70d9 91
+backend/app/services/inbox_db.py
+  s_d539edabd061de::t_f46a158098135f 1-268
+frontend/src/components/InboxList.tsx
+  s_d539edabd061de::t_43ea7ce64da6d3 4-11,31-32,43,45,48,76-79,83-91,97-99,102-103,105-134,136-160,164-166,169-171,173-177,179-180,225,233,240-271
+backend/app/models/inbox.py
+  s_d539edabd061de::t_d5a64edaf6538d 1-39
+backend/app/services/inbox_search.py
+  s_d539edabd061de::t_edcd1343d7fe97 313,317-321,324,353-356
+  s_d539edabd061de::t_16360e8c1427eb 4-5,7-10,12-16,18-20
+backend/app/routes/repos.py
+  s_d539edabd061de::t_f4ad806d9e8509 396
+  s_d539edabd061de::t_081ca1f38985fa 410
+backend/tests/test_inbox.py
+  s_d539edabd061de::t_5b76148a5398d4 1-6,19,29,31,40-41,96,103,107,115,166-167,205,208-217,219,221-246,248-249,252-261,264-274,277-293,296,303,309-310,317-323,326,328-330,345-349,352,411,439,443,447,458,460,463,466,477,482-486,488,490-491,493,495,498,500-501,504-521,523-528,530-531,533-534,537-538,540-542,544-545,549,554-555,558,561-562,564,567-568,571-634,636-640,644,648-653,655-663,666-689,692-694,696-701,703-782,786-809,811-813,815-816,818-852,869,880-882,917-923,947,976-977,990-993,1004,1007,1029,1041,1067-1068,1114,1120-1121
+frontend/src/components/InboxNotes.tsx
+  s_d539edabd061de::t_dd8cae82c2a3d1 1-23
+backend/tests/fixtures/inbox.py
+  s_d539edabd061de::t_5c82e309b4c6e7 3-9,13-16,26,29-30,46,50,52-63,66,68-76,80-86
+backend/app/routes/inbox.py
+  s_d539edabd061de::t_1d0e659e4fe7e1 1-16,19-20,30,33-36,47-57,59-61,67-68,70-76,84-85,87-100,104-108,110-113,118-123,126-182,184-189,192-194,243,246-249,251-253,257,275-276,332-334,352,358-359,365,368-370,395,400-401,404
+frontend/src/components/NotesEditor.tsx
+  s_d539edabd061de::t_a181478a44672b 1-150
+frontend/src/components/WorkspaceNotes.tsx
+  s_d539edabd061de::t_7a5b985542596e 1,4,15-22
+frontend/src/components/InboxList.test.tsx
+  s_d539edabd061de::t_672c965eb8bf6b 1,11,13,20,35-40,49-50,64,67,72,77,92,95-96,102,108-118,120,124-125,127-129,198-229
+  s_d539edabd061de::t_30ca4d8749698d 126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "3afc00063e99f38df6db9ea6953c71d10f9872d8",
+  "prompts": {},
+  "sessions": {
+    "s_d539edabd061de": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6c1e236c-125c-43bb-92ef-372c23753481",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
