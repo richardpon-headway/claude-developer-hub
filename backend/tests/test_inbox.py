@@ -1111,8 +1111,11 @@ def test_onboard_complete_fires_follow_up_pull_down(
 
     pull_down_call: dict[str, Any] = {}
 
-    async def fake_pull_down(pr_repo: str, pr_number: int) -> Any:
+    async def fake_pull_down(
+        pr_repo: str, pr_number: int, *, author_login: str | None = None
+    ) -> Any:
         pull_down_call["args"] = (pr_repo, pr_number)
+        pull_down_call["author_login"] = author_login
         return SimpleNamespace(repo="myapp", name="feat_x")
 
     monkeypatch.setattr(inbox_route, "_perform_pull_down", fake_pull_down)

@@ -402,12 +402,19 @@ def _schedule_pull_down_follow_up(
     Pull-down button manually on the next inbox poll)."""
 
     async def _run() -> None:
-        # Delayed import to avoid a circular dependency between
+        # Delayed imports to avoid a circular dependency between
         # routes/repos.py and routes/inbox.py.
         from app.routes.inbox import _perform_pull_down
+        from app.services import inbox_db
 
+        row = await asyncio.to_thread(
+            inbox_db.get_inbox_sync, pr_repo, pr_number
+        )
+        author_login = row.author_login if row else None
         try:
-            await _perform_pull_down(pr_repo, pr_number)
+            await _perform_pull_down(
+                pr_repo, pr_number, author_login=author_login
+            )
         except Exception as e:
             log.warning(
                 "post-onboard pull-down failed for %s#%s: %s",
