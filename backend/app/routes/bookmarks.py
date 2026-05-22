@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 from app.config.loader import load_config
 from app.models.bookmark import BookmarkRow, BookmarkState
 from app.models.worktree import now_iso
-from app.services import bookmark_db
+from app.services import authored_pr_notes_db, bookmark_db
 from app.services.bookmark_db import BookmarkExistsError
 from app.services.gh_cli import GhFailed, GhNotFound, run_gh_json
 from app.services.inbox_poll import _extract_ticket
@@ -211,6 +211,15 @@ async def add_bookmark(req: AddBookmarkRequest) -> BookmarkPayload:
     config = load_config()
     ticket = _extract_ticket(title, config.repos)
 
+    # Surface transition: if this PR had notes attached on the
+    # authored-PR tier, migrate them into the new bookmark row so the
+    # user doesn't lose what they typed. Best-effort — a missing row
+    # is the common case (most bookmarks are PRs the user discovered
+    # outside the authored tier).
+    authored_notes = await asyncio.to_thread(
+        authored_pr_notes_db.get_notes_sync, pr_repo, pr_number
+    )
+
     now = now_iso()
     row = BookmarkRow(
         pr_repo=pr_repo,
@@ -219,7 +228,7 @@ async def add_bookmark(req: AddBookmarkRequest) -> BookmarkPayload:
         author_login=author,
         url=url,
         state=state,
-        notes=None,
+        notes=authored_notes,
         ticket=ticket,
         bookmarked_at=now,
         last_refreshed_at=now,
@@ -233,7 +242,51 @@ async def add_bookmark(req: AddBookmarkRequest) -> BookmarkPayload:
             f"PR {pr_repo}#{pr_number} is already bookmarked",
         ) from e
 
+    # Notes successfully copied into the bookmark — drop the source row.
+    if authored_notes is not None:
+        await asyncio.to_thread(
+            authored_pr_notes_db.delete_notes_sync, pr_repo, pr_number
+        )
+
     return _payload_from_row(row)
+
+
+# ---------------------------------------------------------------------
+# Pull-down (mirrors the authored-PR route — no inbox-row guard)
+# ---------------------------------------------------------------------
+
+
+# Lazy import to avoid a circular dep on routes/inbox at module load.
+from app.routes.inbox import PullDownResponse, _perform_pull_down  # noqa: E402
+
+
+@router.post(
+    "/bookmarks/{pr_repo:path}/{pr_number}/pull-down",
+    response_model=PullDownResponse,
+)
+async def pull_down_bookmark(pr_repo: str, pr_number: int) -> PullDownResponse:
+    """Fetch the bookmarked PR's branch and create a worktree.
+
+    Looks up the bookmark row to capture ``author_login`` (so the new
+    worktree carries it for the hub's REVIEWING-tier split). Refuses
+    with 404 if the PR isn't bookmarked.
+
+    On success the worktree row exists and the bookmark row also
+    stays (a worktree-backed PR can still be bookmarked — symmetric
+    with the rest of the model). If the user wants the bookmark gone
+    after pull-down, they can click Unbookmark.
+    """
+    row = await asyncio.to_thread(
+        bookmark_db.get_bookmark_sync, pr_repo, pr_number
+    )
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"PR {pr_repo}#{pr_number} is not bookmarked",
+        )
+    return await _perform_pull_down(
+        pr_repo, pr_number, author_login=row.author_login,
+    )
 
 
 # ---------------------------------------------------------------------

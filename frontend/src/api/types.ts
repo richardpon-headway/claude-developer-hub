@@ -272,6 +272,10 @@ export interface AuthoredPr {
   ticket: string | null;
   pr_updated_at: string;
   repo_configured: boolean;
+  // Free-form notes from the `authored_pr_notes` table. Null when
+  // none have been written. Survive across polls; migrate into the
+  // destination surface's notes column on Bookmark / Pull-down.
+  notes: string | null;
 }
 
 export interface AuthoredPrListResponse {

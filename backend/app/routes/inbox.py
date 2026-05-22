@@ -33,7 +33,7 @@ from app.config.loader import load_config
 from app.config.schema import RepoConfig
 from app.models.inbox import InboxCiStatus, InboxRow
 from app.models.worktree import now_iso
-from app.services import inbox_db, inbox_poll
+from app.services import authored_pr_notes_db, inbox_db, inbox_poll
 from app.services import worktree as wt_svc
 from app.services.gh_cli import GhFailed, GhNotFound, run_gh_json
 from app.services.inbox_search import configured_repos_index, lookup_configured_repo
@@ -338,6 +338,23 @@ async def _perform_pull_down(
         pr_repo,
         author_login,
     )
+
+    # Surface transition: if this PR had notes attached on the
+    # authored-PR tier, migrate them to the new worktree row so the
+    # user doesn't lose what they typed. Authoritative regardless of
+    # caller (the inbox / authored / bookmark pull-down routes all
+    # benefit). Best-effort — a missing row is the common case.
+    authored_notes = await asyncio.to_thread(
+        authored_pr_notes_db.get_notes_sync, pr_repo, pr_number
+    )
+    if authored_notes:
+        await asyncio.to_thread(
+            wt_svc.update_worktree_notes_sync,
+            repo.name, worktree.name, authored_notes,
+        )
+        await asyncio.to_thread(
+            authored_pr_notes_db.delete_notes_sync, pr_repo, pr_number
+        )
 
     return PullDownResponse(repo=repo.name, name=worktree.name)
 

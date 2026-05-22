@@ -39,6 +39,7 @@ function pr(overrides: Partial<AuthoredPr> = {}): AuthoredPr {
     ticket: null,
     pr_updated_at: "2026-05-21T00:00:00Z",
     repo_configured: true,
+    notes: null,
     ...overrides,
   };
 }
