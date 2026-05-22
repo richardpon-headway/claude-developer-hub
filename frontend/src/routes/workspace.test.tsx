@@ -219,7 +219,30 @@ describe("WorkspacePage", () => {
     expect(btn).toBeEnabled();
   });
 
-  test("Delete flow: click → confirm → API called → navigate home", async () => {
+  test("Delete confirm button stays disabled until 'delete worktree' is typed", async () => {
+    vi.mocked(worktreesApi.getWorktree).mockResolvedValue(
+      makeDetail({ status: "ready" }),
+    );
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /delete worktree/i }));
+    const dialog = await screen.findByRole("dialog");
+    const confirmBtn = within(dialog).getByRole("button", { name: /^delete$/i });
+    const input = within(dialog).getByPlaceholderText("delete worktree");
+
+    // Disabled on open (empty input).
+    expect(confirmBtn).toBeDisabled();
+
+    // Partial / wrong text → still disabled.
+    fireEvent.change(input, { target: { value: "delete" } });
+    expect(confirmBtn).toBeDisabled();
+    fireEvent.change(input, { target: { value: "delete WORKTREE" } });
+    // Case-insensitive; matches.
+    expect(confirmBtn).toBeEnabled();
+    fireEvent.change(input, { target: { value: "nope" } });
+    expect(confirmBtn).toBeDisabled();
+  });
+
+  test("Delete flow: click → type confirm → API called → navigate home", async () => {
     vi.mocked(worktreesApi.getWorktree).mockResolvedValue(
       makeDetail({ status: "ready", path: "/tmp/wt" }),
     );
@@ -233,8 +256,11 @@ describe("WorkspacePage", () => {
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveTextContent("/tmp/wt");
 
-    // Confirm via the dialog's Delete button (the second one — the
-    // first "Delete worktree" trigger is outside the dialog).
+    // Type the confirmation string to enable Delete.
+    fireEvent.change(within(dialog).getByPlaceholderText("delete worktree"), {
+      target: { value: "delete worktree" },
+    });
+
     const confirmBtn = within(dialog).getByRole("button", { name: /^delete$/i });
     fireEvent.click(confirmBtn);
 
@@ -257,6 +283,9 @@ describe("WorkspacePage", () => {
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: /delete worktree/i }));
     const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByPlaceholderText("delete worktree"), {
+      target: { value: "delete worktree" },
+    });
     fireEvent.click(within(dialog).getByRole("button", { name: /^delete$/i }));
 
     await waitFor(() => {
