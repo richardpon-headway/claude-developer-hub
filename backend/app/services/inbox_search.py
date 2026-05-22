@@ -4,8 +4,9 @@ across all repos they have access to.
 Three serial searches per poll, in priority order so the primary source
 chip (``sources[0]``) reflects the highest-priority signal:
 
-1. ``review-requested:@me`` → ``source="reviewer"`` (post-filtered to
-   drop team-mediated hits — see :func:`_filter_team_mediated_reviewers`).
+1. ``user-review-requested:@me`` → ``source="reviewer"`` (direct
+   reviewer only — the ``user-review-requested`` qualifier excludes
+   team-mediated requests at the search layer; no post-filter needed).
 2. ``assignee:@me`` → ``source="assignee"``
 3. ``mentions:@me`` → ``source="mentions"``
 
@@ -21,39 +22,13 @@ returns rows with raw fields + a coarse ``ci_status`` classifier.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any
 
-from app.services.gh_cli import GhFailed, GhNotFound, run_gh_json
+from app.services.gh_cli import GhNotFound, run_gh_json
 
 log = logging.getLogger(__name__)
-
-
-# Cached resolution of the authenticated GitHub user's login. Populated
-# lazily on the first poll tick. The daemon must be restarted to pick
-# up an account swap.
-_me_login: str | None = None
-_me_login_lock = asyncio.Lock()
-
-
-async def _get_me_login() -> str | None:
-    """Resolve and cache the authenticated GitHub user's login via
-    ``gh api user``. Returns ``None`` if ``gh`` is unavailable or
-    unauthed — callers fall back to fail-open behavior."""
-    global _me_login
-    async with _me_login_lock:
-        if _me_login is None:
-            try:
-                data = await run_gh_json(["api", "user"], swallow_errors=False)
-            except (GhNotFound, GhFailed):
-                return None
-            if isinstance(data, dict):
-                login = data.get("login")
-                if isinstance(login, str) and login:
-                    _me_login = login
-    return _me_login
 
 
 # Fields ``gh search prs --json`` actually supports.
@@ -215,106 +190,11 @@ async def _search(query: str, *, source: str) -> list[InboxPrRaw]:
     return out
 
 
-# How many ``gh pr view`` calls run concurrently during the
-# reviewer-source post-filter. Tuned for "fast enough that a Sync click
-# feels snappy" while not slamming GitHub: at ~300ms per call, 8
-# concurrent ≈ 1s for 20–25 reviewer-tagged PRs.
-_REVIEWER_FILTER_PARALLELISM = 8
-
-
-async def _is_directly_review_requested(
-    pr_repo: str, pr_number: int, me_login: str
-) -> bool | None:
-    """Fetch a PR's ``reviewRequests`` and return True iff ``me_login``
-    appears as a direct ``User`` reviewer (not via team membership).
-
-    Returns ``None`` on ``gh`` failures so the caller can fail-open
-    (treat indeterminate as direct, keeping the PR rather than wrongly
-    suppressing it).
-    """
-    try:
-        data = await run_gh_json(
-            [
-                "pr",
-                "view",
-                str(pr_number),
-                "--repo",
-                pr_repo,
-                "--json",
-                "reviewRequests",
-            ],
-            swallow_errors=True,
-        )
-    except GhNotFound:
-        return None
-    if not isinstance(data, dict):
-        return None
-    for entry in data.get("reviewRequests") or []:
-        if entry.get("__typename") == "User" and entry.get("login") == me_login:
-            return True
-    return False
-
-
-async def _filter_team_mediated_reviewers(
-    prs: list[InboxPrRaw],
-) -> list[InboxPrRaw]:
-    """GitHub's ``review-requested:@me`` search qualifier matches when
-    ``@me`` is directly requested OR when any team ``@me`` is a member
-    of is requested. The team-mediated case is noisy — broadcast PRs
-    to 20+ teams flood the inbox.
-
-    For each PR matched only by ``source="reviewer"``, fetch its
-    ``reviewRequests`` and verify ``@me`` is listed as a ``User``
-    directly. If not, strip ``"reviewer"`` from ``sources``. Drop the
-    PR entirely if no source survives. PRs that also match author /
-    assignee / mentions / explicit team queries are preserved with
-    those sources intact.
-
-    Fail-open on ``gh`` errors: when we can't tell, we keep the row.
-    """
-    me_login = await _get_me_login()
-    if me_login is None:
-        log.info(
-            "inbox: reviewer post-filter skipped — could not resolve @me login"
-        )
-        return prs
-
-    candidates = [p for p in prs if "reviewer" in p.sources]
-    if not candidates:
-        return prs
-
-    semaphore = asyncio.Semaphore(_REVIEWER_FILTER_PARALLELISM)
-
-    async def _check(pr: InboxPrRaw) -> bool | None:
-        async with semaphore:
-            return await _is_directly_review_requested(
-                pr.pr_repo, pr.pr_number, me_login
-            )
-
-    direct_results = await asyncio.gather(*(_check(p) for p in candidates))
-    direct_map: dict[tuple[str, int], bool | None] = {
-        (p.pr_repo, p.pr_number): result
-        for p, result in zip(candidates, direct_results, strict=True)
-    }
-
-    out: list[InboxPrRaw] = []
-    for p in prs:
-        if "reviewer" in p.sources:
-            direct = direct_map.get((p.pr_repo, p.pr_number))
-            # Only strip on a definitive False; None (gh failed) keeps
-            # the source so transient errors don't silently drop rows.
-            if direct is False:
-                p.sources = [s for s in p.sources if s != "reviewer"]
-        if p.sources:
-            out.append(p)
-    return out
-
-
 async def fetch_inbox_prs() -> list[InboxPrRaw]:
     """Run every per-source search query and merge results.
 
     Unlike a priority-dedup, this accumulates *every* source a PR
-    matches — a PR returned by both ``review-requested:@me`` and
+    matches — a PR returned by both ``user-review-requested:@me`` and
     ``mentions:@me`` carries both labels. The first row for a given
     ``(pr_repo, pr_number)`` is kept as the carrier of the immutable
     fields (title etc.); subsequent matches just append to its
@@ -322,6 +202,12 @@ async def fetch_inbox_prs() -> list[InboxPrRaw]:
 
     Call order defines the source priority (sources[0] = primary):
     ``reviewer`` → ``assignee`` → ``mentions``.
+
+    The reviewer query uses ``user-review-requested:@me`` rather than
+    ``review-requested:@me`` so GitHub itself excludes team-mediated
+    requests at the search layer. The earlier per-row post-filter
+    (one ``gh pr view --json reviewRequests`` per candidate) is gone;
+    one search call replaces ~N PR-view calls per tick.
 
     Raises :class:`app.services.gh_cli.GhNotFound` if ``gh`` is missing —
     callers (the polling loop) catch and log once.
@@ -343,18 +229,14 @@ async def fetch_inbox_prs() -> list[InboxPrRaw]:
                     existing.sources.append(s)
 
     try:
-        _absorb(await _search("review-requested:@me", source="reviewer"))
+        _absorb(await _search("user-review-requested:@me", source="reviewer"))
         _absorb(await _search("assignee:@me", source="assignee"))
         _absorb(await _search("mentions:@me", source="mentions"))
     except GhNotFound:
         # Re-raise so the polling loop can log once-per-tick.
         raise
 
-    # ``review-requested:@me`` is the one source GitHub silently
-    # expands via team membership. Strip ``reviewer`` from any hit
-    # where @me is requested only via a team, so the inbox only shows
-    # direct user review requests.
-    return await _filter_team_mediated_reviewers(list(seen.values()))
+    return list(seen.values())
 
 
 @dataclass
