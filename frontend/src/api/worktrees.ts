@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut } from "./client";
+import { apiDelete, apiGet, apiPost, apiPut } from "./client";
 import type {
   ListWorktreesResponse,
   PrUrlResponse,
@@ -38,6 +38,13 @@ export const focusIterm = (repo: string, name: string) =>
 
 export const recreateWorktree = (repo: string, name: string) =>
   apiPost<Worktree>(`${workspacePath(repo, name)}/recreate`, {});
+
+export interface DeleteWorktreeResponse {
+  deleted: true;
+}
+
+export const deleteWorktree = (repo: string, name: string) =>
+  apiDelete<DeleteWorktreeResponse>(workspacePath(repo, name));
 
 export interface OpenCursorResponse {
   opened: boolean;
