@@ -90,8 +90,8 @@ export function HubPage() {
               </Tooltip>
             </div>
           )}
-          <InboxList jira={jira} />
           <BookmarkList jira={jira} />
+          <InboxList jira={jira} />
           <section>
             <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
               Workspaces
