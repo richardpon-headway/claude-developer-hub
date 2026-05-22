@@ -355,3 +355,283 @@ def test_pull_down_authored_happy_path(
     finally:
         conn.close()
     assert row == ("me",)
+
+
+# --- authored_pr_notes_db -----------------------------------------------
+
+
+def test_authored_pr_notes_upsert_then_get(
+    _isolate: dict[str, Path],
+) -> None:
+    from app.services import authored_pr_notes_db
+
+    assert authored_pr_notes_db.get_notes_sync(
+        "acme/myapp", 42, db_path=_isolate["db_path"]
+    ) is None
+
+    authored_pr_notes_db.upsert_notes_sync(
+        "acme/myapp", 42, "watch this", "2026-05-22T00:00:00Z",
+        db_path=_isolate["db_path"],
+    )
+    assert authored_pr_notes_db.get_notes_sync(
+        "acme/myapp", 42, db_path=_isolate["db_path"]
+    ) == "watch this"
+
+    # Upsert overwrites in place.
+    authored_pr_notes_db.upsert_notes_sync(
+        "acme/myapp", 42, "actually nevermind", "2026-05-22T00:01:00Z",
+        db_path=_isolate["db_path"],
+    )
+    assert authored_pr_notes_db.get_notes_sync(
+        "acme/myapp", 42, db_path=_isolate["db_path"]
+    ) == "actually nevermind"
+
+
+def test_authored_pr_notes_delete_rowcount(
+    _isolate: dict[str, Path],
+) -> None:
+    from app.services import authored_pr_notes_db
+
+    assert authored_pr_notes_db.delete_notes_sync(
+        "acme/myapp", 42, db_path=_isolate["db_path"]
+    ) == 0
+    authored_pr_notes_db.upsert_notes_sync(
+        "acme/myapp", 42, "x", "2026-05-22T00:00:00Z",
+        db_path=_isolate["db_path"],
+    )
+    assert authored_pr_notes_db.delete_notes_sync(
+        "acme/myapp", 42, db_path=_isolate["db_path"]
+    ) == 1
+
+
+def test_authored_pr_notes_by_keys_batch_lookup(
+    _isolate: dict[str, Path],
+) -> None:
+    from app.services import authored_pr_notes_db
+
+    authored_pr_notes_db.upsert_notes_sync(
+        "acme/myapp", 1, "one", "2026-05-22T00:00:00Z",
+        db_path=_isolate["db_path"],
+    )
+    authored_pr_notes_db.upsert_notes_sync(
+        "acme/myapp", 2, "two", "2026-05-22T00:00:00Z",
+        db_path=_isolate["db_path"],
+    )
+    # Empty input → empty result, no SQL fired.
+    assert authored_pr_notes_db.notes_by_keys_sync(
+        set(), db_path=_isolate["db_path"]
+    ) == {}
+    # Mixed hits and misses.
+    out = authored_pr_notes_db.notes_by_keys_sync(
+        {("acme/myapp", 1), ("acme/myapp", 2), ("acme/myapp", 99)},
+        db_path=_isolate["db_path"],
+    )
+    assert out == {("acme/myapp", 1): "one", ("acme/myapp", 2): "two"}
+
+
+# --- PUT /api/authored-prs/.../notes ------------------------------------
+
+
+def test_update_notes_endpoint_upserts(
+    _isolate: dict[str, Path],
+) -> None:
+    write_minimal_config(_isolate["config_path"])
+    with TestClient(app) as client:
+        r = client.put(
+            "/api/authored-prs/acme/myapp/42/notes",
+            json={"notes": "blocked on PROJ-1"},
+        )
+    assert r.status_code == 200
+    assert r.json()["notes"] == "blocked on PROJ-1"
+
+    from app.services import authored_pr_notes_db
+    assert authored_pr_notes_db.get_notes_sync(
+        "acme/myapp", 42, db_path=_isolate["db_path"]
+    ) == "blocked on PROJ-1"
+
+
+def test_update_notes_accepts_empty_string(_isolate: dict[str, Path]) -> None:
+    write_minimal_config(_isolate["config_path"])
+    with TestClient(app) as client:
+        r = client.put(
+            "/api/authored-prs/acme/myapp/42/notes",
+            json={"notes": ""},
+        )
+    assert r.status_code == 200
+    from app.services import authored_pr_notes_db
+    assert authored_pr_notes_db.get_notes_sync(
+        "acme/myapp", 42, db_path=_isolate["db_path"]
+    ) == ""
+
+
+def test_update_notes_no_404_even_when_no_prior_row(
+    _isolate: dict[str, Path],
+) -> None:
+    """authored rows aren't persisted, so any (pr_repo, pr_number)
+    is a valid notes target — first call upserts, no 404 path."""
+    write_minimal_config(_isolate["config_path"])
+    with TestClient(app) as client:
+        r = client.put(
+            "/api/authored-prs/never/heard-of-it/12345/notes",
+            json={"notes": "first time"},
+        )
+    assert r.status_code == 200
+
+
+# --- fetched authored PRs include notes ---------------------------------
+
+
+def test_fetch_authored_prs_attaches_notes(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Persisted note in authored_pr_notes shows up on the row."""
+    write_minimal_config(_isolate["config_path"])
+
+    from app.services import authored_pr_notes_db
+    authored_pr_notes_db.upsert_notes_sync(
+        "acme/myapp", 42, "remember this", "2026-05-22T00:00:00Z",
+        db_path=_isolate["db_path"],
+    )
+
+    async def fake_run_gh_json(args: list, **kwargs: Any) -> list:
+        return [_gh_entry(repo="acme/myapp", number=42, title="my pr")]
+
+    monkeypatch.setattr(authored_prs, "run_gh_json", fake_run_gh_json)
+
+    import asyncio
+
+    result = asyncio.run(authored_prs.fetch_authored_prs())
+    assert len(result) == 1
+    assert result[0].notes == "remember this"
+
+
+def test_fetch_authored_prs_notes_none_when_no_row(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_minimal_config(_isolate["config_path"])
+
+    async def fake_run_gh_json(args: list, **kwargs: Any) -> list:
+        return [_gh_entry(repo="acme/myapp", number=42)]
+
+    monkeypatch.setattr(authored_prs, "run_gh_json", fake_run_gh_json)
+
+    import asyncio
+
+    result = asyncio.run(authored_prs.fetch_authored_prs())
+    assert result[0].notes is None
+
+
+# --- notes migration on pull-down ---------------------------------------
+
+
+def test_pull_down_migrates_notes_from_authored_table(
+    _isolate: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If an authored PR has a note, pulling it down should copy the
+    note into worktree.notes and drop the authored_pr_notes row."""
+    import sqlite3
+    import subprocess
+
+    repo_path = tmp_path / "myapp"
+    repo_path.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo_path, check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_path), "config", "user.email", "t@t"], check=True
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_path), "config", "user.name", "t"], check=True
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_path), "commit", "--allow-empty", "-m", "init", "-q"],
+        check=True,
+    )
+    subprocess.run(["git", "-C", str(repo_path), "branch", "feat/x"], check=True)
+    write_repo_config(
+        _isolate["config_path"], tmp_path, repo_path,
+        name="myapp",
+        github_repo="acme/myapp",
+    )
+
+    # Seed the authored note.
+    from app.services import authored_pr_notes_db
+    authored_pr_notes_db.upsert_notes_sync(
+        "acme/myapp", 42, "I started this, finish it",
+        "2026-05-22T00:00:00Z",
+        db_path=_isolate["db_path"],
+    )
+
+    from app.routes import authored_prs as authored_route
+    from app.routes import inbox as inbox_route
+
+    async def fake_user_login() -> str:
+        return "me"
+
+    monkeypatch.setattr(authored_route, "get_user_login", fake_user_login)
+
+    async def fake_run_gh_json(args: list, **kwargs: Any) -> dict:
+        return {"headRefName": "feat/x", "isCrossRepository": False}
+
+    monkeypatch.setattr(inbox_route, "run_gh_json", fake_run_gh_json)
+
+    with TestClient(app) as client:
+        r = client.post("/api/authored-prs/acme/myapp/42/pull-down")
+    assert r.status_code == 200, r.text
+
+    # Note migrated to worktree.
+    conn = sqlite3.connect(_isolate["db_path"])
+    try:
+        notes_col = conn.execute(
+            "SELECT notes FROM worktree WHERE repo=?", ("myapp",)
+        ).fetchone()
+    finally:
+        conn.close()
+    assert notes_col == ("I started this, finish it",)
+
+    # Source row removed.
+    assert authored_pr_notes_db.get_notes_sync(
+        "acme/myapp", 42, db_path=_isolate["db_path"]
+    ) is None
+
+
+def test_pull_down_no_authored_note_is_a_noop(
+    _isolate: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pull-down still works when there's no authored note to migrate."""
+    import subprocess
+
+    repo_path = tmp_path / "myapp"
+    repo_path.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo_path, check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_path), "config", "user.email", "t@t"], check=True
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_path), "config", "user.name", "t"], check=True
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_path), "commit", "--allow-empty", "-m", "init", "-q"],
+        check=True,
+    )
+    subprocess.run(["git", "-C", str(repo_path), "branch", "feat/x"], check=True)
+    write_repo_config(
+        _isolate["config_path"], tmp_path, repo_path,
+        name="myapp",
+        github_repo="acme/myapp",
+    )
+
+    from app.routes import authored_prs as authored_route
+    from app.routes import inbox as inbox_route
+
+    async def fake_user_login() -> str:
+        return "me"
+
+    monkeypatch.setattr(authored_route, "get_user_login", fake_user_login)
+
+    async def fake_run_gh_json(args: list, **kwargs: Any) -> dict:
+        return {"headRefName": "feat/x", "isCrossRepository": False}
+
+    monkeypatch.setattr(inbox_route, "run_gh_json", fake_run_gh_json)
+
+    with TestClient(app) as client:
+        r = client.post("/api/authored-prs/acme/myapp/42/pull-down")
+    assert r.status_code == 200, r.text

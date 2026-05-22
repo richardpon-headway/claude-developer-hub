@@ -13,7 +13,7 @@ import logging
 
 from app.config.loader import load_config
 from app.models.authored_pr import AuthoredPrRow
-from app.services import bookmark_db, inbox_db
+from app.services import authored_pr_notes_db, bookmark_db, inbox_db
 from app.services.gh_cli import GhNotFound, run_gh_json
 from app.services.inbox_poll import _extract_ticket, _tracked_pr_keys_sync
 from app.services.inbox_search import (
@@ -71,6 +71,7 @@ async def fetch_authored_prs() -> list[AuthoredPrRow]:
     repos_index = configured_repos_index(config.repos)
 
     out: list[AuthoredPrRow] = []
+    surviving_keys: set[tuple[str, int]] = set()
     for entry in data:
         if not isinstance(entry, dict):
             continue
@@ -80,6 +81,7 @@ async def fetch_authored_prs() -> list[AuthoredPrRow]:
         key = (raw.pr_repo, raw.pr_number)
         if key in excluded:
             continue
+        surviving_keys.add(key)
         out.append(
             AuthoredPrRow(
                 pr_repo=raw.pr_repo,
@@ -91,8 +93,21 @@ async def fetch_authored_prs() -> list[AuthoredPrRow]:
                 ticket=_extract_ticket(raw.title, config.repos),
                 pr_updated_at=raw.updated_at,
                 repo_configured=is_repo_configured(raw.pr_repo, repos_index),
+                notes=None,
             )
         )
+
+    # Attach persisted notes in one batch query rather than N round-
+    # trips. Authored rows that don't yet have a note simply keep
+    # ``notes=None``.
+    notes_map = await asyncio.to_thread(
+        authored_pr_notes_db.notes_by_keys_sync, surviving_keys
+    )
+    if notes_map:
+        for row in out:
+            note = notes_map.get((row.pr_repo, row.pr_number))
+            if note is not None:
+                row.notes = note
 
     # Newest-first, matching the inbox sort.
     out.sort(key=lambda r: r.pr_updated_at, reverse=True)

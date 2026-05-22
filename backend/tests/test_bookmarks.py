@@ -405,3 +405,134 @@ def test_inbox_tick_skips_bookmarked_prs(
 
     rows = inbox_db.list_inbox_sync(db_path=_isolate["db_path"])
     assert [(r.pr_repo, r.pr_number) for r in rows] == [("o/r", 43)]
+
+
+# --- POST /api/bookmarks/.../pull-down ----------------------------------
+
+
+def test_pull_down_bookmark_404_when_not_bookmarked(
+    _isolate: dict[str, Path],
+) -> None:
+    write_minimal_config(_isolate["config_path"])
+    with TestClient(app) as client:
+        r = client.post("/api/bookmarks/acme/myapp/42/pull-down")
+    assert r.status_code == 404
+
+
+def test_pull_down_bookmark_happy_path(
+    _isolate: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sqlite3
+    import subprocess
+
+    repo_path = tmp_path / "myapp"
+    repo_path.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo_path, check=True)
+    subprocess.run(["git", "-C", str(repo_path), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(repo_path), "config", "user.name", "t"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_path), "commit", "--allow-empty", "-m", "init", "-q"],
+        check=True,
+    )
+    subprocess.run(["git", "-C", str(repo_path), "branch", "feat/x"], check=True)
+    write_repo_config(
+        _isolate["config_path"], tmp_path, repo_path,
+        name="myapp",
+        github_repo="acme/myapp",
+    )
+
+    seed_bookmark(
+        _isolate["db_path"], pr_repo="acme/myapp", pr_number=42,
+        author_login="alice",
+    )
+
+    from app.routes import inbox as inbox_route
+
+    async def fake_run_gh_json(args: list, **kwargs: Any) -> dict:
+        return {"headRefName": "feat/x", "isCrossRepository": False}
+
+    monkeypatch.setattr(inbox_route, "run_gh_json", fake_run_gh_json)
+
+    with TestClient(app) as client:
+        r = client.post("/api/bookmarks/acme/myapp/42/pull-down")
+    assert r.status_code == 200, r.text
+
+    # Bookmark's author_login was passed through to the worktree row.
+    conn = sqlite3.connect(_isolate["db_path"])
+    try:
+        row = conn.execute(
+            "SELECT pr_author_login FROM worktree WHERE repo=?", ("myapp",)
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row == ("alice",)
+
+
+# --- notes migration on bookmark add ------------------------------------
+
+
+def test_add_bookmark_migrates_authored_notes(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the user had typed notes against the authored-PR tier and
+    then bookmarks the same PR, the notes should carry over and the
+    authored_pr_notes row should be deleted."""
+    write_minimal_config(_isolate["config_path"])
+
+    from app.services import authored_pr_notes_db
+    authored_pr_notes_db.upsert_notes_sync(
+        "acme/myapp", 42, "carry me over", "2026-05-22T00:00:00Z",
+        db_path=_isolate["db_path"],
+    )
+
+    from app.routes import bookmarks as bookmarks_route
+
+    async def fake_run_gh_json(args: list, **kwargs: Any) -> dict:
+        return {
+            "title": "fix the thing",
+            "author": {"login": "alice"},
+            "url": "https://github.com/acme/myapp/pull/42",
+            "state": "OPEN",
+        }
+
+    monkeypatch.setattr(bookmarks_route, "run_gh_json", fake_run_gh_json)
+
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/bookmarks",
+            json={"url": "https://github.com/acme/myapp/pull/42"},
+        )
+    assert r.status_code == 201, r.text
+    assert r.json()["notes"] == "carry me over"
+
+    # Source row gone.
+    assert authored_pr_notes_db.get_notes_sync(
+        "acme/myapp", 42, db_path=_isolate["db_path"]
+    ) is None
+
+
+def test_add_bookmark_no_authored_notes_is_a_noop(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bookmark add still works when there's nothing to migrate."""
+    write_minimal_config(_isolate["config_path"])
+
+    from app.routes import bookmarks as bookmarks_route
+
+    async def fake_run_gh_json(args: list, **kwargs: Any) -> dict:
+        return {
+            "title": "fix",
+            "author": {"login": "alice"},
+            "url": "https://github.com/acme/myapp/pull/42",
+            "state": "OPEN",
+        }
+
+    monkeypatch.setattr(bookmarks_route, "run_gh_json", fake_run_gh_json)
+
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/bookmarks",
+            json={"url": "https://github.com/acme/myapp/pull/42"},
+        )
+    assert r.status_code == 201, r.text
+    assert r.json()["notes"] is None

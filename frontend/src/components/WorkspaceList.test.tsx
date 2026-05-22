@@ -457,6 +457,46 @@ describe("WorkspaceList", () => {
     expect(names[1]).toContain("their_aaa_unaddressed");
   });
 
+  // --- plan-50 unified PrCard --------------------------------------
+
+  test("worktree row title links to the GitHub PR (not the workspace detail page)", () => {
+    renderWorkspaces([
+      wt({
+        name: "with-pr",
+        pr_number: 42,
+        pr_repo: "acme/myapp",
+        pr_state: prState("ci_failing"),
+      }),
+    ]);
+    // The title link should point to GitHub; the Details button takes
+    // over the role of "go to workspace detail page".
+    const titleLink = screen.getByRole("link", { name: "with-pr" });
+    expect(titleLink).toHaveAttribute(
+      "href",
+      "https://github.com/acme/myapp/pull/42",
+    );
+    expect(titleLink).toHaveAttribute("target", "_blank");
+  });
+
+  test("worktree row without a known PR falls back to detail-page link", () => {
+    renderWorkspaces([
+      wt({
+        name: "no-pr-yet",
+        pr_number: null,
+        pr_repo: null,
+        pr_state: prState("no_pr"),
+      }),
+    ]);
+    const titleLink = screen.getByRole("link", { name: "no-pr-yet" });
+    expect(titleLink).toHaveAttribute("href", "/workspace/$repo/$name");
+  });
+
+  test("'Details' link appears on every worktree row (renamed from Manage)", () => {
+    renderWorkspaces([wt({ name: "any" })]);
+    expect(screen.getByRole("link", { name: /^details$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^manage$/i })).not.toBeInTheDocument();
+  });
+
   test("iTerm2 spawn failure surfaces inline error + flips the button to a red state", async () => {
     // Reproduces the "underlying worktree was deleted" case: backend
     // returns 400 with "worktree path missing on disk", and the user
