@@ -295,6 +295,144 @@ def test_recreate_stale_row_drops_and_reinserts(_isolate: dict[str, Path]) -> No
     assert Path(body["path"]).exists()
 
 
+# --- DELETE /api/worktree/{repo}/{name} ----------------------------------
+
+
+def test_delete_404_when_worktree_missing(_isolate: dict[str, Path]) -> None:
+    write_repo_config(_isolate["config_path"], _isolate["dev_root"], _isolate["dev_root"])
+    with TestClient(app) as client:
+        r = client.delete("/api/worktree/myapp/nope")
+    assert r.status_code == 404
+
+
+def test_delete_happy_path_removes_row_and_directory(
+    _isolate: dict[str, Path],
+) -> None:
+    """End-to-end: create a worktree, delete it, confirm the row is
+    gone and the on-disk directory was removed."""
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
+
+    with TestClient(app) as client:
+        r1 = client.post(
+            "/api/worktree", json={"repo": "myapp", "branch": "feature"}
+        )
+        assert r1.status_code == 200, r1.text
+        wt_path = Path(r1.json()["path"])
+        assert wt_path.exists()
+
+        r2 = client.delete("/api/worktree/myapp/feature")
+        assert r2.status_code == 200, r2.text
+        assert r2.json() == {"deleted": True}
+
+        # Row dropped.
+        r3 = client.get("/api/worktrees")
+        assert r3.json()["worktrees"] == []
+
+    # On-disk path is gone.
+    assert not wt_path.exists()
+
+
+def test_delete_409_when_status_is_setting_up(
+    _isolate: dict[str, Path],
+) -> None:
+    """Reject deletion of mid-flight setting_up rows — let the active
+    create_worktree task finish or fail before the user retries.
+
+    Seed the row INSIDE the TestClient context so the lifespan-time
+    ``_reconcile_orphaned_setting_up`` doesn't flip it to failed/
+    code_on_disk before the test runs."""
+    write_repo_config(_isolate["config_path"], _isolate["dev_root"], _isolate["dev_root"])
+    with TestClient(app) as client:
+        seed_worktree(
+            _isolate["db_path"], "myapp", "feature",
+            branch="feature",
+            status="setting_up",
+        )
+        r = client.delete("/api/worktree/myapp/feature")
+    assert r.status_code == 409
+    assert "setting_up" in r.json()["detail"]
+
+
+def test_delete_409_when_status_is_removing(_isolate: dict[str, Path]) -> None:
+    """Another delete in flight; second click bounces."""
+    write_repo_config(_isolate["config_path"], _isolate["dev_root"], _isolate["dev_root"])
+    seed_worktree(
+        _isolate["db_path"], "myapp", "feature",
+        branch="feature",
+        status="removing",
+    )
+    with TestClient(app) as client:
+        r = client.delete("/api/worktree/myapp/feature")
+    assert r.status_code == 409
+    assert "removing" in r.json()["detail"]
+
+
+def test_delete_succeeds_when_path_already_gone(
+    _isolate: dict[str, Path],
+) -> None:
+    """Stale-ish row (path vanished outside CDH). Delete should still
+    drop the row — no git remove to attempt — and prune git's tracking."""
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
+
+    with TestClient(app) as client:
+        r1 = client.post(
+            "/api/worktree", json={"repo": "myapp", "branch": "feature"}
+        )
+        assert r1.status_code == 200, r1.text
+        wt_path = Path(r1.json()["path"])
+
+        # User `rm -rf`d the directory outside CDH.
+        import shutil
+        shutil.rmtree(wt_path)
+        assert not wt_path.exists()
+
+        r2 = client.delete("/api/worktree/myapp/feature")
+        assert r2.status_code == 200, r2.text
+
+        r3 = client.get("/api/worktrees")
+        assert r3.json()["worktrees"] == []
+
+
+def test_delete_drops_row_even_when_git_remove_fails(
+    _isolate: dict[str, Path],
+) -> None:
+    """If git is upset (e.g., repo path config drifted) we still drop
+    the row — the alternative is a stuck-in-removing row that forces
+    the user into a terminal. Re-Sync can reconcile any orphaned git
+    state later."""
+    # Configure a repo whose path exists but isn't a git repo, so
+    # `git worktree remove` will error.
+    repo_path = _isolate["dev_root"] / "not-a-git-repo"
+    repo_path.mkdir()
+    write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
+    # Seed a worktree row pointing at a bogus path. We can't actually
+    # create one via the API for a non-git repo, so seed directly.
+    fake_wt = _isolate["dev_root"] / "myapp_feat"
+    seed_worktree(
+        _isolate["db_path"], "myapp", "feature",
+        path=fake_wt,
+        branch="feature",
+        status="ready",
+    )
+    # Touch the path so the route's `wt_path.exists()` check triggers
+    # the (doomed) git remove. seed_worktree may have created the dir
+    # already, so tolerate that.
+    fake_wt.mkdir(exist_ok=True)
+
+    with TestClient(app) as client:
+        r = client.delete("/api/worktree/myapp/feature")
+    # Row dropped despite the failing git invocation.
+    assert r.status_code == 200, r.text
+    assert seed_worktree.__module__  # silence linter on unused-import
+    from app.services.worktree import get_worktree_sync
+
+    assert get_worktree_sync("myapp", "feature", db_path=_isolate["db_path"]) is None
+
+
 # --- /api/worktree/{repo}/{name}/pr-url ----------------------------------
 
 

@@ -70,6 +70,89 @@ async def create_worktree(req: CreateWorktreeRequest) -> WorktreeRow:
 
 _RECREATE_ALLOWED_STATUSES = {"stale", "code_on_disk"}
 
+# Anything except an in-flight setup or teardown is deletable. We
+# explicitly allow `failed` (no on-disk state to clean up — just drops
+# the row) and `stale` (path already gone outside CDH — git remove is a
+# no-op, prune handles tracking).
+_DELETE_BLOCKED_STATUSES = {"setting_up", "removing"}
+
+
+class DeleteWorktreeResponse(BaseModel):
+    """Returned after a successful delete. The boolean is for symmetry
+    with the bookmark delete endpoint; the frontend mainly uses the
+    response existing (HTTP 200) as the success signal."""
+
+    deleted: Literal[True] = True
+
+
+@router.delete(
+    "/worktree/{repo}/{name}", response_model=DeleteWorktreeResponse
+)
+async def delete_worktree(repo: str, name: str) -> DeleteWorktreeResponse:
+    """Wipe the on-disk worktree directory, untrack it from git, and
+    delete CDH's row (FK cascade drops the matching ``iterm_session``
+    and ``pr_state`` rows).
+
+    Refuses (409) when the worktree is mid-flight (``setting_up`` or
+    ``removing``) — let the active operation finish or fail before
+    retrying. The frontend hides the button in those states.
+
+    Best-effort on the git side: a failing ``git worktree remove`` (e.g.
+    config drift, permission issue) is logged but doesn't block the row
+    deletion. Leaving the row stuck in ``removing`` would force the user
+    into a terminal to recover — strictly worse than dropping the row
+    and letting them re-Sync to reconcile any orphaned git state.
+    """
+    row = await asyncio.to_thread(svc.get_worktree_sync, repo, name)
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"worktree not found: {repo}/{name}"
+        )
+    if row.status in _DELETE_BLOCKED_STATUSES:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"worktree is {row.status!r}; wait for it to finish before deleting.",
+        )
+
+    # Flip to `removing` so any concurrent action sees teardown in flight.
+    await asyncio.to_thread(
+        svc.update_worktree_status_sync, repo, name, "removing"
+    )
+
+    config = load_config()
+    repo_cfg = next((r for r in config.repos if r.name == repo), None)
+    if repo_cfg is not None:
+        repo_path = Path(str(repo_cfg.path)).expanduser()
+        if repo_path.is_dir():
+            wt_path = Path(row.path)
+            # `git worktree remove --force` covers worktrees with
+            # uncommitted changes; the user already confirmed via the
+            # frontend dialog. If the path is already gone, skip the
+            # remove and just prune git's tracking.
+            if wt_path.exists():
+                remove = await asyncio.create_subprocess_exec(
+                    "git", "-C", str(repo_path),
+                    "worktree", "remove", "--force", str(wt_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr_b = await remove.communicate()
+                if remove.returncode != 0:
+                    log.info(
+                        "git worktree remove failed for %s/%s (continuing): %s",
+                        repo, name,
+                        stderr_b.decode("utf-8", errors="replace").strip()[:200],
+                    )
+            prune = await asyncio.create_subprocess_exec(
+                "git", "-C", str(repo_path), "worktree", "prune",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await prune.wait()
+
+    await asyncio.to_thread(svc.delete_worktree_sync, repo, name)
+    return DeleteWorktreeResponse()
+
 
 @router.post("/worktree/{repo}/{name}/recreate", response_model=WorktreeRow)
 async def recreate_worktree(repo: str, name: str) -> WorktreeRow:
