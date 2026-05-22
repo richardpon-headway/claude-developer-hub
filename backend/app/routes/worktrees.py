@@ -88,7 +88,11 @@ class DeleteWorktreeResponse(BaseModel):
 @router.delete(
     "/worktree/{repo}/{name}", response_model=DeleteWorktreeResponse
 )
-async def delete_worktree(repo: str, name: str) -> DeleteWorktreeResponse:
+async def delete_worktree(
+    repo: str,
+    name: str,
+    delete_branch: bool = False,
+) -> DeleteWorktreeResponse:
     """Wipe the on-disk worktree directory, untrack it from git, and
     delete CDH's row (FK cascade drops the matching ``iterm_session``
     and ``pr_state`` rows).
@@ -102,6 +106,12 @@ async def delete_worktree(repo: str, name: str) -> DeleteWorktreeResponse:
     deletion. Leaving the row stuck in ``removing`` would force the user
     into a terminal to recover — strictly worse than dropping the row
     and letting them re-Sync to reconcile any orphaned git state.
+
+    When ``delete_branch=True``, also runs ``git branch -D <branch>`` in
+    the source repo after the worktree is removed. Uses ``-D`` (force)
+    because the user explicitly opted in via the frontend checkbox plus
+    the type-to-confirm gate; same best-effort log-and-continue contract
+    as the worktree-remove step.
     """
     row = await asyncio.to_thread(svc.get_worktree_sync, repo, name)
     if row is None:
@@ -149,6 +159,21 @@ async def delete_worktree(repo: str, name: str) -> DeleteWorktreeResponse:
                 stderr=asyncio.subprocess.DEVNULL,
             )
             await prune.wait()
+
+            if delete_branch and row.branch:
+                branch_del = await asyncio.create_subprocess_exec(
+                    "git", "-C", str(repo_path),
+                    "branch", "-D", row.branch,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr_b = await branch_del.communicate()
+                if branch_del.returncode != 0:
+                    log.info(
+                        "git branch -D failed for %s/%s (continuing): %s",
+                        repo, name,
+                        stderr_b.decode("utf-8", errors="replace").strip()[:200],
+                    )
 
     await asyncio.to_thread(svc.delete_worktree_sync, repo, name)
     return DeleteWorktreeResponse()

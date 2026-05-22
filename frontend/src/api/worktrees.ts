@@ -43,8 +43,14 @@ export interface DeleteWorktreeResponse {
   deleted: true;
 }
 
-export const deleteWorktree = (repo: string, name: string) =>
-  apiDelete<DeleteWorktreeResponse>(workspacePath(repo, name));
+export const deleteWorktree = (
+  repo: string,
+  name: string,
+  opts: { deleteBranch?: boolean } = {},
+) => {
+  const qs = opts.deleteBranch ? "?delete_branch=true" : "";
+  return apiDelete<DeleteWorktreeResponse>(`${workspacePath(repo, name)}${qs}`);
+};
 
 export interface OpenCursorResponse {
   opened: boolean;

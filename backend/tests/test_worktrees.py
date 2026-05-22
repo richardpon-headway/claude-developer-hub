@@ -397,6 +397,65 @@ def test_delete_succeeds_when_path_already_gone(
         assert r3.json()["worktrees"] == []
 
 
+def test_delete_with_delete_branch_removes_local_branch(
+    _isolate: dict[str, Path],
+) -> None:
+    """When ?delete_branch=true is passed, also runs `git branch -D`
+    against the worktree's branch in the source repo."""
+    import subprocess
+
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
+
+    with TestClient(app) as client:
+        r1 = client.post(
+            "/api/worktree", json={"repo": "myapp", "branch": "feature"}
+        )
+        assert r1.status_code == 200, r1.text
+
+        # Branch exists before delete.
+        assert subprocess.run(
+            ["git", "-C", str(repo_path), "show-ref",
+             "--verify", "--quiet", "refs/heads/feature"],
+        ).returncode == 0
+
+        r2 = client.delete("/api/worktree/myapp/feature?delete_branch=true")
+        assert r2.status_code == 200, r2.text
+
+    # Branch is gone after delete.
+    assert subprocess.run(
+        ["git", "-C", str(repo_path), "show-ref",
+         "--verify", "--quiet", "refs/heads/feature"],
+    ).returncode != 0
+
+
+def test_delete_without_delete_branch_preserves_local_branch(
+    _isolate: dict[str, Path],
+) -> None:
+    """Default delete (no flag) leaves the local branch alone."""
+    import subprocess
+
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
+
+    with TestClient(app) as client:
+        r1 = client.post(
+            "/api/worktree", json={"repo": "myapp", "branch": "feature"}
+        )
+        assert r1.status_code == 200, r1.text
+
+        r2 = client.delete("/api/worktree/myapp/feature")
+        assert r2.status_code == 200, r2.text
+
+    # Branch still present.
+    assert subprocess.run(
+        ["git", "-C", str(repo_path), "show-ref",
+         "--verify", "--quiet", "refs/heads/feature"],
+    ).returncode == 0
+
+
 def test_delete_drops_row_even_when_git_remove_fails(
     _isolate: dict[str, Path],
 ) -> None:

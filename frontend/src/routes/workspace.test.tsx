@@ -265,10 +265,41 @@ describe("WorkspacePage", () => {
     fireEvent.click(confirmBtn);
 
     await waitFor(() => {
-      expect(worktreesApi.deleteWorktree).toHaveBeenCalledWith("myrepo", "feature");
+      expect(worktreesApi.deleteWorktree).toHaveBeenCalledWith(
+        "myrepo",
+        "feature",
+        { deleteBranch: false },
+      );
     });
     await waitFor(() => {
       expect(navigateSpy).toHaveBeenCalledWith({ to: "/" });
+    });
+  });
+
+  test("Delete with 'also delete branch' checked forwards the flag", async () => {
+    vi.mocked(worktreesApi.getWorktree).mockResolvedValue(
+      makeDetail({ status: "ready", path: "/tmp/wt", branch: "feature" }),
+    );
+    vi.mocked(worktreesApi.deleteWorktree).mockResolvedValue({ deleted: true });
+
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /delete worktree/i }));
+    const dialog = await screen.findByRole("dialog");
+
+    fireEvent.click(
+      within(dialog).getByRole("checkbox", { name: /also delete local branch/i }),
+    );
+    fireEvent.change(within(dialog).getByPlaceholderText("delete worktree"), {
+      target: { value: "delete worktree" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^delete$/i }));
+
+    await waitFor(() => {
+      expect(worktreesApi.deleteWorktree).toHaveBeenCalledWith(
+        "myrepo",
+        "feature",
+        { deleteBranch: true },
+      );
     });
   });
 

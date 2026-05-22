@@ -43,6 +43,7 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
   const navigate = useNavigate();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleteBranch, setDeleteBranch] = useState(false);
 
   const detail = useQuery({
     queryKey: ["worktree", repo, name],
@@ -86,7 +87,7 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => deleteWorktree(repo, name),
+    mutationFn: () => deleteWorktree(repo, name, { deleteBranch }),
     onSuccess: () => {
       // Drop both the worktrees list and any inbox/authored caches that
       // might cross-reference this workspace's PR.
@@ -95,6 +96,7 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
       queryClient.invalidateQueries({ queryKey: ["authored-prs"] });
       setConfirmDelete(false);
       setDeleteConfirmText("");
+      setDeleteBranch(false);
       navigate({ to: "/" });
     },
   });
@@ -296,6 +298,7 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
             onClose={() => {
               setConfirmDelete(false);
               setDeleteConfirmText("");
+              setDeleteBranch(false);
             }}
             title="Delete worktree?"
           >
@@ -311,6 +314,22 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
                 CDH's row + cascaded iTerm2 / PR-state records. Cannot
                 be undone.
               </p>
+              <label className="flex items-start gap-2 text-xs text-zinc-300">
+                <input
+                  type="checkbox"
+                  checked={deleteBranch}
+                  onChange={(e) => setDeleteBranch(e.target.checked)}
+                  className="mt-0.5 h-3.5 w-3.5 accent-red-600"
+                />
+                <span>
+                  Also delete local branch{" "}
+                  <code className="text-zinc-200">{row.branch}</code>
+                  <span className="block text-zinc-500">
+                    Runs <code>git branch -D</code> — force-deletes even
+                    if unmerged. Remote branch is unaffected.
+                  </span>
+                </span>
+              </label>
               <label className="block text-xs text-zinc-400">
                 Type{" "}
                 <code className="text-zinc-200">delete worktree</code>{" "}
@@ -330,6 +349,7 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
                   onClick={() => {
                     setConfirmDelete(false);
                     setDeleteConfirmText("");
+                    setDeleteBranch(false);
                   }}
                   disabled={deleteMutation.isPending}
                 >
