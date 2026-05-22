@@ -32,3 +32,8 @@ class AuthoredPrRow(BaseModel):
     # The frontend uses this to render "Pull down" vs "Configure repo
     # + pull down".
     repo_configured: bool
+    # Free-form per-PR notes from the ``authored_pr_notes`` table.
+    # NULL when no row exists. On surface transition (bookmark, pull-
+    # down) the route handler copies these into the destination
+    # surface's notes column and deletes the row here.
+    notes: str | None = None
