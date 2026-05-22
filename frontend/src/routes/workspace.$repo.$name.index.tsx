@@ -1,9 +1,11 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError } from "../api/client";
 import { getWorkspaceSkills } from "../api/config";
 import {
+  deleteWorktree,
   getPrFiles,
   getWorktree,
   openInCursor,
@@ -12,6 +14,7 @@ import {
   spawnIterm,
 } from "../api/worktrees";
 import { Button } from "../components/Button";
+import { Dialog } from "../components/Dialog";
 import { Tooltip } from "../components/Tooltip";
 import { WorkspaceNotes } from "../components/WorkspaceNotes";
 
@@ -37,6 +40,8 @@ interface WorkspacePageProps {
 
 export function WorkspacePage({ repo, name }: WorkspacePageProps) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const detail = useQuery({
     queryKey: ["worktree", repo, name],
@@ -78,6 +83,28 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
   const cursorMutation = useMutation({
     mutationFn: () => openInCursor(repo, name),
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteWorktree(repo, name),
+    onSuccess: () => {
+      // Drop both the worktrees list and any inbox/authored caches that
+      // might cross-reference this workspace's PR.
+      queryClient.invalidateQueries({ queryKey: ["worktrees"] });
+      queryClient.invalidateQueries({ queryKey: ["inbox"] });
+      queryClient.invalidateQueries({ queryKey: ["authored-prs"] });
+      setConfirmDelete(false);
+      navigate({ to: "/" });
+    },
+  });
+
+  // Delete is hidden during in-flight setup / teardown — matches the
+  // backend's 409 list. ready / code_on_disk / failed / stale all
+  // surface the button.
+  const deletable =
+    row?.status === "ready" ||
+    row?.status === "code_on_disk" ||
+    row?.status === "failed" ||
+    row?.status === "stale";
 
   const cursorFileMutation = useMutation({
     mutationFn: (file: string) => openInCursor(repo, name, file),
@@ -235,6 +262,68 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
               </p>
             )}
           </section>
+
+          {deletable && (
+            <section className="mt-8 border-t border-zinc-800 pt-6">
+              <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                Danger zone
+              </h2>
+              <div className="mt-3 flex items-center justify-between gap-4">
+                <p className="text-xs text-zinc-500">
+                  Wipe the on-disk worktree directory and clear CDH's
+                  record of this workspace.
+                </p>
+                <Button
+                  variant="danger"
+                  onClick={() => setConfirmDelete(true)}
+                  disabled={deleteMutation.isPending}
+                >
+                  {deleteMutation.isPending ? "Deleting…" : "Delete worktree"}
+                </Button>
+              </div>
+              {deleteMutation.error && (
+                <p role="alert" className="mt-2 text-sm text-red-400">
+                  delete failed: {errorMessage(deleteMutation.error)}
+                </p>
+              )}
+            </section>
+          )}
+
+          <Dialog
+            open={confirmDelete}
+            onClose={() => setConfirmDelete(false)}
+            title="Delete worktree?"
+          >
+            <div className="space-y-4">
+              <p className="text-sm text-zinc-300">
+                Permanently delete the worktree at:
+              </p>
+              <p className="break-all rounded border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-xs text-zinc-200">
+                {row.path}
+              </p>
+              <p className="text-xs text-zinc-500">
+                Runs <code>git worktree remove --force</code> and removes
+                CDH's row + cascaded iTerm2 / PR-state records. Cannot
+                be undone.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => setConfirmDelete(false)}
+                  disabled={deleteMutation.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() => deleteMutation.mutate()}
+                  disabled={deleteMutation.isPending}
+                >
+                  {deleteMutation.isPending ? "Deleting…" : "Delete"}
+                </Button>
+              </div>
+            </div>
+          </Dialog>
 
           {prFiles.data && prFiles.data.files.length > 0 && (
             <section className="mt-8">

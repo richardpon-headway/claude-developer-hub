@@ -1,4 +1,4 @@
-import { render, screen, waitFor, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, cleanup, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -7,7 +7,9 @@ import { ApiError } from "../api/client";
 import * as worktreesApi from "../api/worktrees";
 import type { Worktree, WorktreeDetail } from "../api/types";
 
-// Stub the Link import so the workspace page renders without a router context.
+// Stub Link + useNavigate so the workspace page renders without a router context.
+const navigateSpy = vi.fn();
+
 vi.mock("@tanstack/react-router", async () => {
   const actual = await vi.importActual<object>("@tanstack/react-router");
   return {
@@ -17,6 +19,7 @@ vi.mock("@tanstack/react-router", async () => {
       to?: string;
       [k: string]: unknown;
     }) => <a href={to as string} {...rest}>{children}</a>,
+    useNavigate: () => navigateSpy,
   };
 });
 
@@ -71,6 +74,8 @@ beforeEach(() => {
   vi.mocked(worktreesApi.spawnIterm).mockReset();
   vi.mocked(worktreesApi.runSkill).mockReset();
   vi.mocked(worktreesApi.sendText).mockReset();
+  vi.mocked(worktreesApi.deleteWorktree).mockReset();
+  navigateSpy.mockReset();
   vi.mocked(configApi.getWorkspaceSkills).mockReset();
   vi.mocked(configApi.getWorkspaceSkills).mockResolvedValue([
     {
@@ -190,5 +195,74 @@ describe("WorkspacePage", () => {
     renderPage();
     const openBtn = await screen.findByRole("button", { name: /open in iterm2/i });
     expect(openBtn).toBeDisabled();
+  });
+
+  test("Delete button hidden when status is setting_up", async () => {
+    vi.mocked(worktreesApi.getWorktree).mockResolvedValue(
+      makeDetail({ status: "setting_up" }),
+    );
+    renderPage();
+    // Wait for the page to settle on the loaded state — once the
+    // "Open in iTerm2" button renders, the page has hydrated.
+    await screen.findByRole("button", { name: /open in iterm2/i });
+    expect(
+      screen.queryByRole("button", { name: /delete worktree/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  test("Delete button visible for ready worktrees", async () => {
+    vi.mocked(worktreesApi.getWorktree).mockResolvedValue(
+      makeDetail({ status: "ready" }),
+    );
+    renderPage();
+    const btn = await screen.findByRole("button", { name: /delete worktree/i });
+    expect(btn).toBeEnabled();
+  });
+
+  test("Delete flow: click → confirm → API called → navigate home", async () => {
+    vi.mocked(worktreesApi.getWorktree).mockResolvedValue(
+      makeDetail({ status: "ready", path: "/tmp/wt" }),
+    );
+    vi.mocked(worktreesApi.deleteWorktree).mockResolvedValue({ deleted: true });
+
+    renderPage();
+    const trigger = await screen.findByRole("button", { name: /delete worktree/i });
+    fireEvent.click(trigger);
+
+    // Dialog opens; show the path being deleted.
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("/tmp/wt");
+
+    // Confirm via the dialog's Delete button (the second one — the
+    // first "Delete worktree" trigger is outside the dialog).
+    const confirmBtn = within(dialog).getByRole("button", { name: /^delete$/i });
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(worktreesApi.deleteWorktree).toHaveBeenCalledWith("myrepo", "feature");
+    });
+    await waitFor(() => {
+      expect(navigateSpy).toHaveBeenCalledWith({ to: "/" });
+    });
+  });
+
+  test("Delete failure shows inline error", async () => {
+    vi.mocked(worktreesApi.getWorktree).mockResolvedValue(
+      makeDetail({ status: "ready" }),
+    );
+    vi.mocked(worktreesApi.deleteWorktree).mockRejectedValue(
+      new ApiError(502, "git worktree remove exploded"),
+    );
+
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /delete worktree/i }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: /^delete$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(/git worktree remove exploded/i);
+    });
+    // Stays on the page (no navigate) so the user can read the error.
+    expect(navigateSpy).not.toHaveBeenCalled();
   });
 });
