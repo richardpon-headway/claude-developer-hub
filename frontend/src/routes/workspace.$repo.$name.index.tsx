@@ -42,6 +42,7 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
   const detail = useQuery({
     queryKey: ["worktree", repo, name],
@@ -93,6 +94,7 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
       queryClient.invalidateQueries({ queryKey: ["inbox"] });
       queryClient.invalidateQueries({ queryKey: ["authored-prs"] });
       setConfirmDelete(false);
+      setDeleteConfirmText("");
       navigate({ to: "/" });
     },
   });
@@ -291,7 +293,10 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
 
           <Dialog
             open={confirmDelete}
-            onClose={() => setConfirmDelete(false)}
+            onClose={() => {
+              setConfirmDelete(false);
+              setDeleteConfirmText("");
+            }}
             title="Delete worktree?"
           >
             <div className="space-y-4">
@@ -306,10 +311,26 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
                 CDH's row + cascaded iTerm2 / PR-state records. Cannot
                 be undone.
               </p>
+              <label className="block text-xs text-zinc-400">
+                Type{" "}
+                <code className="text-zinc-200">delete worktree</code>{" "}
+                to confirm:
+                <input
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  autoFocus
+                  className="mt-1 w-full rounded border border-zinc-800 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-red-700 focus:outline-none"
+                  placeholder="delete worktree"
+                />
+              </label>
               <div className="flex justify-end gap-2">
                 <Button
                   variant="secondary"
-                  onClick={() => setConfirmDelete(false)}
+                  onClick={() => {
+                    setConfirmDelete(false);
+                    setDeleteConfirmText("");
+                  }}
                   disabled={deleteMutation.isPending}
                 >
                   Cancel
@@ -317,7 +338,10 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
                 <Button
                   variant="danger"
                   onClick={() => deleteMutation.mutate()}
-                  disabled={deleteMutation.isPending}
+                  disabled={
+                    deleteMutation.isPending ||
+                    deleteConfirmText.trim().toLowerCase() !== "delete worktree"
+                  }
                 >
                   {deleteMutation.isPending ? "Deleting…" : "Delete"}
                 </Button>
