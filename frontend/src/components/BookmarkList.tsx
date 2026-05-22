@@ -9,6 +9,7 @@ import {
 } from "../api/bookmarks";
 import type { BookmarkPr, BookmarkState, JiraConfig } from "../api/types";
 import { BookmarkNotes } from "./BookmarkNotes";
+import { OpenPrLinkButton } from "./OpenPrLinkButton";
 import { Tooltip } from "./Tooltip";
 
 const STATE_STYLE: Record<BookmarkState, { label: string; cls: string }> = {
@@ -181,6 +182,7 @@ function BookmarkRow({ bookmark, jira }: RowProps) {
           )}
         </div>
         <div className="flex shrink-0 items-start gap-2">
+          <OpenPrLinkButton url={bookmark.url} />
           <UnbookmarkButton bookmark={bookmark} />
         </div>
       </div>

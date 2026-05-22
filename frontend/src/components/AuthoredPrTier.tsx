@@ -4,6 +4,7 @@ import { ApiError } from "../api/client";
 import { listAuthoredPrs, pullDownAuthoredPr } from "../api/authored";
 import { configureAndPullDown } from "../api/inbox";
 import type { AuthoredPr, InboxCiStatus, JiraConfig } from "../api/types";
+import { OpenPrLinkButton } from "./OpenPrLinkButton";
 import { Tooltip } from "./Tooltip";
 
 const CI_STYLE: Record<InboxCiStatus, { label: string; cls: string }> = {
@@ -106,6 +107,7 @@ function AuthoredPrRow({ pr, jira }: RowProps) {
           )}
         </div>
         <div className="flex shrink-0 items-start gap-2">
+          <OpenPrLinkButton url={pr.url} />
           <PullDownButton pr={pr} />
         </div>
       </div>
