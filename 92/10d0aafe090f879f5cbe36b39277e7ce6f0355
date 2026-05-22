@@ -1,0 +1,39 @@
+backend/tests/test_inbox.py
+  s_385c2ed8ef7ad1::t_245056540ce810 53-54
+  s_d539edabd061de::t_452b171a6384af 306,310-311,326-328,351,354-357,360,367,369-372
+backend/app/services/inbox_poll.py
+  s_d539edabd061de::t_7df4156d1294a2 9,11-12
+backend/app/services/inbox_search.py
+  s_d539edabd061de::t_328402c87f4212 7-9,29
+  s_d539edabd061de::t_69d7abc407dfe5 197,206-211,232,239
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "9210d0aafe090f879f5cbe36b39277e7ce6f0355",
+  "prompts": {},
+  "sessions": {
+    "s_385c2ed8ef7ad1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "731e3cfc-f1b2-4f64-b125-3c3c5088262b",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    },
+    "s_d539edabd061de": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6c1e236c-125c-43bb-92ef-372c23753481",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
