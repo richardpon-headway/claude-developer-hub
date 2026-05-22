@@ -136,6 +136,19 @@ describe("BookmarkList", () => {
     });
   });
 
+  test("PR link button opens the PR URL in a new tab", () => {
+    renderBookmarks([
+      bookmark({
+        pr_repo: "acme/myapp",
+        pr_number: 99,
+        url: "https://github.com/acme/myapp/pull/99",
+      }),
+    ]);
+    const prLink = screen.getByRole("link", { name: /^pr$/i });
+    expect(prLink).toHaveAttribute("href", "https://github.com/acme/myapp/pull/99");
+    expect(prLink).toHaveAttribute("target", "_blank");
+  });
+
   test("notes editor renders with existing notes", () => {
     renderBookmarks([
       bookmark({ pr_number: 1, notes: "follow up next week" }),

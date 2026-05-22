@@ -108,6 +108,19 @@ describe("AuthoredPrTier", () => {
     });
   });
 
+  test("PR link button opens the PR URL in a new tab", () => {
+    renderTier([
+      pr({
+        pr_repo: "acme/myapp",
+        pr_number: 42,
+        url: "https://github.com/acme/myapp/pull/42",
+      }),
+    ]);
+    const prLink = screen.getByRole("link", { name: /^pr$/i });
+    expect(prLink).toHaveAttribute("href", "https://github.com/acme/myapp/pull/42");
+    expect(prLink).toHaveAttribute("target", "_blank");
+  });
+
   test("unconfigured repo falls back to Configure + pull down", async () => {
     vi.mocked(inboxApi.configureAndPullDown).mockResolvedValue({
       session_id: "sess",
