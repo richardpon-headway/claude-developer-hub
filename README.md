@@ -32,7 +32,8 @@ Hard prereqs:
 - `gh` CLI, authenticated (`gh auth status` succeeds)
 - Claude Code installed and authorized — onboarding leans on an existing
   Claude session in your terminal
-- `mise`, `uv`, `pnpm`, `jq` on your `PATH`
+- `mise` and `jq` on your `PATH` (`make install` uses `mise` to fetch the
+  pinned `python`, `node`, `pnpm`, and `uv` from `mise.toml`)
 
 Optional:
 

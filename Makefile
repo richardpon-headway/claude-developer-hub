@@ -5,8 +5,10 @@
 PYTHON ?= 3.13
 
 install:
-	cd backend && uv sync --python $(PYTHON)
-	cd frontend && pnpm install
+	mise trust >/dev/null 2>&1 || true
+	mise install
+	cd backend && mise exec -- uv sync --python $(PYTHON)
+	cd frontend && mise exec -- pnpm install
 
 run:
 	@echo "starting backend (:47823) + vite dev (:5174 with /api proxy)"
