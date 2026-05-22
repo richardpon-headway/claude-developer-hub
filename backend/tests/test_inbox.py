@@ -303,23 +303,18 @@ def test_source_accumulation_across_queries(
     priority-ordered by call order (reviewer > assignee > mentions)."""
 
     call_count = {"n": 0}
+    queries_seen: list[str] = []
 
     async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
         call_count["n"] += 1
-        if "review-requested:@me" in query:
+        queries_seen.append(query)
+        if "user-review-requested:@me" in query:
             return [build_raw_pr(repo="o/r", number=42, head="feat/x", source="reviewer")]
         if "mentions:@me" in query:
             return [build_raw_pr(repo="o/r", number=42, head="feat/x", source="mentions")]
         return []
 
     monkeypatch.setattr(inbox_search, "_search", fake_search)
-
-    # Also stub the reviewer post-filter so it doesn't try to call
-    # `gh pr view` for the synthetic row.
-    async def fake_me_login() -> str | None:
-        return None
-
-    monkeypatch.setattr(inbox_search, "_get_me_login", fake_me_login)
 
     import asyncio
 
@@ -328,6 +323,9 @@ def test_source_accumulation_across_queries(
     assert result[0].sources == ["reviewer", "mentions"]
     # reviewer + assignee + mentions = 3 queries
     assert call_count["n"] == 3
+    # The reviewer query uses the user-* variant so team-mediated
+    # requests are filtered at the search layer.
+    assert "user-review-requested:@me" in queries_seen
 
 
 def test_assignee_and_mentions_sources(
@@ -342,11 +340,6 @@ def test_assignee_and_mentions_sources(
 
     monkeypatch.setattr(inbox_search, "_search", fake_search)
 
-    async def fake_me_login() -> str | None:
-        return None
-
-    monkeypatch.setattr(inbox_search, "_get_me_login", fake_me_login)
-
     import asyncio
 
     result = asyncio.run(inbox_search.fetch_inbox_prs())
@@ -355,128 +348,28 @@ def test_assignee_and_mentions_sources(
     assert by_number[101].sources == ["mentions"]
 
 
-# --- reviewer post-filter (drop team-mediated review-requests) ----------
-
-
-def _patch_me_login(monkeypatch: pytest.MonkeyPatch, login: str | None) -> None:
-    async def fake_get() -> str | None:
-        return login
-
-    monkeypatch.setattr(inbox_search, "_get_me_login", fake_get)
-
-
-def _patch_review_requests(
-    monkeypatch: pytest.MonkeyPatch,
-    review_requests_by_pr: dict[tuple[str, int], list[dict] | None],
-) -> None:
-    async def fake_is_direct(
-        pr_repo: str, pr_number: int, me_login: str
-    ) -> bool | None:
-        entry = review_requests_by_pr.get((pr_repo, pr_number))
-        if entry is None:
-            return None  # gh failure
-        for r in entry:
-            if r.get("__typename") == "User" and r.get("login") == me_login:
-                return True
-        return False
-
-    monkeypatch.setattr(
-        inbox_search, "_is_directly_review_requested", fake_is_direct
-    )
-
-
-def test_reviewer_filter_keeps_direct_user_request(
+def test_reviewer_query_uses_user_review_requested(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _patch_me_login(monkeypatch, "me")
-    _patch_review_requests(
-        monkeypatch,
-        {
-            ("o/r", 1): [
-                {"__typename": "User", "login": "me"},
-                {"__typename": "Team", "slug": "acme/insurance-platform"},
-            ],
-        },
-    )
+    """The team-mediated post-filter is gone; instead we rely on
+    GitHub's ``user-review-requested:`` qualifier, which already
+    excludes team-mediated requests at the search layer."""
+    queries_seen: list[str] = []
 
     async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
-        if "review-requested:@me" in query:
-            return [build_raw_pr(repo="o/r", number=1, head="feat/a", source="reviewer")]
+        queries_seen.append(query)
         return []
 
     monkeypatch.setattr(inbox_search, "_search", fake_search)
 
     import asyncio
 
-    result = asyncio.run(inbox_search.fetch_inbox_prs())
-    assert len(result) == 1
-    assert result[0].sources == ["reviewer"]
+    asyncio.run(inbox_search.fetch_inbox_prs())
 
-
-def test_reviewer_filter_drops_team_mediated_only(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_me_login(monkeypatch, "me")
-    _patch_review_requests(
-        monkeypatch,
-        {
-            ("o/r", 1): [
-                {"__typename": "Team", "slug": "acme/insurance-platform"},
-                {"__typename": "Team", "slug": "acme/payer"},
-            ],
-        },
-    )
-
-    async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
-        if "review-requested:@me" in query:
-            return [build_raw_pr(repo="o/r", number=1, head="feat/a", source="reviewer")]
-        return []
-
-    monkeypatch.setattr(inbox_search, "_search", fake_search)
-
-    import asyncio
-
-    result = asyncio.run(inbox_search.fetch_inbox_prs())
-    assert result == []
-
-
-def test_reviewer_filter_fail_open_on_gh_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_me_login(monkeypatch, "me")
-    _patch_review_requests(monkeypatch, {("o/r", 1): None})
-
-    async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
-        if "review-requested:@me" in query:
-            return [build_raw_pr(repo="o/r", number=1, head="feat/a", source="reviewer")]
-        return []
-
-    monkeypatch.setattr(inbox_search, "_search", fake_search)
-
-    import asyncio
-
-    result = asyncio.run(inbox_search.fetch_inbox_prs())
-    assert len(result) == 1
-    assert result[0].sources == ["reviewer"]
-
-
-def test_reviewer_filter_skipped_when_me_login_unknown(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_me_login(monkeypatch, None)
-
-    async def fake_search(query: str, *, source: str) -> list[InboxPrRaw]:
-        if "review-requested:@me" in query:
-            return [build_raw_pr(repo="o/r", number=1, head="feat/a", source="reviewer")]
-        return []
-
-    monkeypatch.setattr(inbox_search, "_search", fake_search)
-
-    import asyncio
-
-    result = asyncio.run(inbox_search.fetch_inbox_prs())
-    assert len(result) == 1
-    assert result[0].sources == ["reviewer"]
+    # MUST use the user-* form. The plain `review-requested:` form
+    # would silently expand via team membership and pollute the inbox.
+    assert "user-review-requested:@me" in queries_seen
+    assert "review-requested:@me" not in queries_seen
 
 
 # --- poll tick end-to-end ----------------------------------------------

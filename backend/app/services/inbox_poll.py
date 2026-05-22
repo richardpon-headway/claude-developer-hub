@@ -6,8 +6,10 @@ inbox table (see migrations/009_persistent_inbox_bookmarks.sql).
 Each tick:
 
 1. ``gh search prs`` for the three remaining auto-watch sources
-   (``review-requested:@me``, ``assignee:@me``, ``mentions:@me``).
+   (``user-review-requested:@me``, ``assignee:@me``, ``mentions:@me``).
    ``team-review-requested:<owner>/<slug>`` was dropped — see plan-48.
+   ``user-review-requested:`` is used over plain ``review-requested:``
+   so GitHub excludes team-mediated requests at the search layer.
 2. For each result, skip if it matches a tracked worktree or is in
    ``inbox_archived``. Otherwise upsert into the ``inbox`` table.
 3. Auto-removal sweep: for inbox rows not seen this tick, probe a
