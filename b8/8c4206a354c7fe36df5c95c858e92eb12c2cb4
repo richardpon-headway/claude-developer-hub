@@ -1,0 +1,68 @@
+frontend/src/api/bookmarks.ts
+  s_d539edabd061de::t_17daabe14028ab 17-34
+frontend/src/components/WorkspaceList.tsx
+  s_d539edabd061de::t_f78566c4386bff 1-2,135,158,160,162
+backend/app/services/authored_prs.py
+  s_d539edabd061de::t_5b483f230b8840 74,84,96,100-110
+  s_d539edabd061de::t_cad891f09f2fcd 16
+backend/app/models/authored_pr.py
+  s_d539edabd061de::t_bee40ae8194e3e 35-39
+frontend/src/components/PrCard.tsx
+  s_d539edabd061de::t_fd4ede55f9d86a 1-9,11-174,180-181,183-228,257-258,260-842,846-847,849,852-855
+  s_d539edabd061de::t_820fcde83106c1 175-179,182
+  s_d539edabd061de::t_9de597abce6fd3 229-256,259
+  s_d539edabd061de::t_e19431a7885442 843-845,848,850-851
+  s_d539edabd061de::t_ae345768fddefb 10
+backend/tests/test_bookmarks.py
+  s_d539edabd061de::t_b72f3ba223e2d2 408-538
+frontend/src/components/InboxList.tsx
+  s_d539edabd061de::t_d630852694595b 1,3-5,22,45,51,53,55
+frontend/src/components/AuthoredPrTier.test.tsx
+  s_d539edabd061de::t_098baa9ea57c44 42
+frontend/src/components/WorkspaceList.test.tsx
+  s_d539edabd061de::t_0e9bd3c639b79a 460-499
+backend/app/routes/authored_prs.py
+  s_d539edabd061de::t_2ef42b0c3279e0 1,5-6,8,14-17,21-24,27-28,35-38,68-105
+frontend/src/components/AuthoredPrNotes.tsx
+  s_d539edabd061de::t_5ecdb6af470c75 1-4,7-9,12-13,15-21
+backend/app/routes/inbox.py
+  s_d539edabd061de::t_54f30422db2026 36
+  s_d539edabd061de::t_93919c8ba1ee37 342-358
+backend/app/services/authored_pr_notes_db.py
+  s_d539edabd061de::t_93168735b1b1d0 1-120
+frontend/src/api/types.ts
+  s_d539edabd061de::t_97423a7f53aa41 275-278
+frontend/src/components/BookmarkList.tsx
+  s_d539edabd061de::t_9031459c04704e 5-7,24-26,50,52,54
+backend/tests/test_authored_prs.py
+  s_d539edabd061de::t_ed485ce6833100 358-637
+backend/app/migrations/010_authored_pr_notes.sql
+  s_d539edabd061de::t_87e371b21780b3 1-17
+frontend/src/api/authored.ts
+  s_d539edabd061de::t_00cb98d362cc30 1,17-29
+frontend/src/components/AuthoredPrTier.tsx
+  s_d539edabd061de::t_7206e624e36d67 1,3-5,22,43,45,47
+backend/app/routes/bookmarks.py
+  s_d539edabd061de::t_989e3438415e5e 214-222,231
+  s_d539edabd061de::t_3c36f27773ce04 32
+  s_d539edabd061de::t_e221a0ffe66ca8 245-250,254-289
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "b88c4206a354c7fe36df5c95c858e92eb12c2cb4",
+  "prompts": {},
+  "sessions": {
+    "s_d539edabd061de": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6c1e236c-125c-43bb-92ef-372c23753481",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
