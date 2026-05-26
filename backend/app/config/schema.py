@@ -107,13 +107,12 @@ class ITermConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     default_window: ITermWindow = Field(default_factory=ITermWindow)
-    send_gate_patterns: list[str] = Field(
-        default_factory=lambda: [
-            r"Allow .* \[y/N\]\??$",
-            r"\? \(y/n\) $",
-            r"Press any key to continue",
-        ]
-    )
+    # Deprecated. The keystroke-injection send path was removed; "send to
+    # Claude" now spawns a fresh window with ``claude '<prompt>'`` as the
+    # startup command, so there is nothing to gate. Accepted on load for
+    # back-compat with existing user configs; the loader logs a one-time
+    # deprecation warning when present.
+    send_gate_patterns: list[str] = Field(default_factory=list)
 
 
 class TokenMonitorConfig(BaseModel):

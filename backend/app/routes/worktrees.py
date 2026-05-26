@@ -20,18 +20,13 @@ from app.models.worktree import PrStateSummary, WorktreeRow
 from app.services import git_cli
 from app.services import worktree as svc
 from app.services.gh_cli import GhFailed, GhNotFound, run_gh_json
-from app.services.iterm_send import (
-    SendGateError,
-    SessionNotFoundError,
-    send_to_session,
-)
 from app.services.iterm_spawn import (
     SpawnResult,
     delete_iterm_sessions_sync,
     focus_iterm_window,
-    get_claude_session_id_sync,
     get_claude_window_and_session_sync,
     set_iterm_session_uuid_sync,
+    spawn_global_claude_window,
     spawn_two_tab_window,
     upsert_iterm_sessions_sync,
 )
@@ -1264,7 +1259,6 @@ async def _post_spawn_discovery(
 
 class SendTextRequest(BaseModel):
     text: str = Field(..., min_length=1)
-    press_enter: bool = True
 
 
 class RunSkillRequest(BaseModel):
@@ -1280,11 +1274,16 @@ class SendResponse(BaseModel):
 async def _spawn_with_prompt(
     request: Request, repo: str, name: str, initial_prompt: str
 ) -> SendResponse:
-    """Spawn a fresh iTerm2 window in the worktree path with
-    ``claude '<initial_prompt>'`` as the first message. Used as the
-    fallback path for both run-skill and send-text when no live Claude
-    session exists for the worktree. The window's iterm_session row is
-    upserted so future sends use the existing-session path."""
+    """Spawn a fresh, one-tab iTerm2 window in the worktree path with
+    ``claude '<initial_prompt>'`` as the startup command. The prompt is
+    consumed by Claude at startup (positional arg), so there's no race
+    against a running TUI and no send-gate to clear.
+
+    Send-driven spawns are intentionally untracked — only the explicit
+    ``spawn-iterm`` flow writes to ``iterm_session``, keeping the
+    ``has_claude_session`` badge meaningful ("user opened iTerm2 here")
+    rather than flickering on every skill click.
+    """
     config = load_config()
     iterm = request.app.state.iterm  # caller already checked iterm.connection
     row = await asyncio.to_thread(svc.get_worktree_sync, repo, name)
@@ -1302,7 +1301,7 @@ async def _spawn_with_prompt(
 
     frame = config.iterm2.default_window
     try:
-        result = await spawn_two_tab_window(
+        await spawn_global_claude_window(
             iterm.connection,
             worktree_path,
             frame,
@@ -1313,12 +1312,11 @@ async def _spawn_with_prompt(
             status.HTTP_502_BAD_GATEWAY, f"iTerm2 spawn failed: {e}"
         ) from e
 
-    await asyncio.to_thread(upsert_iterm_sessions_sync, repo, name, result, None)
     return SendResponse(sent=True)
 
 
 async def _send_to_worktree_claude(
-    request: Request, repo: str, name: str, text: str, press_enter: bool
+    request: Request, repo: str, name: str, text: str
 ) -> SendResponse:
     iterm = getattr(request.app.state, "iterm", None)
     if iterm is None or iterm.connection is None:
@@ -1326,62 +1324,29 @@ async def _send_to_worktree_claude(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "iTerm2 not connected. Check Preferences → Magic → Enable Python API.",
         )
-
-    claude_sid = await asyncio.to_thread(get_claude_session_id_sync, repo, name)
-    if claude_sid is None:
-        # No tracked session — spawn one with the text as the initial
-        # prompt instead of refusing. Mirrors the auto-spawn-on-miss
-        # behavior the skill buttons already provide. press_enter is
-        # implicit: claude's positional-arg prompt fires at startup.
-        return await _spawn_with_prompt(request, repo, name, text)
-
-    try:
-        await send_to_session(iterm.connection, claude_sid, text, press_enter=press_enter)
-    except SessionNotFoundError:
-        # DB row pointed at a window that no longer exists (user closed
-        # it manually, iTerm2 restarted, etc). Prune the stale row and
-        # fall through to spawning a fresh one with this text as the
-        # initial prompt — same UX as if no row had ever existed.
-        log.info(
-            "send-text found stale iterm_session for %s/%s; pruning and respawning",
-            repo, name,
-        )
-        await asyncio.to_thread(delete_iterm_sessions_sync, repo, name)
-        return await _spawn_with_prompt(request, repo, name, text)
-    except SendGateError as e:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            f"Claude is awaiting input (matched {e.matched_pattern!r}). "
-            "Resolve the prompt first.",
-        ) from e
-
-    return SendResponse(sent=True)
+    return await _spawn_with_prompt(request, repo, name, text)
 
 
 @router.post("/worktree/{repo}/{name}/send-text", response_model=SendResponse)
 async def send_text(
     repo: str, name: str, req: SendTextRequest, request: Request
 ) -> SendResponse:
-    return await _send_to_worktree_claude(request, repo, name, req.text, req.press_enter)
+    return await _send_to_worktree_claude(request, repo, name, req.text)
 
 
 @router.post("/worktree/{repo}/{name}/run-skill", response_model=SendResponse)
 async def run_skill(
     repo: str, name: str, req: RunSkillRequest, request: Request
 ) -> SendResponse:
-    """Run a slash command in this worktree's Claude session.
+    """Run a slash command for this worktree.
 
     ``req.skill_name`` must appear in ``config.workspace_skills`` —
     that list is the server-side allow-list (symmetric with how
     ``/api/skills/global`` enforces ``config.global_skills``).
 
-    Delegates to the shared send-text path which handles three cases:
-
-    - Live Claude session: send ``/<skill>\\r`` via iTerm2 (CR submits).
-    - DB row exists but iTerm2 lost the session (stale row from a
-      manually-closed window or an iTerm2 restart): prune the row and
-      spawn a fresh window with ``claude '/<skill>'`` as initial prompt.
-    - No DB row at all: spawn the same way.
+    Spawns a fresh one-tab iTerm2 window at the worktree path running
+    ``claude '/<skill>'``. Any existing Claude window for the worktree
+    is left untouched.
     """
     config = load_config()
     if not any(s.name == req.skill_name for s in config.workspace_skills):
@@ -1391,6 +1356,4 @@ async def run_skill(
             "`workspace_skills` in ~/.config/cdh/config.yaml.",
         )
 
-    return await _send_to_worktree_claude(
-        request, repo, name, f"/{req.skill_name}", press_enter=True
-    )
+    return await _send_to_worktree_claude(request, repo, name, f"/{req.skill_name}")
