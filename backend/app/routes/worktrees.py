@@ -10,6 +10,7 @@ import logging
 import re
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -17,17 +18,13 @@ from pydantic import BaseModel, Field
 
 from app.config.loader import load_config
 from app.models.worktree import PrStateSummary, WorktreeRow
-from app.services import git_cli
+from app.services import git_cli, terminal
 from app.services import worktree as svc
 from app.services.gh_cli import GhFailed, GhNotFound, run_gh_json
 from app.services.iterm_spawn import (
-    SpawnResult,
     delete_iterm_sessions_sync,
-    focus_iterm_window,
     get_claude_window_and_session_sync,
     set_iterm_session_uuid_sync,
-    spawn_global_claude_window,
-    spawn_two_tab_window,
     upsert_iterm_sessions_sync,
 )
 from app.services.sidecar import (
@@ -1050,43 +1047,29 @@ async def focus_iterm(repo: str, name: str, request: Request) -> FocusItermRespo
     ``claude ●`` pill so the user can return to a running session
     without spawning a duplicate window.
 
-    Returns 503 if iTerm2 isn't connected, 404 if no claude session
-    is tracked for this worktree, and 404 (with the stale row pruned)
-    if the tracked window no longer exists in iTerm2.
+    Returns 503 if the active terminal isn't reachable, 404 if no
+    claude session is tracked for this worktree, and 404 (with the
+    stale row pruned) if the tracked window no longer exists.
     """
-    iterm = getattr(request.app.state, "iterm", None)
-    if iterm is None or iterm.connection is None:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "iTerm2 not connected. Check Preferences → Magic → Enable Python API.",
-        )
-
-    row = await asyncio.to_thread(
-        get_claude_window_and_session_sync, repo, name
-    )
+    row = await asyncio.to_thread(get_claude_window_and_session_sync, repo, name)
     if row is None:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             f"no tracked Claude session for {repo}/{name}",
         )
 
-    window_id, session_id = row
-    try:
-        ok = await focus_iterm_window(iterm.connection, window_id, session_id)
-    except Exception as e:
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, f"iTerm2 focus failed: {e}"
-        ) from e
+    terminal_kind, window_id, session_id = row
+    ok = await terminal.focus_window(request, terminal_kind, window_id, session_id)
 
     if not ok:
-        # Window is gone — the user closed it manually, or iTerm2
-        # restarted. Prune the stale row so the claude ● pill drops
-        # on the next worktrees-poll.
+        # Window is gone — the user closed it manually, or the
+        # terminal app restarted. Prune the stale row so the claude ●
+        # pill drops on the next worktrees-poll.
         await asyncio.to_thread(delete_iterm_sessions_sync, repo, name)
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
-            "tracked iTerm2 window is gone; session row pruned. "
-            "Click iTerm2 to spawn a fresh window.",
+            f"tracked {terminal.display_name(terminal_kind)} window is gone; "
+            "session row pruned. Click Open to spawn a fresh window.",
         )
 
     return FocusItermResponse(focused=True)
@@ -1094,14 +1077,14 @@ async def focus_iterm(repo: str, name: str, request: Request) -> FocusItermRespo
 
 @router.post("/worktree/{repo}/{name}/spawn-iterm", response_model=SpawnItermResponse)
 async def spawn_iterm(repo: str, name: str, request: Request) -> SpawnItermResponse:
-    iterm = getattr(request.app.state, "iterm", None)
-    if iterm is None or iterm.connection is None:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "iTerm2 not connected. Check Preferences → Magic → Enable Python API "
-            "and approve the first-connection auth dialog, then wait a few seconds.",
-        )
+    """Open a fresh 2-tab terminal window (Claude + shell) at the
+    worktree path, and persist a ``terminal_session`` row so the
+    Focus button can later bring this window back.
 
+    Selects the terminal per ``config.terminal.kind``. The URL name
+    stays ``spawn-iterm`` for back-compat with already-deployed
+    frontends; behavior is now terminal-agnostic.
+    """
     row = await asyncio.to_thread(svc.get_worktree_sync, repo, name)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"worktree not found: {repo}/{name}")
@@ -1113,28 +1096,37 @@ async def spawn_iterm(repo: str, name: str, request: Request) -> SpawnItermRespo
             f"worktree path missing on disk: {worktree_path}",
         )
 
-    frame = load_config().iterm2.default_window
-
-    # Capture an mtime floor BEFORE we send `claude\n` to iTerm2 so the
-    # discovery poll only matches the new jsonl, not any leftover from a
-    # prior Claude session in the same cwd.
+    # Capture an mtime floor BEFORE we launch `claude` so the
+    # discovery poll only matches the new jsonl, not any leftover from
+    # a prior Claude session in the same cwd.
     mtime_floor = time.time()
 
-    try:
-        result: SpawnResult = await spawn_two_tab_window(iterm.connection, worktree_path, frame)
-    except Exception as e:
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, f"iTerm2 spawn failed: {e}"
-        ) from e
+    result = await terminal.spawn_two_tab_window(request, worktree_path)
 
-    # Persist the iterm_session row right now with no UUID — the
+    # Adapt the adapter's GenericSpawnResult to the SpawnResult shape
+    # the persistence helper expects. (Same field names; the alias is
+    # just for type-checker clarity.)
+    spawn = SimpleNamespace(
+        window_id=result.window_id,
+        claude_session_id=result.claude_session_id,
+        shell_session_id=result.shell_session_id,
+    )
+
+    # Persist the terminal_session row right now with no UUID — the
     # has_claude_session badge on the hub depends on this row existing,
     # and a fire-and-forget background task fills the UUID in later
     # once Claude has written its jsonl. That way the HTTP response
-    # returns the instant the iTerm2 window is up, instead of blocking
-    # the user-facing button for the full discovery timeout (up to
-    # ~30s) when they close the window before Claude finished starting.
-    await asyncio.to_thread(upsert_iterm_sessions_sync, repo, name, result, None)
+    # returns the instant the window is up, instead of blocking the
+    # user-facing button for the full discovery timeout (up to ~30s)
+    # when they close the window before Claude finished starting.
+    await asyncio.to_thread(
+        upsert_iterm_sessions_sync,
+        repo,
+        name,
+        spawn,
+        None,
+        result.terminal_kind,
+    )
 
     _spawn_post_discovery_task(
         repo=repo,
@@ -1152,8 +1144,8 @@ async def spawn_iterm(repo: str, name: str, request: Request) -> SpawnItermRespo
         claude_session_id=result.claude_session_id,
         shell_session_id=result.shell_session_id,
         # These are populated by the background task — clients that
-        # care can read the iterm_session row a moment later. Inline
-        # response fields stay for back-compat.
+        # care can read the terminal_session row a moment later.
+        # Inline response fields stay for back-compat.
         claude_session_uuid=None,
         sidecar_path=None,
     )
@@ -1274,18 +1266,19 @@ class SendResponse(BaseModel):
 async def _spawn_with_prompt(
     request: Request, repo: str, name: str, initial_prompt: str
 ) -> SendResponse:
-    """Spawn a fresh, one-tab iTerm2 window in the worktree path with
-    ``claude '<initial_prompt>'`` as the startup command. The prompt is
-    consumed by Claude at startup (positional arg), so there's no race
-    against a running TUI and no send-gate to clear.
+    """Spawn a fresh, one-tab terminal window in the worktree path
+    with ``claude '<initial_prompt>'`` as the startup command. The
+    prompt is consumed by Claude at startup (positional arg), so
+    there's no race against a running TUI and no send-gate to clear.
 
     Send-driven spawns are intentionally untracked — only the explicit
-    ``spawn-iterm`` flow writes to ``iterm_session``, keeping the
-    ``has_claude_session`` badge meaningful ("user opened iTerm2 here")
-    rather than flickering on every skill click.
+    ``spawn-iterm`` flow writes to ``terminal_session``, keeping the
+    ``has_claude_session`` badge meaningful ("user opened the terminal
+    here") rather than flickering on every skill click.
+
+    Terminal kind is selected per ``config.terminal.kind`` via the
+    adapter package; this function stays terminal-agnostic.
     """
-    config = load_config()
-    iterm = request.app.state.iterm  # caller already checked iterm.connection
     row = await asyncio.to_thread(svc.get_worktree_sync, repo, name)
     if row is None:
         raise HTTPException(
@@ -1299,31 +1292,13 @@ async def _spawn_with_prompt(
             f"worktree path missing on disk: {worktree_path}",
         )
 
-    frame = config.iterm2.default_window
-    try:
-        await spawn_global_claude_window(
-            iterm.connection,
-            worktree_path,
-            frame,
-            initial_prompt=initial_prompt,
-        )
-    except Exception as e:
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, f"iTerm2 spawn failed: {e}"
-        ) from e
-
+    await terminal.spawn_one_tab_claude(request, worktree_path, initial_prompt)
     return SendResponse(sent=True)
 
 
 async def _send_to_worktree_claude(
     request: Request, repo: str, name: str, text: str
 ) -> SendResponse:
-    iterm = getattr(request.app.state, "iterm", None)
-    if iterm is None or iterm.connection is None:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "iTerm2 not connected. Check Preferences → Magic → Enable Python API.",
-        )
     return await _spawn_with_prompt(request, repo, name, text)
 
 

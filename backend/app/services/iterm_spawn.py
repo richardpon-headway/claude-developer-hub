@@ -179,19 +179,21 @@ async def spawn_global_claude_window(
 
 def get_claude_window_and_session_sync(
     repo: str, worktree_name: str
-) -> tuple[str, str] | None:
-    """Return ``(iterm_window_id, iterm_session_id)`` for the claude
-    tab of a worktree, or ``None`` if no row exists. Used by the
-    focus-iterm endpoint to bring an existing window to the front
-    instead of spawning a new one."""
+) -> tuple[str, str, str] | None:
+    """Return ``(terminal_kind, window_id, session_id)`` for the
+    claude tab of a worktree, or ``None`` if no row exists. Used by
+    the focus-iterm endpoint to bring an existing window to the front
+    instead of spawning a new one. ``terminal_kind`` tells the caller
+    which adapter to dispatch to — the row may predate a
+    ``terminal.kind`` toggle in the user's config."""
     conn = open_db()
     try:
         row = conn.execute(
-            "SELECT iterm_window_id, iterm_session_id FROM iterm_session "
+            "SELECT terminal_kind, window_id, session_id FROM terminal_session "
             "WHERE repo = ? AND worktree_name = ? AND role = 'claude'",
             (repo, worktree_name),
         ).fetchone()
-        return (row[0], row[1]) if row else None
+        return (row[0], row[1], row[2]) if row else None
     finally:
         conn.close()
 
@@ -255,14 +257,14 @@ async def focus_iterm_window(
 
 
 def delete_iterm_sessions_sync(repo: str, worktree_name: str) -> int:
-    """Drop both the claude- and shell-role iterm_session rows for a
+    """Drop both the claude- and shell-role terminal_session rows for a
     worktree. Used to evict stale entries — e.g. when the iTerm2 API
     reports the tracked session_id doesn't exist anymore because the
     user closed the window manually. Returns the row count removed."""
     conn = open_db()
     try:
         cur = conn.execute(
-            "DELETE FROM iterm_session WHERE repo = ? AND worktree_name = ?",
+            "DELETE FROM terminal_session WHERE repo = ? AND worktree_name = ?",
             (repo, worktree_name),
         )
         conn.commit()
@@ -277,7 +279,7 @@ def set_iterm_session_uuid_sync(
     window_id: str,
     claude_session_uuid: str,
 ) -> int:
-    """Set ``claude_session_uuid`` on the claude-role ``iterm_session``
+    """Set ``claude_session_uuid`` on the claude-role terminal_session
     row, but only if it still points at ``window_id``. Used by the
     fire-and-forget post-spawn discovery task to avoid clobbering a row
     that a later spawn already replaced.
@@ -287,9 +289,9 @@ def set_iterm_session_uuid_sync(
     conn = open_db()
     try:
         cur = conn.execute(
-            "UPDATE iterm_session SET claude_session_uuid = ? "
+            "UPDATE terminal_session SET claude_session_uuid = ? "
             "WHERE repo = ? AND worktree_name = ? "
-            "AND role = 'claude' AND iterm_window_id = ?",
+            "AND role = 'claude' AND window_id = ?",
             (claude_session_uuid, repo, worktree_name, window_id),
         )
         conn.commit()
@@ -303,34 +305,38 @@ def upsert_iterm_sessions_sync(
     worktree_name: str,
     result: SpawnResult,
     claude_session_uuid: str | None = None,
+    terminal_kind: str = "iterm2",
 ) -> None:
-    """Replace any prior iterm_session rows for this worktree with the
-    pair from a fresh spawn. INSERT-OR-REPLACE keyed on
+    """Replace any prior terminal_session rows for this worktree with
+    the pair from a fresh spawn. INSERT-OR-REPLACE keyed on
     (repo, worktree_name, role) guarantees we don't accumulate stale
     rows if the user spawns a window twice.
 
     ``claude_session_uuid`` is the Claude Code session UUID discovered
     by polling ``~/.claude/projects/<encoded-cwd>/*.jsonl`` after spawn
     (Slice H). It applies only to the ``claude`` role row; the shell
-    row's ``claude_session_uuid`` is always NULL.
+    row's ``claude_session_uuid`` is always NULL. ``terminal_kind``
+    tags which adapter spawned the window — the focus endpoint reads
+    it back to dispatch correctly.
     """
     spawned_at = now_iso()
     conn = open_db()
     try:
         conn.executemany(
-            "INSERT INTO iterm_session "
-            "(repo, worktree_name, role, iterm_window_id, iterm_session_id, "
+            "INSERT INTO terminal_session "
+            "(repo, worktree_name, role, terminal_kind, window_id, session_id, "
             " claude_session_uuid, spawned_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(repo, worktree_name, role) DO UPDATE SET "
-            "  iterm_window_id = excluded.iterm_window_id, "
-            "  iterm_session_id = excluded.iterm_session_id, "
+            "  terminal_kind = excluded.terminal_kind, "
+            "  window_id = excluded.window_id, "
+            "  session_id = excluded.session_id, "
             "  claude_session_uuid = excluded.claude_session_uuid, "
             "  spawned_at = excluded.spawned_at",
             [
-                (repo, worktree_name, "claude", result.window_id,
+                (repo, worktree_name, "claude", terminal_kind, result.window_id,
                  result.claude_session_id, claude_session_uuid, spawned_at),
-                (repo, worktree_name, "shell", result.window_id,
+                (repo, worktree_name, "shell", terminal_kind, result.window_id,
                  result.shell_session_id, None, spawned_at),
             ],
         )

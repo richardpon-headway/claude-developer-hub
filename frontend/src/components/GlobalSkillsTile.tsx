@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { ApiError } from "../api/client";
 import { getGlobalSkills, runGlobalFreeform, runGlobalSkill } from "../api/config";
+import { useTerminalInfo } from "../api/terminal";
 import { Button } from "./Button";
 import { Tooltip } from "./Tooltip";
 
@@ -12,11 +13,13 @@ function errorMessage(err: unknown): string {
   return String(err);
 }
 
-// TODO(inline-output): the v1 button is one-shot — it spawns iTerm2 and
-// forgets. A future iteration could tail the Claude session jsonl
-// (~/.claude/projects/<encoded-cwd>/<session-uuid>.jsonl) and surface
-// the assistant's reply inline. Reuses the sidecar/discovery plumbing.
+// TODO(inline-output): the v1 button is one-shot — it spawns a
+// terminal window and forgets. A future iteration could tail the
+// Claude session jsonl (~/.claude/projects/<encoded-cwd>/<session-uuid>.jsonl)
+// and surface the assistant's reply inline. Reuses the sidecar/discovery
+// plumbing.
 export function GlobalSkillsTile() {
+  const terminal = useTerminalInfo();
   const skillsQuery = useQuery({
     queryKey: ["config", "skills"],
     queryFn: getGlobalSkills,
@@ -71,8 +74,9 @@ export function GlobalSkillsTile() {
 
       {/* Free-form prompt input — same plumbing as the buttons above
           but accepts arbitrary user-typed text instead of a named
-          skill. Opens iTerm2 at config.development_root with
-          `claude '<input>'` as the initial message. */}
+          skill. Opens the configured terminal at
+          config.development_root with `claude '<input>'` as the
+          initial message. */}
       <div className="mt-4 border-t border-zinc-800 pt-3">
         <label
           htmlFor="global-freeform-prompt"
@@ -100,7 +104,7 @@ export function GlobalSkillsTile() {
             placeholder="What should we work on?  (⌘↵ to send)"
             className="min-w-0 flex-1 resize-y rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
           />
-          <Tooltip text="Opens iTerm2 in your development_root with `claude '<your input>'` as the first message. ⌘↵ to submit from the textarea.">
+          <Tooltip text={`Opens ${terminal.display_name} in your development_root with \`claude '<your input>'\` as the first message. ⌘↵ to submit from the textarea.`}>
             <Button
               variant="secondary"
               onClick={onFreeformSubmit}

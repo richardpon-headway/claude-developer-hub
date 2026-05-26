@@ -23,13 +23,16 @@ def test_default_config_is_generic() -> None:
     assert c.workspace_skills == []
     assert c.server.port == 47823
     assert c.server.host == "127.0.0.1"
-    assert c.iterm2.default_window.width == 1024
-    assert c.iterm2.default_window.height == 768
+    assert c.terminal.kind == "iterm2"
+    assert c.terminal.iterm2.default_window.width == 1024
+    assert c.terminal.iterm2.default_window.height == 768
+    assert c.terminal.ghostty.default_window.width == 120
+    assert c.terminal.ghostty.default_window.height == 40
     assert c.token_monitor.api_url == "http://localhost:47821"
     # send_gate_patterns is deprecated; default is an empty list. The
     # field is kept on the schema only so existing user configs with
     # the legacy block don't error on load.
-    assert c.iterm2.send_gate_patterns == []
+    assert c.terminal.iterm2.send_gate_patterns == []
 
 
 def test_global_skill_validates() -> None:
@@ -175,7 +178,7 @@ def test_polling_config_rejects_non_positive(field: str, bad: float) -> None:
 def test_legacy_send_gate_patterns_load_without_error(
     _isolate_config: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Beta-tester configs written before PR-#1 still have a populated
+    """Beta-tester configs written before PR #108 still have a populated
     ``iterm2.send_gate_patterns`` block. The loader must accept the
     field (it stays on the schema as a soft shim) and emit a one-time
     deprecation log so the user knows the value is now ignored."""
@@ -201,7 +204,78 @@ def test_legacy_send_gate_patterns_load_without_error(
     with caplog.at_level("WARNING", logger="app.config.loader"):
         c = load_config()
 
-    assert c.iterm2.default_window.width == 1200
+    # Soft shim should have lifted the top-level iterm2 block under
+    # terminal.iterm2 *and* logged a deprecation.
+    assert c.terminal.kind == "iterm2"
+    assert c.terminal.iterm2.default_window.width == 1200
     assert any(
         "send_gate_patterns is deprecated" in rec.message for rec in caplog.records
     )
+    assert any(
+        "top-level `iterm2:` block is deprecated" in rec.message
+        for rec in caplog.records
+    )
+
+
+def test_legacy_iterm2_block_promoted_to_terminal(
+    _isolate_config: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A pre-PR-#109 config has a top-level ``iterm2:`` block and no
+    ``terminal:`` block. The loader must lift it under
+    ``terminal.iterm2`` so downstream code can read from a single
+    location, with ``terminal.kind`` defaulting to ``iterm2``."""
+    import yaml
+
+    from app.config import loader as loader_module
+
+    _isolate_config.write_text(
+        yaml.safe_dump(
+            {
+                "repos": [],
+                "iterm2": {
+                    "default_window": {"width": 1440, "height": 900, "x": 100, "y": 50},
+                },
+            }
+        )
+    )
+
+    loader_module._DEPRECATED_KEYS_WARNED.clear()
+
+    with caplog.at_level("WARNING", logger="app.config.loader"):
+        c = load_config()
+
+    assert c.terminal.kind == "iterm2"
+    assert c.terminal.iterm2.default_window.width == 1440
+    assert c.terminal.iterm2.default_window.height == 900
+    assert c.terminal.iterm2.default_window.x == 100
+    assert c.terminal.iterm2.default_window.y == 50
+    # And the deprecation log fired.
+    assert any(
+        "top-level `iterm2:` block is deprecated" in rec.message
+        for rec in caplog.records
+    )
+
+
+def test_new_terminal_block_loads_ghostty(_isolate_config: Path) -> None:
+    """The new canonical shape: a ``terminal:`` block with
+    ``kind: ghostty`` and a ghostty sub-block."""
+    import yaml
+
+    _isolate_config.write_text(
+        yaml.safe_dump(
+            {
+                "repos": [],
+                "terminal": {
+                    "kind": "ghostty",
+                    "ghostty": {
+                        "default_window": {"width": 160, "height": 50},
+                    },
+                },
+            }
+        )
+    )
+
+    c = load_config()
+    assert c.terminal.kind == "ghostty"
+    assert c.terminal.ghostty.default_window.width == 160
+    assert c.terminal.ghostty.default_window.height == 50

@@ -234,10 +234,11 @@ def test_spawn_endpoint_writes_sidecar(
         )
         return result
 
+    # Patch the spawn at the iterm_spawn module level. The terminal
+    # adapter does a re-import on every call, so this rebinding flows
+    # through cleanly without needing a second patch on the route
+    # module.
     monkeypatch.setattr(iterm_spawn, "spawn_two_tab_window", fake_spawn)
-    # Also patch the import site in routes/worktrees.py.
-    import app.routes.worktrees as wt_route
-    monkeypatch.setattr(wt_route, "spawn_two_tab_window", fake_spawn)
 
     # Quick timeout so the test polls only briefly when waiting for the
     # background task; the fake jsonl is already on disk at this point.
@@ -288,7 +289,7 @@ def _wait_for_uuid(db_path: Path, repo: str, name: str, timeout: float) -> str:
         conn = sqlite3.connect(db_path)
         try:
             row = conn.execute(
-                "SELECT claude_session_uuid FROM iterm_session "
+                "SELECT claude_session_uuid FROM terminal_session "
                 "WHERE repo=? AND worktree_name=? AND role='claude'",
                 (repo, name),
             ).fetchone()

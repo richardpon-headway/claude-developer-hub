@@ -65,22 +65,24 @@ def seed_iterm_session(
     window_id: str = "W1",
     session_id: str = "S-claude",
     role: str = "claude",
+    terminal_kind: str = "iterm2",
     claude_session_uuid: str | None = None,
     spawned_at: str = "2026-01-01T00:00:00Z",
 ) -> None:
-    """Insert one iterm_session row. Caller must seed a matching
+    """Insert one terminal_session row. Caller must seed a matching
     worktree row first (FK)."""
     conn = sqlite3.connect(db_path)
     try:
         conn.execute(
-            "INSERT INTO iterm_session "
-            "(repo, worktree_name, role, iterm_window_id, iterm_session_id, "
+            "INSERT INTO terminal_session "
+            "(repo, worktree_name, role, terminal_kind, window_id, session_id, "
             " claude_session_uuid, spawned_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 repo,
                 worktree_name,
                 role,
+                terminal_kind,
                 window_id,
                 session_id,
                 claude_session_uuid,

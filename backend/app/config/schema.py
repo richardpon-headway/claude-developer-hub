@@ -115,6 +115,41 @@ class ITermConfig(BaseModel):
     send_gate_patterns: list[str] = Field(default_factory=list)
 
 
+class GhosttyWindow(BaseModel):
+    """Initial window size for Ghostty spawns.
+
+    Ghostty's ``--window-width`` / ``--window-height`` are measured in
+    terminal grid cells, not pixels. There is no x/y positioning hook —
+    Ghostty doesn't accept window coordinates on macOS, so spawns land
+    wherever the OS chooses.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    width: int = Field(120, gt=0, le=999)
+    height: int = Field(40, gt=0, le=999)
+
+
+class GhosttyConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    default_window: GhosttyWindow = Field(default_factory=GhosttyWindow)
+
+
+class TerminalConfig(BaseModel):
+    """Which terminal CDH drives, plus terminal-specific tuning.
+
+    The ``kind`` field selects the adapter at startup. Each sub-block
+    is read only when its kind is active; the inactive block stays on
+    the model so the user can pre-configure both halves without losing
+    values when toggling between terminals.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["iterm2", "ghostty"] = "iterm2"
+    iterm2: ITermConfig = Field(default_factory=ITermConfig)
+    ghostty: GhosttyConfig = Field(default_factory=GhosttyConfig)
+
+
 class TokenMonitorConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -227,7 +262,7 @@ class CDHConfig(BaseModel):
     jira: JiraConfig = Field(default_factory=JiraConfig)
     global_skills: list[GlobalSkill] = Field(default_factory=list)
     workspace_skills: list[WorkspaceSkill] = Field(default_factory=list)
-    iterm2: ITermConfig = Field(default_factory=ITermConfig)
+    terminal: TerminalConfig = Field(default_factory=TerminalConfig)
     token_monitor: TokenMonitorConfig = Field(default_factory=TokenMonitorConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     inbox: InboxConfig = Field(default_factory=InboxConfig)

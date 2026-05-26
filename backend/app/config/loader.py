@@ -43,6 +43,7 @@ def load_config(path: Path | None = None) -> CDHConfig:
     with resolved.open("r", encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
     _warn_deprecated_keys(raw)
+    _shim_legacy_iterm2_block(raw)
     return CDHConfig.model_validate(raw)
 
 
@@ -52,7 +53,10 @@ def _warn_deprecated_keys(raw: dict) -> None:
     Kept here (rather than as Pydantic validators) so the message fires
     once per process instead of on every ``load_config`` call.
     """
-    iterm2 = raw.get("iterm2") or {}
+    # The legacy block lives at top-level ``iterm2:`` *or* under the new
+    # canonical ``terminal.iterm2`` location once the shim has run. We
+    # check both so the deprecation fires regardless of layout.
+    iterm2 = raw.get("iterm2") or (raw.get("terminal") or {}).get("iterm2") or {}
     key = "iterm2.send_gate_patterns"
     if iterm2.get("send_gate_patterns") and key not in _DEPRECATED_KEYS_WARNED:
         _DEPRECATED_KEYS_WARNED.add(key)
@@ -62,6 +66,50 @@ def _warn_deprecated_keys(raw: dict) -> None:
             "window with the prompt as Claude's startup arg. You can delete "
             "this block from your config."
         )
+
+
+def _shim_legacy_iterm2_block(raw: dict) -> None:
+    """Lift a pre-PR-#109 top-level ``iterm2:`` block under the new
+    canonical ``terminal.iterm2:`` location, in place.
+
+    Pre-PR-#109 configs looked like::
+
+        iterm2:
+          default_window: {...}
+
+    Post-PR-#109, the canonical shape is::
+
+        terminal:
+          kind: iterm2
+          iterm2:
+            default_window: {...}
+
+    If a config has only the legacy top-level block, this function
+    moves it under ``terminal.iterm2`` and sets ``terminal.kind`` to
+    ``iterm2``, then drops the top-level key so the strict schema (no
+    extras) still validates. A one-time deprecation warning is logged.
+
+    If the user has *both* a top-level ``iterm2:`` and a ``terminal:``
+    block, the explicit ``terminal:`` wins and the top-level key is
+    silently dropped after warning — assume the user is mid-migration.
+    """
+    legacy = raw.get("iterm2")
+    if legacy is None:
+        return
+
+    key = "top_level_iterm2"
+    if key not in _DEPRECATED_KEYS_WARNED:
+        _DEPRECATED_KEYS_WARNED.add(key)
+        log.warning(
+            "config: top-level `iterm2:` block is deprecated; move its "
+            "contents under `terminal.iterm2:` and set `terminal.kind: "
+            "iterm2`. The block is accepted on load for one release."
+        )
+
+    terminal = raw.setdefault("terminal", {})
+    terminal.setdefault("kind", "iterm2")
+    terminal.setdefault("iterm2", legacy)
+    del raw["iterm2"]
 
 
 def save_config(config: CDHConfig, path: Path | None = None) -> None:

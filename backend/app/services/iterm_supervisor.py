@@ -91,12 +91,16 @@ def _write_persisted_started_at_sync(value: str) -> None:
 
 
 def _mark_iterm_sessions_stale_sync() -> int:
-    """All cached session/window ids no longer point at anything after an
-    iTerm2 restart. Drop the rows; spawning a new window will reinsert.
-    Returns the number of rows removed."""
+    """All cached iTerm2 session/window ids no longer point at anything
+    after an iTerm2 restart. Drop only the iTerm2-flavored rows so a
+    parallel Ghostty session (if any) survives. Returns the number of
+    rows removed.
+    """
     conn = open_db()
     try:
-        cur = conn.execute("DELETE FROM iterm_session")
+        cur = conn.execute(
+            "DELETE FROM terminal_session WHERE terminal_kind = 'iterm2'"
+        )
         conn.commit()
         return cur.rowcount
     finally:

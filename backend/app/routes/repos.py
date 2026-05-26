@@ -33,7 +33,7 @@ from pydantic import BaseModel, Field
 
 from app.config.loader import load_config, save_config
 from app.config.schema import RepoConfig
-from app.services.iterm_spawn import spawn_two_tab_window
+from app.services import terminal
 
 log = logging.getLogger(__name__)
 
@@ -434,11 +434,15 @@ class SpawnRepoItermResponse(BaseModel):
 
 @router.post("/{name}/spawn-iterm", response_model=SpawnRepoItermResponse)
 async def spawn_repo_iterm(name: str, request: Request) -> SpawnRepoItermResponse:
-    """Open an iTerm2 window at the repo's root path with two tabs
+    """Open a terminal window at the repo's root path with two tabs
     (Claude + shell), mirroring the worktree spawn. Repo-level spawns
-    aren't tracked in ``iterm_session`` (that table is keyed on
+    aren't tracked in ``terminal_session`` (that table is keyed on
     ``(repo, worktree_name)``), so this endpoint returns the
-    iTerm2-assigned ids without persistence.
+    terminal-assigned ids without persistence.
+
+    URL name stays ``spawn-iterm`` for back-compat with already-deployed
+    frontends; behavior is terminal-agnostic and dispatches per
+    ``config.terminal.kind``.
     """
     config = load_config()
     repo = next((r for r in config.repos if r.name == name), None)
@@ -454,22 +458,7 @@ async def spawn_repo_iterm(name: str, request: Request) -> SpawnRepoItermRespons
             f"repo path missing on disk: {repo_path}",
         )
 
-    iterm = getattr(request.app.state, "iterm", None)
-    if iterm is None or iterm.connection is None:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "iTerm2 not connected. Check Preferences → Magic → Enable Python API "
-            "and approve the first-connection auth dialog, then wait a few seconds.",
-        )
-
-    frame = config.iterm2.default_window
-    try:
-        result = await spawn_two_tab_window(iterm.connection, repo_path, frame)
-    except Exception as e:
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, f"iTerm2 spawn failed: {e}"
-        ) from e
-
+    result = await terminal.spawn_two_tab_window(request, repo_path)
     return SpawnRepoItermResponse(
         window_id=result.window_id,
         claude_session_id=result.claude_session_id,

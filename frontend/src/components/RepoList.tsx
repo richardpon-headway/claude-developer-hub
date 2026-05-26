@@ -2,6 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 
 import { ApiError } from "../api/client";
 import { spawnRepoIterm } from "../api/repos";
+import { useTerminalInfo } from "../api/terminal";
 import type { RepoConfig } from "../api/types";
 import { Tooltip } from "./Tooltip";
 
@@ -46,6 +47,7 @@ export function RepoList({ repos }: Props) {
 }
 
 function RepoItermButton({ name }: { name: string }) {
+  const terminal = useTerminalInfo();
   const mutation = useMutation({
     mutationFn: () => spawnRepoIterm(name),
   });
@@ -54,7 +56,7 @@ function RepoItermButton({ name }: { name: string }) {
     ? mutation.error instanceof ApiError
       ? mutation.error.detail
       : String(mutation.error)
-    : "Open this repo's root in a new iTerm2 window (Claude + shell tabs)";
+    : `Open this repo's root in a new ${terminal.display_name} window (Claude + shell tabs)`;
 
   return (
     <Tooltip text={tooltip}>
@@ -64,7 +66,7 @@ function RepoItermButton({ name }: { name: string }) {
         disabled={mutation.isPending}
         className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {mutation.isPending ? "Opening…" : "iTerm2"}
+        {mutation.isPending ? "Opening…" : terminal.display_name}
       </button>
     </Tooltip>
   );

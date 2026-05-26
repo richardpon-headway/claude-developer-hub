@@ -7,11 +7,28 @@ server-side.
 from __future__ import annotations
 
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 from app.config.loader import load_config
 from app.config.schema import DiffConfig, GlobalSkill, JiraConfig, WorkspaceSkill
+from app.services import terminal
 
 router = APIRouter(prefix="/api/config", tags=["config"])
+
+
+class TerminalInfo(BaseModel):
+    """User-visible terminal info — kind + human-readable display
+    name. Frontend uses ``display_name`` to label "Open in <X>"
+    buttons without hardcoding a terminal."""
+
+    kind: str
+    display_name: str
+
+
+@router.get("/terminal", response_model=TerminalInfo)
+async def get_terminal_info() -> TerminalInfo:
+    kind = terminal.active_kind()
+    return TerminalInfo(kind=kind, display_name=terminal.display_name(kind))
 
 
 @router.get("/jira", response_model=JiraConfig)

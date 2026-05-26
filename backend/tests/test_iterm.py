@@ -102,7 +102,7 @@ def test_upsert_iterm_sessions_replaces_prior_rows(_isolate: dict[str, Path]) ->
     try:
         rows = dict(
             conn.execute(
-                "SELECT role, iterm_session_id FROM iterm_session WHERE repo=? AND worktree_name=?",
+                "SELECT role, session_id FROM terminal_session WHERE repo=? AND worktree_name=?",
                 (repo, name),
             )
         )
@@ -140,7 +140,7 @@ def test_set_iterm_session_uuid_is_window_id_scoped(
     conn = sqlite3.connect(_isolate["db_path"])
     try:
         uuid = conn.execute(
-            "SELECT claude_session_uuid FROM iterm_session "
+            "SELECT claude_session_uuid FROM terminal_session "
             "WHERE repo=? AND worktree_name=? AND role='claude'",
             (repo, name),
         ).fetchone()[0]
@@ -158,7 +158,7 @@ def test_set_iterm_session_uuid_is_window_id_scoped(
     conn = sqlite3.connect(_isolate["db_path"])
     try:
         uuid = conn.execute(
-            "SELECT claude_session_uuid FROM iterm_session "
+            "SELECT claude_session_uuid FROM terminal_session "
             "WHERE repo=? AND worktree_name=? AND role='claude'",
             (repo, name),
         ).fetchone()[0]
@@ -193,7 +193,7 @@ def test_restart_invalidates_sessions(_isolate: dict[str, Path]) -> None:
     # Sessions should have been wiped + persisted value updated
     conn = sqlite3.connect(_isolate["db_path"])
     try:
-        n = conn.execute("SELECT COUNT(*) FROM iterm_session").fetchone()[0]
+        n = conn.execute("SELECT COUNT(*) FROM terminal_session").fetchone()[0]
         persisted = conn.execute(
             "SELECT value FROM iterm_lifecycle WHERE key='iterm2_started_at'"
         ).fetchone()[0]
@@ -225,7 +225,7 @@ def test_first_connect_records_started_at_without_invalidating(
 
     conn = sqlite3.connect(_isolate["db_path"])
     try:
-        n = conn.execute("SELECT COUNT(*) FROM iterm_session").fetchone()[0]
+        n = conn.execute("SELECT COUNT(*) FROM terminal_session").fetchone()[0]
         persisted = conn.execute(
             "SELECT value FROM iterm_lifecycle WHERE key='iterm2_started_at'"
         ).fetchone()[0]
@@ -315,12 +315,12 @@ def test_spawn_endpoint_happy_path(
     assert body["claude_session_uuid"] is None
     assert body["sidecar_path"] is None
 
-    # iterm_session rows persisted
+    # terminal_session rows persisted
     conn = sqlite3.connect(_isolate["db_path"])
     try:
         rows = dict(
             conn.execute(
-                "SELECT role, iterm_session_id FROM iterm_session "
+                "SELECT role, session_id FROM terminal_session "
                 "WHERE repo=? AND worktree_name=?",
                 (repo, name),
             )
@@ -449,7 +449,7 @@ def test_focus_endpoint_404_and_prunes_when_window_missing(
     conn = sqlite3.connect(_isolate["db_path"])
     try:
         n = conn.execute(
-            "SELECT COUNT(*) FROM iterm_session WHERE repo=? AND worktree_name=?",
+            "SELECT COUNT(*) FROM terminal_session WHERE repo=? AND worktree_name=?",
             ("r", "wt"),
         ).fetchone()[0]
     finally:

@@ -83,7 +83,7 @@ def test_happy_path_spawns_in_home(
 
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body == {"window_id": "GW42", "claude_session_id": "GS42"}
+    assert body == {"spawned": True}
 
     # The shell command must cd to $HOME and launch Claude with the
     # slash command as initial prompt.
@@ -146,11 +146,11 @@ def test_custom_cwd_must_exist(
     assert "does not exist" in r.json()["detail"]
 
 
-def test_no_iterm_session_row_written(
+def test_no_terminal_session_row_written(
     monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
 ) -> None:
-    """Global spawns must NOT touch the iterm_session table — those rows
-    are FK-bound to a worktree, which a global spawn doesn't have."""
+    """Global spawns must NOT touch the terminal_session table — those
+    rows are FK-bound to a worktree, which a global spawn doesn't have."""
     write_minimal_config(
         _isolate["config_path"],
         _isolate["dev_root"],
@@ -168,7 +168,7 @@ def test_no_iterm_session_row_written(
 
     conn = db.open_db(_isolate["db_path"])
     try:
-        count = conn.execute("SELECT COUNT(*) FROM iterm_session").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM terminal_session").fetchone()[0]
     finally:
         conn.close()
     assert count == 0
@@ -278,9 +278,7 @@ def test_freeform_happy_path_spawns_iterm_with_user_prompt(
         )
 
     assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["window_id"] == "GW9"
-    assert body["claude_session_id"] == "GS9"
+    assert r.json() == {"spawned": True}
 
     sent = fake_window.current_tab.current_session.async_send_text.await_args.args[0]
     # The keystroke shape: cd into development_root, then `claude '<prompt>'`.

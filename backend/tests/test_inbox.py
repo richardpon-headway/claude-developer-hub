@@ -945,17 +945,17 @@ def test_configure_and_pull_down_spawns_iterm_returns_session_id(
     dev_root = _isolate["dev_root"]
     write_minimal_config(_isolate["config_path"], dev_root)
 
-    from app.routes import inbox as inbox_route
     from app.routes import repos as repos_route
+    from app.services import terminal as terminal_mod
 
     spawn_args_seen: dict[str, Any] = {}
 
-    async def fake_spawn(connection, cwd, frame, prompt):  # type: ignore[no-untyped-def]
+    async def fake_spawn(request, cwd, initial_prompt):  # type: ignore[no-untyped-def]
         spawn_args_seen["cwd"] = cwd
-        spawn_args_seen["prompt"] = prompt
-        return SimpleNamespace(window_id="W1", claude_session_id="S1")
+        spawn_args_seen["prompt"] = initial_prompt
+        return None
 
-    monkeypatch.setattr(inbox_route, "spawn_global_claude_window", fake_spawn)
+    monkeypatch.setattr(terminal_mod, "spawn_one_tab_claude", fake_spawn)
 
     seed_inbox_row(_isolate["db_path"], pr_repo="acme/myapp", pr_number=42)
 
@@ -996,11 +996,12 @@ def test_onboard_complete_fires_follow_up_pull_down(
 
     from app.routes import inbox as inbox_route
     from app.routes import repos as repos_route
+    from app.services import terminal as terminal_mod
 
     async def fake_spawn(*args: Any, **kwargs: Any) -> Any:
-        return SimpleNamespace(window_id="W1", claude_session_id="S1")
+        return None
 
-    monkeypatch.setattr(inbox_route, "spawn_global_claude_window", fake_spawn)
+    monkeypatch.setattr(terminal_mod, "spawn_one_tab_claude", fake_spawn)
 
     pull_down_call: dict[str, Any] = {}
 
