@@ -61,7 +61,7 @@ function prState(
     labels,
     pr_number: 1,
     url: "https://github.com/o/r/pull/1",
-    title: "t",
+    title: "",
     is_draft: false,
     mergeable: null,
     merge_state_status: null,
@@ -189,7 +189,8 @@ describe("WorkspaceList", () => {
     const titles = screen
       .getAllByRole("link")
       // Workspace title is rendered as a <Link>; in tests Link is
-      // stubbed to <a>. Its text is the worktree name.
+      // stubbed to <a>. Its text is the PR title (from pr_state) or
+      // the worktree name when pr_state is null/empty-title.
       .map((a) => a.textContent ?? "")
       .filter((t) => t.startsWith("PROJ-"));
     expect(titles[0]).toContain("PROJ-200_zzz_approved_with_unaddressed");
@@ -511,11 +512,26 @@ describe("WorkspaceList", () => {
         name: "no-pr-yet",
         pr_number: null,
         pr_repo: null,
-        pr_state: prState("no_pr"),
+        pr_state: null,
       }),
     ]);
     const titleLink = screen.getByRole("link", { name: "no-pr-yet" });
     expect(titleLink).toHaveAttribute("href", "/workspace/$repo/$name");
+  });
+
+  test("worktree card title uses pr_state.title when present, falls back to worktree name when pr_state is null", () => {
+    renderWorkspaces([
+      wt({
+        name: "ugly_branch_name",
+        pr_state: { ...prState("draft"), title: "Nice readable PR title" },
+      }),
+      wt({
+        name: "fresh_branch",
+        pr_state: null,
+      }),
+    ]);
+    expect(screen.getByText("Nice readable PR title")).toBeInTheDocument();
+    expect(screen.getByText("fresh_branch")).toBeInTheDocument();
   });
 
   test("'Details' link appears on every worktree row (renamed from Manage)", () => {
