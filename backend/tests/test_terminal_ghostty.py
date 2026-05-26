@@ -63,6 +63,23 @@ def test_is_available_when_app_missing(
     assert "Ghostty.app not found" in err
 
 
+def _fake_osascript_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make ``shutil.which("osascript")`` return a non-None value so
+    the availability probe progresses past the "osascript not found"
+    gate. Linux CI runners don't have osascript installed; macOS dev
+    machines do."""
+    import shutil
+
+    real_which = shutil.which
+
+    def fake_which(cmd: str, *args: object, **kwargs: object) -> str | None:
+        if cmd == "osascript":
+            return "/usr/bin/osascript"
+        return real_which(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "which", fake_which)
+
+
 def test_is_available_when_version_too_old(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -70,8 +87,7 @@ def test_is_available_when_version_too_old(
     fake_app.mkdir()
     monkeypatch.setattr(ghostty, "GHOSTTY_APP_PATH", fake_app)
     monkeypatch.setattr(ghostty, "_detect_version", lambda: (1, 2, 0))
-    # shutil.which("osascript") will succeed on macOS test hosts; we
-    # don't override it so the path that gates on "too old" actually runs.
+    _fake_osascript_on_path(monkeypatch)
     ok, err = ghostty.is_available()
     assert ok is False
     assert err is not None
@@ -85,6 +101,7 @@ def test_is_available_when_modern(
     fake_app.mkdir()
     monkeypatch.setattr(ghostty, "GHOSTTY_APP_PATH", fake_app)
     monkeypatch.setattr(ghostty, "_detect_version", lambda: (1, 3, 0))
+    _fake_osascript_on_path(monkeypatch)
     ok, err = ghostty.is_available()
     assert ok is True
     assert err is None
@@ -109,6 +126,7 @@ def _force_available(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     fake_app.mkdir()
     monkeypatch.setattr(ghostty, "GHOSTTY_APP_PATH", fake_app)
     monkeypatch.setattr(ghostty, "_detect_version", lambda: (1, 3, 0))
+    _fake_osascript_on_path(monkeypatch)
     ghostty.reset_availability_cache()
 
 
