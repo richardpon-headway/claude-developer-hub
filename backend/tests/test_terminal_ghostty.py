@@ -154,7 +154,7 @@ def test_spawn_one_tab_claude_emits_expected_applescript(
     # Concatenate every -e line into a single script for easier assertions.
     script = "\n".join(arg for arg in args[2:] if arg != "-e")
     assert 'tell application "Ghostty"' in script
-    assert "make new surface configuration" in script
+    assert "new surface configuration" in script
     assert "set initial working directory of cfg" in script
     assert str(cwd) in script
     # The prompt should be POSIX-single-quoted for `claude '<prompt>'`.
