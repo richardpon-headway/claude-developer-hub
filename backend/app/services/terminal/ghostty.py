@@ -127,6 +127,24 @@ def reset_availability_cache() -> None:
     _availability_cache = None
 
 
+def _resolve_claude_cli() -> str:
+    """Return an absolute path to the ``claude`` CLI.
+
+    Ghostty's surface ``command`` is exec'd by ``bash --noprofile
+    --norc``, so the user's interactive PATH (set in ~/.zshrc etc.) is
+    not loaded. A bare ``claude`` invocation hits the minimal PATH
+    inherited from launchd and fails with "claude: not found".
+
+    We resolve here, in the backend's process — the CDH backend was
+    launched from a user shell, so ``shutil.which`` sees the full PATH
+    and finds ``claude`` wherever the user installed it (e.g.
+    ``~/.local/bin``). Falls back to bare ``claude`` so the spawn
+    still attempts a sensible default if resolution fails; the user
+    will see a clear "claude: not found" inside the spawned window.
+    """
+    return shutil.which("claude") or "claude"
+
+
 # --- spawn / focus primitives -----------------------------------------------
 
 
@@ -142,7 +160,7 @@ async def spawn_one_tab_claude(
     _require_available()
 
     quoted_prompt = shell_single_quote(initial_prompt)
-    command = f"claude {quoted_prompt}"
+    command = f"{_resolve_claude_cli()} {quoted_prompt}"
 
     script = [
         'tell application "Ghostty"',
@@ -176,12 +194,13 @@ async def spawn_two_tab_window(
     # emit a final line that returns a stable, parseable string mixing
     # the window id and both tab ids so we can read all three from one
     # osascript invocation.
+    claude_cmd = _resolve_claude_cli()
     script = [
         'tell application "Ghostty"',
         "  activate",
         "  set claudeCfg to new surface configuration",
         f"  set initial working directory of claudeCfg to {quote(str(cwd))}",
-        '  set command of claudeCfg to "claude"',
+        f"  set command of claudeCfg to {quote(claude_cmd)}",
         "  set win to (new window with configuration claudeCfg)",
         "  set claudeTab to item 1 of (tabs of win)",
         "  set shellCfg to new surface configuration",
