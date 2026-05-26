@@ -1,0 +1,24 @@
+Makefile
+  s_cdb55dfdf96cb3::t_f5752c4e140c15 8-11
+README.md
+  s_cdb55dfdf96cb3::t_2808988bf2ba0a 35-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "bed60c53e5d5ec3ebd935c26c1cec5c3051e207b",
+  "prompts": {},
+  "sessions": {
+    "s_cdb55dfdf96cb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2bd0e3b8-fb63-470f-a57a-25f1f1fe991e",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
