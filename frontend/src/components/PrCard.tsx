@@ -184,7 +184,7 @@ function project(data: PrCardData): Common {
       return {
         prRepo,
         prNumber: w.pr_number ?? 0,
-        title: w.name,
+        title: w.pr_state?.title || w.name,
         url,
         authorLogin: w.pr_author_login ?? undefined,
         ticket: w.ticket,
