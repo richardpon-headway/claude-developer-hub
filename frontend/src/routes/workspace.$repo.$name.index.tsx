@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError } from "../api/client";
 import { getWorkspaceSkills } from "../api/config";
+import { useTerminalInfo } from "../api/terminal";
 import {
   deleteWorktree,
   getPrFiles,
@@ -41,6 +42,7 @@ interface WorkspacePageProps {
 export function WorkspacePage({ repo, name }: WorkspacePageProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const terminal = useTerminalInfo();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
@@ -160,7 +162,7 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
               className="mt-6 rounded border border-amber-800 bg-amber-950/40 px-3 py-2 text-xs text-amber-200"
             >
               Setup didn't complete (see log below), but the code is
-              on disk. You can open the worktree in iTerm2 or Cursor
+              on disk. You can open the worktree in {terminal.display_name} or Cursor
               and re-run the failing step manually. Click{" "}
               <em>Recreate</em> on the hub if you want CDH to wipe +
               re-run setup from scratch.
@@ -196,7 +198,7 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
                   onClick={() => spawnMutation.mutate()}
                   disabled={spawnMutation.isPending || !usable}
                 >
-                  {spawnMutation.isPending ? "Opening…" : "Open in iTerm2"}
+                  {spawnMutation.isPending ? "Opening…" : `Open in ${terminal.display_name}`}
                 </Button>
               </Tooltip>
               <Button
@@ -218,8 +220,8 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
                       ? `worktree status is ${row.status}; nothing to run into`
                       : !hasClaude
                         ? skill.description
-                          ? `${skill.description} — spawns iTerm2 first`
-                          : "Spawns iTerm2 and runs the skill"
+                          ? `${skill.description} — spawns ${terminal.display_name} first`
+                          : `Spawns ${terminal.display_name} and runs the skill`
                         : skill.description
                   }
                 >
@@ -308,7 +310,7 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
               </p>
               <p className="text-xs text-zinc-500">
                 Runs <code>git worktree remove --force</code> and removes
-                CDH's row + cascaded iTerm2 / PR-state records. Cannot
+                CDH's row + cascaded terminal / PR-state records. Cannot
                 be undone.
               </p>
               <label className="block text-xs text-zinc-400">

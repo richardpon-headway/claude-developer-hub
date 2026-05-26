@@ -21,6 +21,7 @@ import {
   recreateWorktree,
   spawnIterm,
 } from "../api/worktrees";
+import { useTerminalInfo } from "../api/terminal";
 import type {
   AuthoredPr,
   BookmarkPr,
@@ -275,6 +276,7 @@ function Title({ data, common }: ChildProps) {
 }
 
 function ChipBar({ data }: { data: PrCardData }) {
+  const terminal = useTerminalInfo();
   return (
     <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
       {data.kind === "inbox" && (
@@ -316,7 +318,7 @@ function ChipBar({ data }: { data: PrCardData }) {
       {data.kind === "worktree" && (
         <>
           {data.row.status === "code_on_disk" && (
-            <Tooltip text="Worktree was created, but a setup_step errored. Code is on disk — open in iTerm2/Cursor and re-run the failing step.">
+            <Tooltip text={`Worktree was created, but a setup_step errored. Code is on disk — open in ${terminal.display_name}/Cursor and re-run the failing step.`}>
               <span className="rounded border border-amber-800 bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-300">
                 setup incomplete
               </span>
@@ -630,7 +632,7 @@ function DetailsLink({ repo, name }: { repo: string; name: string }) {
   );
 }
 
-// --- worktree-specific action button (iTerm2 / Focus / Recreate) -------
+// --- worktree-specific action button (Terminal / Focus / Recreate) -----
 
 interface WorktreeActionButtonProps {
   row: Worktree;
@@ -638,6 +640,7 @@ interface WorktreeActionButtonProps {
 
 function WorktreeActionButton({ row }: WorktreeActionButtonProps) {
   const queryClient = useQueryClient();
+  const terminal = useTerminalInfo();
   const spawnMutation = useMutation({
     mutationFn: () => spawnIterm(row.repo, row.name),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["worktrees"] }),
@@ -680,24 +683,24 @@ function WorktreeActionButton({ row }: WorktreeActionButtonProps) {
       const err = mutationError(focusMutation.error);
       return (
         <ButtonWithError
-          tooltip={err ?? "Bring this worktree's open Claude session in iTerm2 to the front."}
+          tooltip={err ?? `Bring this worktree's open Claude session in ${terminal.display_name} to the front.`}
           errorDetail={err}
           onClick={() => focusMutation.mutate()}
           pending={focusMutation.isPending}
           pendingLabel="Focusing…"
-          idleLabel="Focus iTerm2"
+          idleLabel={`Focus ${terminal.display_name}`}
         />
       );
     }
     const err = mutationError(spawnMutation.error);
     return (
       <ButtonWithError
-        tooltip={err ?? "Open this workspace in a new iTerm2 window."}
+        tooltip={err ?? `Open this workspace in a new ${terminal.display_name} window.`}
         errorDetail={err}
         onClick={() => spawnMutation.mutate()}
         pending={spawnMutation.isPending}
         pendingLabel="Opening…"
-        idleLabel="iTerm2"
+        idleLabel={terminal.display_name}
       />
     );
   })();

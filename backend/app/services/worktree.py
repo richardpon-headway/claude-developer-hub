@@ -63,7 +63,7 @@ def reset_log(repo: str, name: str) -> None:
 _LIST_SELECT = (
     "SELECT w.repo, w.name, w.path, w.branch, w.ticket, w.pr_number, w.pr_repo, "
     "       w.pr_author_login, w.notes, w.created_at, w.status, "
-    "       (SELECT 1 FROM iterm_session s "
+    "       (SELECT 1 FROM terminal_session s "
     "        WHERE s.repo = w.repo AND s.worktree_name = w.name "
     "          AND s.role = 'claude' LIMIT 1) IS NOT NULL, "
     "       p.payload, p.checked_at "

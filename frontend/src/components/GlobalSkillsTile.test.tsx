@@ -53,8 +53,7 @@ describe("GlobalSkillsTile", () => {
       },
     ]);
     vi.mocked(configApi.runGlobalSkill).mockResolvedValue({
-      window_id: "W",
-      claude_session_id: "S",
+      spawned: true,
     });
 
     renderTile();
@@ -86,8 +85,7 @@ describe("GlobalSkillsTile", () => {
   test("freeform submit calls the api with the trimmed prompt and clears the input on success", async () => {
     vi.mocked(configApi.getGlobalSkills).mockResolvedValue([]);
     vi.mocked(configApi.runGlobalFreeform).mockResolvedValue({
-      window_id: "W",
-      claude_session_id: "S",
+      spawned: true,
     });
 
     renderTile();
@@ -107,8 +105,7 @@ describe("GlobalSkillsTile", () => {
   test("plain Enter inserts a newline; Cmd+Enter submits", async () => {
     vi.mocked(configApi.getGlobalSkills).mockResolvedValue([]);
     vi.mocked(configApi.runGlobalFreeform).mockResolvedValue({
-      window_id: "W",
-      claude_session_id: "S",
+      spawned: true,
     });
 
     renderTile();
@@ -129,8 +126,7 @@ describe("GlobalSkillsTile", () => {
   test("Ctrl+Enter also submits (cross-platform)", async () => {
     vi.mocked(configApi.getGlobalSkills).mockResolvedValue([]);
     vi.mocked(configApi.runGlobalFreeform).mockResolvedValue({
-      window_id: "W",
-      claude_session_id: "S",
+      spawned: true,
     });
 
     renderTile();

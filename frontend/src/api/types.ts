@@ -315,6 +315,10 @@ export interface WorkspaceSkill {
 }
 
 export interface GlobalSkillResponse {
-  window_id: string;
-  claude_session_id: string;
+  spawned: boolean;
+}
+
+export interface TerminalInfo {
+  kind: "iterm2" | "ghostty";
+  display_name: string;
 }

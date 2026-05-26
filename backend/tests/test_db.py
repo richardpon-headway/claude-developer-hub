@@ -43,7 +43,7 @@ def test_apply_creates_db_and_records_migrations(db_path: Path) -> None:
             row[0]
             for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
-        assert {"worktree", "iterm_session", "iterm_lifecycle", "_migration"} <= tables
+        assert {"worktree", "terminal_session", "iterm_lifecycle", "_migration"} <= tables
     finally:
         conn.close()
 
@@ -89,19 +89,110 @@ def test_foreign_keys_actually_enforced(db_path: Path) -> None:
     db.apply_migrations_sync(db_path)
     conn = db.open_db(db_path)
     try:
-        # iterm_session has FK -> worktree(repo, name). Inserting a session
+        # terminal_session has FK -> worktree(repo, name). Inserting a session
         # without a matching worktree should fail.
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
                 """
-                INSERT INTO iterm_session
-                  (repo, worktree_name, role, iterm_window_id, iterm_session_id, spawned_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO terminal_session
+                  (repo, worktree_name, role, terminal_kind, window_id, session_id, spawned_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                ("noexist", "nope", "claude", "w1", "s1", "2026-01-01T00:00:00Z"),
+                ("noexist", "nope", "claude", "iterm2", "w1", "s1", "2026-01-01T00:00:00Z"),
             )
     finally:
         conn.close()
+
+
+# --- migration 011_terminal_session ----------------------------------------
+
+
+def test_011_renames_table_and_preserves_rows(db_path: Path, tmp_path: Path) -> None:
+    """Apply migrations up to 010 manually, seed an ``iterm_session``
+    row matching the pre-PR-#109 schema, then apply 011 and assert the
+    table is renamed, columns are renamed, rows are preserved, and
+    ``terminal_kind`` backfills to ``'iterm2'``.
+    """
+    from app.db import (
+        _PRAGMAS,
+        MIGRATIONS_DIR,
+        _apply_one,
+        _backup_if_stale,
+        _ensure_migration_table,
+        get_db_path,
+    )
+
+    # Replicate apply_migrations_sync but stop at 010 so we can seed
+    # the pre-rename state.
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    _backup_if_stale(db_path)
+    conn = sqlite3.connect(db_path)
+    for pragma in _PRAGMAS:
+        conn.execute(pragma)
+    _ensure_migration_table(conn)
+
+    for migration in sorted(MIGRATIONS_DIR.glob("0[01][0-9]*.sql")):
+        if migration.name >= "011":
+            break
+        _apply_one(conn, migration)
+
+    # Seed a worktree + a pre-rename iterm_session row.
+    conn.execute(
+        "INSERT INTO worktree (repo, name, path, branch, created_at, status) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("repo1", "wt1", str(tmp_path / "wt1"), "main", "2026-01-01T00:00:00Z", "ready"),
+    )
+    conn.execute(
+        "INSERT INTO iterm_session "
+        "(repo, worktree_name, role, iterm_window_id, iterm_session_id, "
+        " claude_session_uuid, spawned_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            "repo1", "wt1", "claude", "WINDOW-OLD", "SESSION-OLD",
+            "CLAUDE-UUID", "2026-01-01T00:00:00Z",
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    # Now apply 011 (and anything after).
+    db.apply_migrations_sync(db_path)
+
+    conn = sqlite3.connect(db_path)
+    try:
+        # Old table is gone.
+        tables = {
+            r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert "terminal_session" in tables
+        assert "iterm_session" not in tables
+
+        # Row preserved with renamed columns + terminal_kind backfilled.
+        row = conn.execute(
+            "SELECT repo, worktree_name, role, terminal_kind, window_id, "
+            "       session_id, claude_session_uuid "
+            "FROM terminal_session"
+        ).fetchone()
+        assert row == (
+            "repo1", "wt1", "claude", "iterm2", "WINDOW-OLD", "SESSION-OLD",
+            "CLAUDE-UUID",
+        )
+
+        # Index also renamed.
+        idx_names = {
+            r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index'"
+            )
+        }
+        assert "terminal_session_id_idx" in idx_names
+        assert "iterm_session_id_idx" not in idx_names
+    finally:
+        conn.close()
+
+    # Sanity: get_db_path / _PRAGMAS imports were used; suppress unused-warn.
+    _ = get_db_path
 
 
 # --- backups ---------------------------------------------------------------

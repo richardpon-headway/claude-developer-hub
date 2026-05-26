@@ -33,11 +33,10 @@ from app.config.loader import load_config
 from app.config.schema import RepoConfig
 from app.models.inbox import InboxCiStatus, InboxRow
 from app.models.worktree import now_iso
-from app.services import authored_pr_notes_db, inbox_db, inbox_poll
+from app.services import authored_pr_notes_db, inbox_db, inbox_poll, terminal
 from app.services import worktree as wt_svc
 from app.services.gh_cli import GhFailed, GhNotFound, run_gh_json
 from app.services.inbox_search import configured_repos_index, lookup_configured_repo
-from app.services.iterm_spawn import spawn_global_claude_window
 
 log = logging.getLogger(__name__)
 
@@ -433,14 +432,6 @@ async def configure_and_pull_down(
             f"repo {pr_repo} is already configured — use the regular pull-down",
         )
 
-    iterm = getattr(request.app.state, "iterm", None)
-    if iterm is None or iterm.connection is None:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "iTerm2 not connected. Check Preferences → Magic → Enable Python "
-            "API and approve the first-connection auth dialog.",
-        )
-
     dev_root = Path(str(config.development_root)).expanduser()
     if not dev_root.is_dir():
         raise HTTPException(
@@ -475,13 +466,5 @@ async def configure_and_pull_down(
         + inspection_prompt
     )
 
-    try:
-        await spawn_global_claude_window(
-            iterm.connection, dev_root, config.iterm2.default_window, prompt
-        )
-    except Exception as e:
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, f"iTerm2 spawn failed: {e}"
-        ) from e
-
+    await terminal.spawn_one_tab_claude(request, dev_root, prompt)
     return ConfigureAndPullDownResponse(session_id=session_id)

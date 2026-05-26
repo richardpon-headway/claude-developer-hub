@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 
 from app.config.loader import load_config
 from app.config.schema import GlobalSkill
-from app.services.iterm_spawn import spawn_global_claude_window
+from app.services import terminal
 
 log = logging.getLogger(__name__)
 
@@ -32,8 +32,7 @@ class GlobalSkillRequest(BaseModel):
 
 
 class GlobalSkillResponse(BaseModel):
-    window_id: str
-    claude_session_id: str
+    spawned: bool
 
 
 def _resolve_cwd(skill: GlobalSkill) -> Path:
@@ -71,29 +70,8 @@ async def run_global_skill(
         )
 
     cwd = _resolve_cwd(skill)
-
-    iterm = getattr(request.app.state, "iterm", None)
-    if iterm is None or iterm.connection is None:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "iTerm2 not connected. Check Preferences → Magic → Enable Python API "
-            "and approve the first-connection auth dialog, then wait a few seconds.",
-        )
-
-    frame = config.iterm2.default_window
-    try:
-        result = await spawn_global_claude_window(
-            iterm.connection, cwd, frame, f"/{skill.name}"
-        )
-    except Exception as e:
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, f"iTerm2 spawn failed: {e}"
-        ) from e
-
-    return GlobalSkillResponse(
-        window_id=result.window_id,
-        claude_session_id=result.claude_session_id,
-    )
+    await terminal.spawn_one_tab_claude(request, cwd, f"/{skill.name}")
+    return GlobalSkillResponse(spawned=True)
 
 
 # --- free-form prompt --------------------------------------------------------
@@ -126,25 +104,5 @@ async def run_global_freeform(
             f"development_root does not exist on disk: {dev_root}",
         )
 
-    iterm = getattr(request.app.state, "iterm", None)
-    if iterm is None or iterm.connection is None:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "iTerm2 not connected. Check Preferences → Magic → Enable Python API "
-            "and approve the first-connection auth dialog, then wait a few seconds.",
-        )
-
-    frame = config.iterm2.default_window
-    try:
-        result = await spawn_global_claude_window(
-            iterm.connection, dev_root, frame, req.prompt
-        )
-    except Exception as e:
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, f"iTerm2 spawn failed: {e}"
-        ) from e
-
-    return GlobalSkillResponse(
-        window_id=result.window_id,
-        claude_session_id=result.claude_session_id,
-    )
+    await terminal.spawn_one_tab_claude(request, dev_root, req.prompt)
+    return GlobalSkillResponse(spawned=True)
