@@ -147,7 +147,7 @@ async def spawn_one_tab_claude(
     script = [
         'tell application "Ghostty"',
         "  activate",
-        "  set cfg to make new surface configuration",
+        "  set cfg to new surface configuration",
         f"  set initial working directory of cfg to {quote(str(cwd))}",
         f"  set command of cfg to {quote(command)}",
         "  new window with configuration cfg",
@@ -179,12 +179,12 @@ async def spawn_two_tab_window(
     script = [
         'tell application "Ghostty"',
         "  activate",
-        "  set claudeCfg to make new surface configuration",
+        "  set claudeCfg to new surface configuration",
         f"  set initial working directory of claudeCfg to {quote(str(cwd))}",
         '  set command of claudeCfg to "claude"',
         "  set win to (new window with configuration claudeCfg)",
-        "  set claudeTab to (front tab of win)",
-        "  set shellCfg to make new surface configuration",
+        "  set claudeTab to item 1 of (tabs of win)",
+        "  set shellCfg to new surface configuration",
         f"  set initial working directory of shellCfg to {quote(str(cwd))}",
         "  set shellTab to (new tab in win with configuration shellCfg)",
         '  return ((id of win) as text) & "|" & '
