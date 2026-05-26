@@ -145,6 +145,68 @@ def test_setup_step_failure_marks_code_on_disk(_isolate: dict[str, Path]) -> Non
     assert not any("should-not-run" in line for line in log)
 
 
+def test_setup_step_resolves_mise_shim_over_system_path(
+    _isolate: dict[str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A fake binary placed in ``$MISE_DATA_DIR/shims`` wins over the
+    system PATH inside setup_steps. Proves the runner prepends mise's
+    shims so worktree-pinned tool versions resolve without per-command
+    ``mise exec --`` wrapping."""
+    shims = tmp_path / "mise" / "shims"
+    shims.mkdir(parents=True)
+    fake_pnpm = shims / "pnpm"
+    fake_pnpm.write_text('#!/bin/sh\necho "from-shim-pnpm $@"\n')
+    fake_pnpm.chmod(0o755)
+    monkeypatch.setenv("MISE_DATA_DIR", str(tmp_path / "mise"))
+
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    write_repo_config(
+        _isolate["config_path"],
+        _isolate["dev_root"],
+        repo_path,
+        setup_steps=[{"cmd": "pnpm hello", "cwd": ""}],
+    )
+
+    with TestClient(app) as client:
+        r = client.post("/api/worktree", json={"repo": "myapp", "branch": "feature"})
+        assert r.status_code == 200
+        assert r.json()["status"] == "ready"
+        r2 = client.get("/api/worktree/myapp/feature")
+    log = r2.json()["log"]
+    assert any("from-shim-pnpm hello" in line for line in log), log
+
+
+def test_setup_runs_when_mise_shims_dir_absent(
+    _isolate: dict[str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """When ``$MISE_DATA_DIR/shims`` doesn't exist (mise not installed),
+    setup still succeeds — the runner silently no-ops the PATH prepend
+    instead of crashing."""
+    monkeypatch.setenv("MISE_DATA_DIR", str(tmp_path / "no-mise-here"))
+
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    write_repo_config(
+        _isolate["config_path"],
+        _isolate["dev_root"],
+        repo_path,
+        setup_steps=[{"cmd": "echo setup-ran", "cwd": ""}],
+    )
+
+    with TestClient(app) as client:
+        r = client.post("/api/worktree", json={"repo": "myapp", "branch": "feature"})
+        assert r.status_code == 200
+        assert r.json()["status"] == "ready"
+        r2 = client.get("/api/worktree/myapp/feature")
+    log = r2.json()["log"]
+    assert any("setup-ran" in line for line in log), log
+
+
 def test_missing_branch_marks_failed(_isolate: dict[str, Path]) -> None:
     """Pre-worktree-add failure (branch doesn't exist) → still
     `failed`. There's no usable code on disk."""
@@ -395,6 +457,65 @@ def test_delete_succeeds_when_path_already_gone(
 
         r3 = client.get("/api/worktrees")
         assert r3.json()["worktrees"] == []
+
+
+def test_delete_with_delete_branch_removes_local_branch(
+    _isolate: dict[str, Path],
+) -> None:
+    """When ?delete_branch=true is passed, also runs `git branch -D`
+    against the worktree's branch in the source repo."""
+    import subprocess
+
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
+
+    with TestClient(app) as client:
+        r1 = client.post(
+            "/api/worktree", json={"repo": "myapp", "branch": "feature"}
+        )
+        assert r1.status_code == 200, r1.text
+
+        # Branch exists before delete.
+        assert subprocess.run(
+            ["git", "-C", str(repo_path), "show-ref",
+             "--verify", "--quiet", "refs/heads/feature"],
+        ).returncode == 0
+
+        r2 = client.delete("/api/worktree/myapp/feature?delete_branch=true")
+        assert r2.status_code == 200, r2.text
+
+    # Branch is gone after delete.
+    assert subprocess.run(
+        ["git", "-C", str(repo_path), "show-ref",
+         "--verify", "--quiet", "refs/heads/feature"],
+    ).returncode != 0
+
+
+def test_delete_without_delete_branch_preserves_local_branch(
+    _isolate: dict[str, Path],
+) -> None:
+    """Default delete (no flag) leaves the local branch alone."""
+    import subprocess
+
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
+
+    with TestClient(app) as client:
+        r1 = client.post(
+            "/api/worktree", json={"repo": "myapp", "branch": "feature"}
+        )
+        assert r1.status_code == 200, r1.text
+
+        r2 = client.delete("/api/worktree/myapp/feature")
+        assert r2.status_code == 200, r2.text
+
+    # Branch still present.
+    assert subprocess.run(
+        ["git", "-C", str(repo_path), "show-ref",
+         "--verify", "--quiet", "refs/heads/feature"],
+    ).returncode == 0
 
 
 def test_delete_drops_row_even_when_git_remove_fails(
