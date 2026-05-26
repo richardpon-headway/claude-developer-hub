@@ -1,0 +1,122 @@
+backend/app/routes/config.py
+  s_c3a4e48c5549f6::t_5cd9fe12afc626 10,14,19-31
+backend/app/services/iterm_spawn.py
+  s_c3a4e48c5549f6::t_266a4ff39b8d45 308,318-320,337,339
+  s_c3a4e48c5549f6::t_6bdd086ea7f023 182-188,192,196
+  s_c3a4e48c5549f6::t_5c9676e06a2e42 260,267,282,292,294,310-311,326-327,329,331-333
+backend/tests/test_db.py
+  s_c3a4e48c5549f6::t_9e62d4548b8cea 46
+  s_c3a4e48c5549f6::t_ff986f76e4d695 117
+  s_c3a4e48c5549f6::t_53c35e15f7b68b 107-116,118-197
+  s_c3a4e48c5549f6::t_c8c62e7817d11d 92,97-99,101
+backend/app/services/worktree.py
+  s_c3a4e48c5549f6::t_7173859223647a 66
+backend/app/services/terminal/__init__.py
+  s_c3a4e48c5549f6::t_e69ae3de202a92 1-35,37-199
+  s_c3a4e48c5549f6::t_57e3055d55a3e9 36
+frontend/src/components/RepoList.tsx
+  s_c3a4e48c5549f6::t_4a1bfd6cfa4bac 5
+  s_c3a4e48c5549f6::t_37c0e593b1e17f 50,59,69
+backend/app/routes/skills.py
+  s_c3a4e48c5549f6::t_602b8c6ef9dfc2 73-74
+  s_c3a4e48c5549f6::t_3f64949051d6e9 23
+  s_c3a4e48c5549f6::t_1f31b5591baef6 35
+  s_c3a4e48c5549f6::t_8db8372e2eef91 107-108
+backend/tests/test_sidecar.py
+  s_c3a4e48c5549f6::t_4e52b67af2d073 292
+  s_c3a4e48c5549f6::t_224076142d6795 237-240
+backend/app/config/schema.py
+  s_c3a4e48c5549f6::t_6ede14c296632d 118-152
+  s_c3a4e48c5549f6::t_be3c2d83c07a75 265
+backend/app/routes/inbox.py
+  s_c3a4e48c5549f6::t_ff986f76e4d695 36
+  s_c3a4e48c5549f6::t_f40b36f6fb3cf3 469
+backend/app/services/terminal/applescript.py
+  s_c3a4e48c5549f6::t_d0fcaad4cea793 1-46
+frontend/src/routes/workspace.$repo.$name.index.tsx
+  s_c3a4e48c5549f6::t_ba63224975f21a 7
+  s_c3a4e48c5549f6::t_7f89863f7e8634 201
+  s_c3a4e48c5549f6::t_6928776693368f 223-224
+  s_c3a4e48c5549f6::t_2aff03d46a7db7 165
+  s_c3a4e48c5549f6::t_d0d07b49570bf2 313
+  s_c3a4e48c5549f6::t_902a7cdf1e6a8a 45
+frontend/src/components/GlobalSkillsTile.test.tsx
+  s_c3a4e48c5549f6::t_589199ff77897a 56,88,108,129
+backend/app/services/iterm_supervisor.py
+  s_c3a4e48c5549f6::t_3362c3469e1ff8 94-98,101-103
+backend/tests/test_iterm.py
+  s_c3a4e48c5549f6::t_1b333702bace07 228
+  s_c3a4e48c5549f6::t_a69a6ee22bdc06 452
+  s_c3a4e48c5549f6::t_5f3a7e33190d27 318,323
+  s_c3a4e48c5549f6::t_32ddc690621001 105
+  s_c3a4e48c5549f6::t_b0875e0dbd1347 143,161
+  s_c3a4e48c5549f6::t_d55956e6a9e3ef 196
+backend/tests/fixtures/iterm.py
+  s_c3a4e48c5549f6::t_ab4a7a196de90a 68,72,77-78,80,85
+frontend/src/api/config.ts
+  s_c3a4e48c5549f6::t_5e6d45b1fb909a 6,15-16
+frontend/src/components/GlobalSkillsTile.tsx
+  s_c3a4e48c5549f6::t_5e2613d4f1854e 16-20,22
+  s_c3a4e48c5549f6::t_f250b69eac8f02 6
+  s_c3a4e48c5549f6::t_c817fbce4a733a 77-79
+  s_c3a4e48c5549f6::t_8a4356de5df37d 107
+backend/tests/test_skills.py
+  s_c3a4e48c5549f6::t_44b4210a64f728 281
+  s_c3a4e48c5549f6::t_c920711ac50698 171
+  s_c3a4e48c5549f6::t_7f7e68d3556c70 86
+  s_c3a4e48c5549f6::t_4b9204443e3e54 149,152-153
+frontend/src/api/types.ts
+  s_c3a4e48c5549f6::t_28e5ae38e2af1a 318-323
+backend/app/routes/worktrees.py
+  s_c3a4e48c5549f6::t_c2fd7bcde78080 13
+  s_c3a4e48c5549f6::t_2cec164644b403 1050-1052,1054,1061-1062,1065-1067,1071-1072
+  s_c3a4e48c5549f6::t_d01edc9673f62b 1269-1272,1275-1280,1295
+  s_c3a4e48c5549f6::t_b57fa740bb3532 1080-1082,1084-1087,1099-1101,1104,1106-1115,1119-1129,1147-1148
+  s_c3a4e48c5549f6::t_ff986f76e4d695 21
+backend/app/services/terminal/ghostty.py
+  s_c3a4e48c5549f6::t_4d26eee34bb05c 1-31,33-290
+  s_c3a4e48c5549f6::t_ff986f76e4d695 32
+backend/tests/test_config.py
+  s_c3a4e48c5549f6::t_cf13e08c8fe023 181,207-210,214-281
+  s_c3a4e48c5549f6::t_2248b8843c025c 26-30,35
+backend/tests/test_terminal_ghostty.py
+  s_c3a4e48c5549f6::t_40d5bf9e034e4d 1-306
+backend/app/config/loader.py
+  s_c3a4e48c5549f6::t_4203298c0c7513 46,56-59,71-112
+backend/app/migrations/011_terminal_session.sql
+  s_c3a4e48c5549f6::t_88e727a8fc6bc1 1-29
+frontend/src/components/PrCard.tsx
+  s_c3a4e48c5549f6::t_7dc6576448b8af 279
+  s_c3a4e48c5549f6::t_0cac1a05f8560b 24
+  s_c3a4e48c5549f6::t_344a022df989a3 321
+  s_c3a4e48c5549f6::t_b0895b4600bf18 686,691,698,703
+  s_c3a4e48c5549f6::t_f76044de73cb57 635,643
+backend/app/routes/repos.py
+  s_c3a4e48c5549f6::t_46fac8ef6e4191 36
+  s_c3a4e48c5549f6::t_92feccf381b595 437,439,441-445,461
+backend/tests/test_inbox.py
+  s_c3a4e48c5549f6::t_ebf2142df0786f 949,953,955-956,958
+  s_c3a4e48c5549f6::t_f87ae8251a9603 999,1002,1004
+frontend/src/api/terminal.ts
+  s_c3a4e48c5549f6::t_5e6c91773b9f21 1-5,12-30
+  s_c3a4e48c5549f6::t_48270af8668858 6-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "998fafbf8fdea16b86bbdfabc6e7dc7b14e99610",
+  "prompts": {},
+  "sessions": {
+    "s_c3a4e48c5549f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93e9d73a-2bb9-4a3f-91d1-5344609bbd4f",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
