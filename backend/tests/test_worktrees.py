@@ -145,6 +145,68 @@ def test_setup_step_failure_marks_code_on_disk(_isolate: dict[str, Path]) -> Non
     assert not any("should-not-run" in line for line in log)
 
 
+def test_setup_step_resolves_mise_shim_over_system_path(
+    _isolate: dict[str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A fake binary placed in ``$MISE_DATA_DIR/shims`` wins over the
+    system PATH inside setup_steps. Proves the runner prepends mise's
+    shims so worktree-pinned tool versions resolve without per-command
+    ``mise exec --`` wrapping."""
+    shims = tmp_path / "mise" / "shims"
+    shims.mkdir(parents=True)
+    fake_pnpm = shims / "pnpm"
+    fake_pnpm.write_text('#!/bin/sh\necho "from-shim-pnpm $@"\n')
+    fake_pnpm.chmod(0o755)
+    monkeypatch.setenv("MISE_DATA_DIR", str(tmp_path / "mise"))
+
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    write_repo_config(
+        _isolate["config_path"],
+        _isolate["dev_root"],
+        repo_path,
+        setup_steps=[{"cmd": "pnpm hello", "cwd": ""}],
+    )
+
+    with TestClient(app) as client:
+        r = client.post("/api/worktree", json={"repo": "myapp", "branch": "feature"})
+        assert r.status_code == 200
+        assert r.json()["status"] == "ready"
+        r2 = client.get("/api/worktree/myapp/feature")
+    log = r2.json()["log"]
+    assert any("from-shim-pnpm hello" in line for line in log), log
+
+
+def test_setup_runs_when_mise_shims_dir_absent(
+    _isolate: dict[str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """When ``$MISE_DATA_DIR/shims`` doesn't exist (mise not installed),
+    setup still succeeds — the runner silently no-ops the PATH prepend
+    instead of crashing."""
+    monkeypatch.setenv("MISE_DATA_DIR", str(tmp_path / "no-mise-here"))
+
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    write_repo_config(
+        _isolate["config_path"],
+        _isolate["dev_root"],
+        repo_path,
+        setup_steps=[{"cmd": "echo setup-ran", "cwd": ""}],
+    )
+
+    with TestClient(app) as client:
+        r = client.post("/api/worktree", json={"repo": "myapp", "branch": "feature"})
+        assert r.status_code == 200
+        assert r.json()["status"] == "ready"
+        r2 = client.get("/api/worktree/myapp/feature")
+    log = r2.json()["log"]
+    assert any("setup-ran" in line for line in log), log
+
+
 def test_missing_branch_marks_failed(_isolate: dict[str, Path]) -> None:
     """Pre-worktree-add failure (branch doesn't exist) → still
     `failed`. There's no usable code on disk."""

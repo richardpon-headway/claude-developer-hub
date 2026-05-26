@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import os
 from pathlib import Path
 
 from app.config.loader import load_config
@@ -299,6 +300,16 @@ def update_worktree_pr_author_sync(
 # --- subprocess helper ----------------------------------------------------
 
 
+def _subprocess_env() -> dict[str, str]:
+    """Prepend mise's shims dir to PATH so mise-managed tools resolve in subprocesses."""
+    env = os.environ.copy()
+    mise_data = os.environ.get("MISE_DATA_DIR") or str(Path.home() / ".local/share/mise")
+    shims = Path(mise_data) / "shims"
+    if shims.is_dir():
+        env["PATH"] = f"{shims}{os.pathsep}{env.get('PATH', '')}"
+    return env
+
+
 async def _run_logged(
     repo: str,
     name: str,
@@ -320,6 +331,7 @@ async def _run_logged(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=str(cwd),
+            env=_subprocess_env(),
         )
     else:
         assert isinstance(cmd, list)
@@ -328,6 +340,7 @@ async def _run_logged(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=str(cwd),
+            env=_subprocess_env(),
         )
 
     assert proc.stdout is not None
