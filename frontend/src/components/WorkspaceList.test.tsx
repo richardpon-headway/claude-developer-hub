@@ -326,6 +326,33 @@ describe("WorkspaceList", () => {
     });
   });
 
+  test("code_on_disk → renders both iTerm2 and Recreate; Recreate calls endpoint", async () => {
+    vi.mocked(worktreesApi.recreateWorktree).mockResolvedValue({
+      repo: "myapp",
+      name: "halfway",
+      path: "/tmp/p",
+      branch: "feat/halfway",
+      ticket: null,
+      pr_number: null,
+      pr_repo: null,
+      pr_author_login: null,
+      notes: null,
+      created_at: "2026-05-18T00:00:00Z",
+      status: "setting_up",
+      has_claude_session: false,
+      pr_state: null,
+    });
+    renderWorkspaces([
+      wt({ name: "halfway", status: "code_on_disk", has_claude_session: false }),
+    ]);
+    expect(screen.getByRole("button", { name: /^iterm2$/i })).toBeInTheDocument();
+    const recreate = screen.getByRole("button", { name: /^recreate workspace$/i });
+    fireEvent.click(recreate);
+    await waitFor(() => {
+      expect(worktreesApi.recreateWorktree).toHaveBeenCalledWith("myapp", "halfway");
+    });
+  });
+
   // --- REVIEWING tier ---------------------------------------------------
 
   test("reviewing tier renders at top with author chip when pr_author_login != user_login", () => {
