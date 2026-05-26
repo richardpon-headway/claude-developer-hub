@@ -675,11 +675,42 @@ function WorktreeActionButton({ row }: WorktreeActionButtonProps) {
       </Tooltip>
     );
   }
-  if (status === "stale") {
-    const err = mutationError(recreateMutation.error);
+  const itermBtn = (() => {
+    if (row.has_claude_session) {
+      const err = mutationError(focusMutation.error);
+      return (
+        <ButtonWithError
+          tooltip={err ?? "Bring this worktree's open Claude session in iTerm2 to the front."}
+          errorDetail={err}
+          onClick={() => focusMutation.mutate()}
+          pending={focusMutation.isPending}
+          pendingLabel="Focusing…"
+          idleLabel="Focus iTerm2"
+        />
+      );
+    }
+    const err = mutationError(spawnMutation.error);
     return (
       <ButtonWithError
-        tooltip={err ?? "On-disk directory is gone. Click to re-run git worktree add + setup_steps."}
+        tooltip={err ?? "Open this workspace in a new iTerm2 window."}
+        errorDetail={err}
+        onClick={() => spawnMutation.mutate()}
+        pending={spawnMutation.isPending}
+        pendingLabel="Opening…"
+        idleLabel="iTerm2"
+      />
+    );
+  })();
+
+  if (status === "stale" || status === "code_on_disk") {
+    const err = mutationError(recreateMutation.error);
+    const tooltip =
+      status === "stale"
+        ? "On-disk directory is gone. Click to re-run git worktree add + setup_steps."
+        : "Setup didn't finish. Click to wipe + re-run setup_steps.";
+    const recreateBtn = (
+      <ButtonWithError
+        tooltip={err ?? tooltip}
         errorDetail={err}
         onClick={() => recreateMutation.mutate()}
         pending={recreateMutation.isPending}
@@ -687,32 +718,16 @@ function WorktreeActionButton({ row }: WorktreeActionButtonProps) {
         idleLabel="Recreate workspace"
       />
     );
-  }
-  // ready / code_on_disk
-  if (row.has_claude_session) {
-    const err = mutationError(focusMutation.error);
+    if (status === "stale") return recreateBtn;
     return (
-      <ButtonWithError
-        tooltip={err ?? "Bring this worktree's open Claude session in iTerm2 to the front."}
-        errorDetail={err}
-        onClick={() => focusMutation.mutate()}
-        pending={focusMutation.isPending}
-        pendingLabel="Focusing…"
-        idleLabel="Focus iTerm2"
-      />
+      <>
+        {itermBtn}
+        {recreateBtn}
+      </>
     );
   }
-  const err = mutationError(spawnMutation.error);
-  return (
-    <ButtonWithError
-      tooltip={err ?? "Open this workspace in a new iTerm2 window."}
-      errorDetail={err}
-      onClick={() => spawnMutation.mutate()}
-      pending={spawnMutation.isPending}
-      pendingLabel="Opening…"
-      idleLabel="iTerm2"
-    />
-  );
+
+  return itermBtn;
 }
 
 function mutationError(err: unknown): string | null {
