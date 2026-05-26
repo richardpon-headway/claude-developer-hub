@@ -1,0 +1,23 @@
+backend/tests/test_terminal_ghostty.py
+  s_c3a4e48c5549f6::t_b3a48fb97f787d 129
+  s_c3a4e48c5549f6::t_01767b2668606b 66-82,90,104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "14b25d39bb7e1e73fd0d7d234ea606977325a06e",
+  "prompts": {},
+  "sessions": {
+    "s_c3a4e48c5549f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93e9d73a-2bb9-4a3f-91d1-5344609bbd4f",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
