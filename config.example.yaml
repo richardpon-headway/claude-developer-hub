@@ -3,7 +3,7 @@
 # The hub onboarding flow ("Add a repo") writes to ~/.config/cdh/config.yaml.
 # Most users never touch this file directly. Hand-edit it when you need a
 # knob the UI doesn't expose (polling cadence, inbox teams, custom skills,
-# Jira, iTerm2 window frame, send-gate patterns).
+# Jira, iTerm2 window frame).
 #
 # Authoritative schema: backend/app/config/schema.py. Unknown keys are
 # rejected; defaults below match what the schema applies when a key is
@@ -30,13 +30,6 @@ jira:
 
 iterm2:
   default_window: { width: 1024, height: 768, x: 50, y: 50 }
-  # Regex; the "send to Claude" button refuses if the last visible
-  # screen line matches one of these (prevents auto-answering a y/N
-  # prompt with your slash command).
-  send_gate_patterns:
-    - 'Allow .* \[y/N\]\??$'
-    - '\? \(y/n\) $'
-    - 'Press any key to continue'
 
 token_monitor:
   api_url: http://localhost:47821

@@ -30,7 +30,6 @@ def write_minimal_config(
     teams: list[str] | None = None,
     global_skills: list[dict] | None = None,
     workspace_skills: list[dict] | None = None,
-    send_gate_patterns: list[str] | None = None,
     iterm2: dict[str, Any] | None | bool = False,
     repos: list[dict] | None = None,
 ) -> None:
@@ -43,8 +42,6 @@ def write_minimal_config(
     - ``False`` (default): no iterm2 block written
     - ``True``: write the default ``ITermWindow`` frame block
     - ``dict``: write the caller's block as-is
-    The default ``iterm2`` block is also added implicitly when
-    ``send_gate_patterns`` is provided (which has to live inside it).
     """
     cfg: dict[str, Any] = {"repos": repos or []}
     if dev_root is not None:
@@ -53,10 +50,6 @@ def write_minimal_config(
         cfg["iterm2"] = dict(_DEFAULT_ITERM2_BLOCK)
     elif isinstance(iterm2, dict):
         cfg["iterm2"] = dict(iterm2)
-    if send_gate_patterns is not None:
-        cfg.setdefault("iterm2", dict(_DEFAULT_ITERM2_BLOCK))[
-            "send_gate_patterns"
-        ] = send_gate_patterns
     if teams is not None:
         cfg["inbox"] = {"teams": teams}
     if global_skills is not None:

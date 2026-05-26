@@ -171,23 +171,6 @@ describe("WorkspacePage", () => {
     });
   });
 
-  test("renders send-gate 409 error inline", async () => {
-    vi.mocked(worktreesApi.getWorktree).mockResolvedValue(
-      makeDetail({ has_claude_session: true }),
-    );
-    vi.mocked(worktreesApi.runSkill).mockRejectedValue(
-      new ApiError(409, "Claude is awaiting input. Resolve the prompt first."),
-    );
-    renderPage();
-    const btn = await screen.findByRole("button", {
-      name: "/pr-finalize-for-review",
-    });
-    fireEvent.click(btn);
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(/awaiting input/i);
-    });
-  });
-
   test("Open button disabled when worktree status is not ready", async () => {
     vi.mocked(worktreesApi.getWorktree).mockResolvedValue(
       makeDetail({ status: "failed" }),
