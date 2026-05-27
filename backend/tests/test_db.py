@@ -195,6 +195,128 @@ def test_011_renames_table_and_preserves_rows(db_path: Path, tmp_path: Path) -> 
     _ = get_db_path
 
 
+# --- migration 012_terminal_session_fk_repair ------------------------------
+
+
+def test_012_repairs_dangling_fk_target(db_path: Path, tmp_path: Path) -> None:
+    """Repro the broken-005 corruption: terminal_session's FK points at
+    ``worktree_old_005``. After 012, the FK points at ``worktree`` and
+    INSERTs succeed."""
+    from app.db import (
+        _PRAGMAS,
+        MIGRATIONS_DIR,
+        _apply_one,
+        _ensure_migration_table,
+    )
+
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    for pragma in _PRAGMAS:
+        conn.execute(pragma)
+    _ensure_migration_table(conn)
+
+    # Run everything up to but not including 012. (011 creates
+    # terminal_session with the FK target name copied from the old
+    # iterm_session schema — we'll inject the broken-005 corruption
+    # directly so the test repro doesn't depend on a real broken DB.)
+    for migration in sorted(MIGRATIONS_DIR.glob("0[01][0-9]*.sql")):
+        if migration.name >= "012":
+            break
+        _apply_one(conn, migration)
+
+    # Simulate the broken-005 corruption by rebuilding terminal_session
+    # with a dangling FK target. SQLite has no API to "edit a FK"; we
+    # drop and recreate.
+    conn.execute("PRAGMA foreign_keys=OFF")
+    conn.executescript(
+        """
+        DROP TABLE terminal_session;
+        CREATE TABLE terminal_session (
+          repo                 TEXT    NOT NULL,
+          worktree_name        TEXT    NOT NULL,
+          role                 TEXT    NOT NULL CHECK (role IN ('claude','shell')),
+          window_id            TEXT    NOT NULL,
+          session_id           TEXT    NOT NULL,
+          claude_session_uuid  TEXT,
+          spawned_at           TEXT    NOT NULL,
+          terminal_kind        TEXT    NOT NULL DEFAULT 'iterm2',
+          PRIMARY KEY (repo, worktree_name, role),
+          FOREIGN KEY (repo, worktree_name)
+            REFERENCES worktree_old_005(repo, name)
+            ON DELETE CASCADE
+        );
+        CREATE INDEX terminal_session_id_idx ON terminal_session(session_id);
+        """
+    )
+
+    # Seed the parent + a preexisting row to confirm copy preserves it.
+    conn.execute(
+        "INSERT INTO worktree (repo, name, path, branch, created_at, status) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("r", "wt", str(tmp_path / "wt"), "main", "2026-01-01T00:00:00Z", "ready"),
+    )
+    conn.execute(
+        "INSERT INTO terminal_session "
+        "(repo, worktree_name, role, terminal_kind, window_id, session_id, "
+        " claude_session_uuid, spawned_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "r", "wt", "claude", "iterm2", "W1", "S1",
+            "CLAUDE-UUID", "2026-01-01T00:00:00Z",
+        ),
+    )
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys=ON")
+
+    # Sanity: before 012, an INSERT explodes with the dangling FK.
+    with pytest.raises(sqlite3.OperationalError, match="worktree_old_005"):
+        conn.execute(
+            "INSERT INTO terminal_session "
+            "(repo, worktree_name, role, terminal_kind, window_id, session_id, spawned_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("r", "wt", "shell", "iterm2", "W1", "S2", "2026-01-01T00:00:00Z"),
+        )
+    conn.close()
+
+    # Apply 012 (the actual repair).
+    db.apply_migrations_sync(db_path)
+
+    # Now an INSERT succeeds — FK target points at worktree.
+    conn = sqlite3.connect(db_path)
+    for pragma in _PRAGMAS:
+        conn.execute(pragma)
+    try:
+        conn.execute(
+            "INSERT INTO terminal_session "
+            "(repo, worktree_name, role, terminal_kind, window_id, session_id, spawned_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("r", "wt", "shell", "iterm2", "W1", "S2", "2026-01-01T00:00:00Z"),
+        )
+        conn.commit()
+
+        # Original row still there.
+        rows = list(
+            conn.execute(
+                "SELECT role, terminal_kind, window_id, session_id "
+                "FROM terminal_session WHERE repo='r' AND worktree_name='wt' "
+                "ORDER BY role"
+            )
+        )
+        assert rows == [
+            ("claude", "iterm2", "W1", "S1"),
+            ("shell", "iterm2", "W1", "S2"),
+        ]
+
+        # Schema's FK now references worktree, not worktree_old_005.
+        schema_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE name='terminal_session'"
+        ).fetchone()[0]
+        assert "worktree_old_005" not in schema_sql
+        assert "REFERENCES worktree(" in schema_sql
+    finally:
+        conn.close()
+
+
 # --- backups ---------------------------------------------------------------
 
 
