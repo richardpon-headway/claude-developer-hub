@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services import bookmark_db, bookmark_poll, inbox_db, inbox_poll
+from app.services import bookmark_db, inbox_db, inbox_poll
 from app.services.bookmark_db import BookmarkExistsError
 from app.services.inbox_search import InboxPrRaw
 from tests.fixtures.bookmark import build_bookmark_row, seed_bookmark
@@ -53,35 +53,6 @@ def test_delete_bookmark_returns_rowcount(
     assert bookmark_db.delete_bookmark_sync(
         "o/r", 1, db_path=_isolate["db_path"]
     ) == 0
-
-
-def test_refresh_bookmark_state_preserves_notes_and_bookmarked_at(
-    _isolate: dict[str, Path],
-) -> None:
-    seed_bookmark(
-        _isolate["db_path"], pr_repo="o/r", pr_number=1,
-        notes="my note",
-        bookmarked_at="2026-05-01T00:00:00Z",
-        state="open",
-        title="old",
-    )
-    bookmark_db.refresh_bookmark_state_sync(
-        "o/r", 1,
-        state="merged",
-        title="new",
-        author_login="other",
-        ticket=None,
-        last_refreshed_at="2026-05-21T00:00:00Z",
-        db_path=_isolate["db_path"],
-    )
-    row = bookmark_db.get_bookmark_sync("o/r", 1, db_path=_isolate["db_path"])
-    assert row is not None
-    assert row.state == "merged"
-    assert row.title == "new"
-    assert row.author_login == "other"
-    assert row.notes == "my note"                          # preserved
-    assert row.bookmarked_at == "2026-05-01T00:00:00Z"     # preserved
-    assert row.last_refreshed_at == "2026-05-21T00:00:00Z"
 
 
 def test_update_bookmark_notes_rowcount(_isolate: dict[str, Path]) -> None:
@@ -328,63 +299,17 @@ def test_update_bookmark_notes_404_when_missing(
     assert r.status_code == 404
 
 
-# --- bookmark_poll -----------------------------------------------------
+# --- inbox + bookmark precedence (post-plan-60) --------------------------
 
 
-def test_bookmark_poll_refreshes_state(
+def test_inbox_tick_skips_bookmarked_prs_in_list(
     _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    write_minimal_config(_isolate["config_path"])
-    seed_bookmark(
-        _isolate["db_path"], pr_repo="acme/myapp", pr_number=1,
-        state="open",
-        title="old",
-        author_login="alice",
-        notes="my note",
-        bookmarked_at="2026-05-01T00:00:00Z",
-        last_refreshed_at="2026-05-01T00:00:00Z",
-    )
-
-    async def fake_run_gh_json(args: list, **kwargs: Any) -> dict:
-        return {
-            "title": "new title",
-            "author": {"login": "bob"},
-            "state": "MERGED",
-        }
-
-    monkeypatch.setattr(bookmark_poll, "run_gh_json", fake_run_gh_json)
-
-    import asyncio
-
-    asyncio.run(bookmark_poll._tick())
-
-    row = bookmark_db.get_bookmark_sync(
-        "acme/myapp", 1, db_path=_isolate["db_path"]
-    )
-    assert row is not None
-    assert row.state == "merged"
-    assert row.title == "new title"
-    assert row.author_login == "bob"
-    assert row.notes == "my note"                          # preserved
-    assert row.bookmarked_at == "2026-05-01T00:00:00Z"     # preserved
-    assert row.last_refreshed_at != "2026-05-01T00:00:00Z"  # advanced
-
-
-def test_bookmark_poll_noop_when_empty(_isolate: dict[str, Path]) -> None:
-    write_minimal_config(_isolate["config_path"])
-    import asyncio
-
-    asyncio.run(bookmark_poll._tick())  # must not raise
-
-
-# --- inbox poll dedup against bookmarks -------------------------------
-
-
-def test_inbox_tick_skips_bookmarked_prs(
-    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A PR that's both review-requested AND bookmarked should NOT
-    appear in the inbox — bookmark wins (explicit user pin)."""
+    """A PR that's both review-requested AND bookmarked stays out of
+    the inbox surface — bookmark wins (explicit user pin). After
+    plan-60 the discovery loop upserts both PRs into the unified pr
+    table; the inbox-shim's list_inbox_sync filters out bookmarked
+    rows so the surface precedence is preserved."""
     write_minimal_config(_isolate["config_path"])
     seed_bookmark(
         _isolate["db_path"], pr_repo="o/r", pr_number=42,

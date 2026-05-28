@@ -30,7 +30,6 @@ from tests.fixtures.inbox import (
     build_raw_pr,
     seed_inbox_row,
 )
-from tests.fixtures.pr_state import seed_pr_state
 from tests.fixtures.worktree import seed_worktree
 
 # --- config schema -------------------------------------------------------
@@ -144,68 +143,6 @@ def test_explicit_github_repo_excludes_basename_collisions() -> None:
     assert lookup_configured_repo("corp/myapp", idx) is not None
     assert lookup_configured_repo("acme/myapp", idx) is None
     assert lookup_configured_repo("corp/other", idx) is None
-
-
-# --- dedup pull from worktree + pr_state --------------------------------
-
-
-def test_tracked_keys_reads_from_worktree_columns(_isolate: dict[str, Path]) -> None:
-    seed_worktree(
-        _isolate["db_path"],
-        "myapp",
-        "feat1",
-        branch="feat/x",
-        pr_repo="o/myapp",
-        pr_number=7,
-    )
-    keys = inbox_poll._tracked_pr_keys_sync()
-    assert keys == {("o/myapp", 7)}
-
-
-def test_tracked_keys_reads_from_pr_state_url(_isolate: dict[str, Path]) -> None:
-    """Worktree exists but has no pr_repo — dedup must extract
-    owner/name from the pr_state payload URL."""
-    seed_worktree(
-        _isolate["db_path"], "myapp", "feat1", branch="feat/x"
-    )
-    from tests.fixtures.pr import seed_pr
-
-    seed_pr(_isolate["db_path"], pr_repo="o/myapp", pr_number=99)
-    seed_pr_state(
-        _isolate["db_path"], pr_repo="o/myapp", pr_number=99
-    )
-    keys = inbox_poll._tracked_pr_keys_sync()
-    assert keys == {("o/myapp", 99)}
-
-
-def test_tracked_keys_handles_pr_state_with_malformed_url(
-    _isolate: dict[str, Path],
-) -> None:
-    import json
-
-    from tests.fixtures.pr import seed_pr
-
-    seed_worktree(
-        _isolate["db_path"], "myapp", "feat1", branch="feat/x"
-    )
-    seed_pr(_isolate["db_path"], pr_repo="o/myapp", pr_number=99)
-    conn = sqlite3.connect(_isolate["db_path"])
-    try:
-        conn.execute(
-            "INSERT INTO pr_state (pr_repo, pr_number, headline, payload, "
-            "checked_at) VALUES (?, ?, ?, ?, ?)",
-            (
-                "o/myapp",
-                99,
-                "no_pr",
-                json.dumps({"pr_number": None, "url": None}),
-                "2026-05-14T00:00:00Z",
-            ),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-    assert inbox_poll._tracked_pr_keys_sync() == set()
 
 
 # --- inbox_db helpers ----------------------------------------------------
@@ -457,8 +394,9 @@ def test_tick_skips_archived_rows(
 def test_tick_auto_removes_closed_pr(
     _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A PR that's no longer in gh search results is probed via
-    gh pr view; if state != open, the inbox row is deleted."""
+    """A PR that's no longer in gh search AND has pr.state set to
+    'merged' (by the enrichment loop) gets pruned: inbox + archive
+    flags cleared, row GC'd if no other surface holds it."""
     write_minimal_config(_isolate["config_path"])
     seed_inbox_row(
         _isolate["db_path"],
@@ -466,16 +404,18 @@ def test_tick_auto_removes_closed_pr(
         pr_number=99,
         last_seen_at="2026-05-01T00:00:00Z",
     )
+    # Simulate the enrichment loop having written pr.state='merged'.
+    from app.services import pr_db
+
+    pr_db.upsert_pr_sync(
+        pr_db.PrRow(pr_repo="o/r", pr_number=99, state="merged"),
+        db_path=_isolate["db_path"],
+    )
 
     async def fake_fetch() -> list[InboxPrRaw]:
-        return []  # PR no longer appearing in search
-
-    async def fake_pr_state(pr_repo: str, pr_number: int) -> str | None:
-        assert (pr_repo, pr_number) == ("o/r", 99)
-        return "merged"
+        return []  # PR no longer in search
 
     monkeypatch.setattr(inbox_poll, "fetch_inbox_prs", fake_fetch)
-    monkeypatch.setattr(inbox_poll, "_gh_pr_state", fake_pr_state)
 
     state = SimpleNamespace()
     import asyncio
@@ -487,9 +427,9 @@ def test_tick_auto_removes_closed_pr(
 def test_tick_keeps_still_open_stale_row(
     _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A still-open PR that's no longer in gh search results stays in
-    the inbox (sticky); last_seen_at is bumped so we don't re-probe
-    every tick."""
+    """A still-open PR that fell out of gh search results stays in
+    the inbox — the sweep only removes rows whose pr.state is closed
+    or merged."""
     write_minimal_config(_isolate["config_path"])
     seed_inbox_row(
         _isolate["db_path"],
@@ -497,15 +437,17 @@ def test_tick_keeps_still_open_stale_row(
         pr_number=99,
         last_seen_at="2026-05-01T00:00:00Z",
     )
+    from app.services import pr_db
+
+    pr_db.upsert_pr_sync(
+        pr_db.PrRow(pr_repo="o/r", pr_number=99, state="open"),
+        db_path=_isolate["db_path"],
+    )
 
     async def fake_fetch() -> list[InboxPrRaw]:
         return []
 
-    async def fake_pr_state(pr_repo: str, pr_number: int) -> str | None:
-        return "open"
-
     monkeypatch.setattr(inbox_poll, "fetch_inbox_prs", fake_fetch)
-    monkeypatch.setattr(inbox_poll, "_gh_pr_state", fake_pr_state)
 
     state = SimpleNamespace()
     import asyncio
@@ -514,7 +456,9 @@ def test_tick_keeps_still_open_stale_row(
 
     rows = inbox_db.list_inbox_sync(db_path=_isolate["db_path"])
     assert len(rows) == 1
-    assert rows[0].last_seen_at != "2026-05-01T00:00:00Z"  # bumped
+    # last_seen_at is no longer bumped by the sweep (the enrichment
+    # loop's state read replaced the per-row gh probe).
+    assert rows[0].last_seen_at == "2026-05-01T00:00:00Z"
 
 
 def test_tick_extracts_ticket_via_configured_pattern(

@@ -17,8 +17,9 @@ inbox:
   teams: []                            # ["owner/team-slug"] — team-review-requested PRs to surface
 
 polling:
-  pr_state_interval_seconds: 600.0     # `gh pr view --json …` per worktree
-  inbox_interval_seconds: 300.0        # `gh search prs` × 5 (author / reviewer / assignee / mentions / team)
+  pr_enrichment_interval_seconds: 600.0  # `gh pr view --json …` per pr row (every surface)
+  inbox_interval_seconds: 300.0          # `gh search prs` × 3 (reviewer / assignee / mentions)
+  authored_interval_seconds: 600.0       # `gh search prs --author=@me --state=open`
 
 global_skills: []                      # hub-level Claude slash-command buttons
 workspace_skills: []                   # workspace-page Claude slash-command buttons

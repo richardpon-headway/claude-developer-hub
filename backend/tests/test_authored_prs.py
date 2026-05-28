@@ -1,4 +1,4 @@
-"""Tests for the authored-PR slice (plan-48, Slice C)."""
+"""Tests for the authored-PR slice (plan-48, Slice C; reshaped in plan-60)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,43 +12,33 @@ from app.services import authored_prs
 from tests.fixtures.bookmark import seed_bookmark
 from tests.fixtures.config import write_minimal_config, write_repo_config
 from tests.fixtures.inbox import seed_inbox_row
+from tests.fixtures.pr import seed_pr
 from tests.fixtures.worktree import seed_worktree
 
 
-def _gh_entry(
-    *,
-    repo: str = "acme/myapp",
-    number: int = 1,
-    title: str = "feat: thing",
-    updated: str = "2026-05-20T00:00:00Z",
-) -> dict:
-    return {
-        "number": number,
-        "title": title,
-        "url": f"https://github.com/{repo}/pull/{number}",
-        "isDraft": False,
-        "updatedAt": updated,
-        "author": {"login": "me"},
-        "repository": {
-            "name": repo.split("/", 1)[1],
-            "nameWithOwner": repo,
-        },
-        "state": "OPEN",
-    }
+@pytest.fixture(autouse=True)
+def _stub_user_login(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The new pr_db-backed ``fetch_authored_prs`` reads
+    ``gh_identity.get_user_login`` to scope the query. Stub a fixed
+    login so tests don't shell to real gh."""
+    from app.services import gh_identity
+
+    async def fake() -> str:
+        return "me"
+
+    gh_identity.reset_cache()
+    monkeypatch.setattr(gh_identity, "get_user_login", fake)
+    yield
+    gh_identity.reset_cache()
 
 
 # --- fetch_authored_prs --------------------------------------------------
 
 
-def test_fetch_authored_prs_empty_when_gh_returns_empty(
-    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+def test_fetch_authored_prs_empty_when_no_rows(
+    _isolate: dict[str, Path],
 ) -> None:
     write_minimal_config(_isolate["config_path"])
-
-    async def fake_run_gh_json(args: list, **kwargs: Any) -> list:
-        return []
-
-    monkeypatch.setattr(authored_prs, "run_gh_json", fake_run_gh_json)
 
     import asyncio
 
@@ -57,14 +47,19 @@ def test_fetch_authored_prs_empty_when_gh_returns_empty(
 
 
 def test_fetch_authored_prs_returns_open_authored_rows(
-    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+    _isolate: dict[str, Path],
 ) -> None:
     write_minimal_config(_isolate["config_path"])
-
-    async def fake_run_gh_json(args: list, **kwargs: Any) -> list:
-        return [_gh_entry(repo="acme/myapp", number=42, title="my pr")]
-
-    monkeypatch.setattr(authored_prs, "run_gh_json", fake_run_gh_json)
+    seed_pr(
+        _isolate["db_path"],
+        pr_repo="acme/myapp",
+        pr_number=42,
+        title="my pr",
+        author_login="me",
+        state="open",
+        url="https://github.com/acme/myapp/pull/42",
+        pr_updated_at="2026-05-20T00:00:00Z",
+    )
 
     import asyncio
 
@@ -76,9 +71,11 @@ def test_fetch_authored_prs_returns_open_authored_rows(
     assert result[0].repo_configured is False
 
 
-def test_fetch_authored_prs_dedups_against_worktree(
-    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+def test_fetch_authored_prs_excludes_worktreed(
+    _isolate: dict[str, Path],
 ) -> None:
+    """An authored PR pulled down into a worktree drops out of the
+    authored surface (it lives in Workspaces instead)."""
     write_minimal_config(_isolate["config_path"])
     seed_worktree(
         _isolate["db_path"],
@@ -87,14 +84,22 @@ def test_fetch_authored_prs_dedups_against_worktree(
         pr_repo="acme/myapp",
         pr_number=42,
     )
-
-    async def fake_run_gh_json(args: list, **kwargs: Any) -> list:
-        return [
-            _gh_entry(repo="acme/myapp", number=42),
-            _gh_entry(repo="acme/myapp", number=43),
-        ]
-
-    monkeypatch.setattr(authored_prs, "run_gh_json", fake_run_gh_json)
+    seed_pr(
+        _isolate["db_path"],
+        pr_repo="acme/myapp",
+        pr_number=42,
+        author_login="me",
+        state="open",
+        pr_updated_at="2026-05-20T00:00:00Z",
+    )
+    seed_pr(
+        _isolate["db_path"],
+        pr_repo="acme/myapp",
+        pr_number=43,
+        author_login="me",
+        state="open",
+        pr_updated_at="2026-05-21T00:00:00Z",
+    )
 
     import asyncio
 
@@ -102,24 +107,25 @@ def test_fetch_authored_prs_dedups_against_worktree(
     assert [r.pr_number for r in result] == [43]
 
 
-def test_fetch_authored_prs_dedups_against_inbox(
-    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+def test_fetch_authored_prs_excludes_inboxed(
+    _isolate: dict[str, Path],
 ) -> None:
-    """If a PR somehow ended up in the inbox (e.g., the user was both
-    author and review-requested), don't double-render it in the
-    authored tier."""
+    """If a PR somehow ended up in the inbox (the user was both
+    author and review-requested), don't double-render it on the
+    authored surface."""
     write_minimal_config(_isolate["config_path"])
     seed_inbox_row(
         _isolate["db_path"], pr_repo="acme/myapp", pr_number=42,
+        author_login="me",
     )
-
-    async def fake_run_gh_json(args: list, **kwargs: Any) -> list:
-        return [
-            _gh_entry(repo="acme/myapp", number=42),
-            _gh_entry(repo="acme/myapp", number=43),
-        ]
-
-    monkeypatch.setattr(authored_prs, "run_gh_json", fake_run_gh_json)
+    seed_pr(
+        _isolate["db_path"],
+        pr_repo="acme/myapp",
+        pr_number=43,
+        author_login="me",
+        state="open",
+        pr_updated_at="2026-05-21T00:00:00Z",
+    )
 
     import asyncio
 
@@ -127,23 +133,24 @@ def test_fetch_authored_prs_dedups_against_inbox(
     assert [r.pr_number for r in result] == [43]
 
 
-def test_fetch_authored_prs_dedups_against_bookmarks(
-    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+def test_fetch_authored_prs_excludes_bookmarked(
+    _isolate: dict[str, Path],
 ) -> None:
-    """An authored PR the user manually bookmarked should only render
-    in the Bookmarks section."""
+    """An authored PR the user manually bookmarked only renders on
+    the bookmark surface."""
     write_minimal_config(_isolate["config_path"])
     seed_bookmark(
         _isolate["db_path"], pr_repo="acme/myapp", pr_number=42,
+        author_login="me",
     )
-
-    async def fake_run_gh_json(args: list, **kwargs: Any) -> list:
-        return [
-            _gh_entry(repo="acme/myapp", number=42),
-            _gh_entry(repo="acme/myapp", number=43),
-        ]
-
-    monkeypatch.setattr(authored_prs, "run_gh_json", fake_run_gh_json)
+    seed_pr(
+        _isolate["db_path"],
+        pr_repo="acme/myapp",
+        pr_number=43,
+        author_login="me",
+        state="open",
+        pr_updated_at="2026-05-21T00:00:00Z",
+    )
 
     import asyncio
 
@@ -152,8 +159,12 @@ def test_fetch_authored_prs_dedups_against_bookmarks(
 
 
 def test_fetch_authored_prs_extracts_ticket(
-    _isolate: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    _isolate: dict[str, Path], tmp_path: Path,
 ) -> None:
+    """When pr.ticket is NULL but the configured repo has a ticket
+    pattern, the route layer extracts it from the title on the fly
+    (back-compat with old rows; future discovery sets pr.ticket
+    directly via the authored_poll upsert)."""
     repo_path = tmp_path / "myapp"
     repo_path.mkdir()
     write_repo_config(
@@ -161,15 +172,15 @@ def test_fetch_authored_prs_extracts_ticket(
         name="myapp",
         ticket_pattern=r"[A-Z]+-\d+",
     )
-
-    async def fake_run_gh_json(args: list, **kwargs: Any) -> list:
-        return [
-            _gh_entry(
-                repo="acme/myapp", number=1, title="PROJ-218: do thing",
-            ),
-        ]
-
-    monkeypatch.setattr(authored_prs, "run_gh_json", fake_run_gh_json)
+    seed_pr(
+        _isolate["db_path"],
+        pr_repo="acme/myapp",
+        pr_number=1,
+        title="PROJ-218: do thing",
+        author_login="me",
+        state="open",
+        pr_updated_at="2026-05-20T00:00:00Z",
+    )
 
     import asyncio
 
@@ -178,7 +189,7 @@ def test_fetch_authored_prs_extracts_ticket(
 
 
 def test_fetch_authored_prs_sets_repo_configured_flag(
-    _isolate: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    _isolate: dict[str, Path], tmp_path: Path,
 ) -> None:
     repo_path = tmp_path / "myapp"
     repo_path.mkdir()
@@ -187,14 +198,22 @@ def test_fetch_authored_prs_sets_repo_configured_flag(
         name="myapp",
         github_repo="acme/myapp",
     )
-
-    async def fake_run_gh_json(args: list, **kwargs: Any) -> list:
-        return [
-            _gh_entry(repo="acme/myapp", number=1),
-            _gh_entry(repo="other/elsewhere", number=2),
-        ]
-
-    monkeypatch.setattr(authored_prs, "run_gh_json", fake_run_gh_json)
+    seed_pr(
+        _isolate["db_path"],
+        pr_repo="acme/myapp",
+        pr_number=1,
+        author_login="me",
+        state="open",
+        pr_updated_at="2026-05-20T00:00:00Z",
+    )
+    seed_pr(
+        _isolate["db_path"],
+        pr_repo="other/elsewhere",
+        pr_number=2,
+        author_login="me",
+        state="open",
+        pr_updated_at="2026-05-20T00:00:00Z",
+    )
 
     import asyncio
 
@@ -205,18 +224,22 @@ def test_fetch_authored_prs_sets_repo_configured_flag(
 
 
 def test_fetch_authored_prs_sorts_newest_first(
-    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+    _isolate: dict[str, Path],
 ) -> None:
     write_minimal_config(_isolate["config_path"])
-
-    async def fake_run_gh_json(args: list, **kwargs: Any) -> list:
-        return [
-            _gh_entry(number=1, updated="2026-05-01T00:00:00Z"),
-            _gh_entry(number=2, updated="2026-05-20T00:00:00Z"),
-            _gh_entry(number=3, updated="2026-05-10T00:00:00Z"),
-        ]
-
-    monkeypatch.setattr(authored_prs, "run_gh_json", fake_run_gh_json)
+    for n, updated in [
+        (1, "2026-05-01T00:00:00Z"),
+        (2, "2026-05-20T00:00:00Z"),
+        (3, "2026-05-10T00:00:00Z"),
+    ]:
+        seed_pr(
+            _isolate["db_path"],
+            pr_repo="acme/myapp",
+            pr_number=n,
+            author_login="me",
+            state="open",
+            pr_updated_at=updated,
+        )
 
     import asyncio
 
@@ -227,17 +250,10 @@ def test_fetch_authored_prs_sorts_newest_first(
 # --- GET /api/authored-prs ---------------------------------------------
 
 
-def test_list_endpoint_empty(
-    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_list_endpoint_empty(_isolate: dict[str, Path]) -> None:
+    """Empty pr table → empty list. The autouse user-login stub
+    means the gh shellout never fires; the pr_db read returns []."""
     write_minimal_config(_isolate["config_path"])
-
-    # Stub the gh call so the test doesn't accidentally hit the
-    # user's real ``gh search prs --author:@me``.
-    async def fake_run_gh_json(args: list, **kwargs: Any) -> list:
-        return []
-
-    monkeypatch.setattr(authored_prs, "run_gh_json", fake_run_gh_json)
 
     with TestClient(app) as client:
         r = client.get("/api/authored-prs")
@@ -486,21 +502,22 @@ def test_update_notes_no_404_even_when_no_prior_row(
 
 
 def test_fetch_authored_prs_attaches_notes(
-    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+    _isolate: dict[str, Path],
 ) -> None:
-    """Persisted note in authored_pr_notes shows up on the row."""
+    """A pr row with author_login=me + state=open + notes set + no
+    other origin flag surfaces on the authored tier with notes
+    intact."""
     write_minimal_config(_isolate["config_path"])
-
-    from app.services import authored_pr_notes_db
-    authored_pr_notes_db.upsert_notes_sync(
-        "acme/myapp", 42, "remember this", "2026-05-22T00:00:00Z",
-        db_path=_isolate["db_path"],
+    seed_pr(
+        _isolate["db_path"],
+        pr_repo="acme/myapp",
+        pr_number=42,
+        title="my pr",
+        author_login="me",
+        state="open",
+        notes="remember this",
+        pr_updated_at="2026-05-20T00:00:00Z",
     )
-
-    async def fake_run_gh_json(args: list, **kwargs: Any) -> list:
-        return [_gh_entry(repo="acme/myapp", number=42, title="my pr")]
-
-    monkeypatch.setattr(authored_prs, "run_gh_json", fake_run_gh_json)
 
     import asyncio
 
@@ -510,14 +527,17 @@ def test_fetch_authored_prs_attaches_notes(
 
 
 def test_fetch_authored_prs_notes_none_when_no_row(
-    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+    _isolate: dict[str, Path],
 ) -> None:
     write_minimal_config(_isolate["config_path"])
-
-    async def fake_run_gh_json(args: list, **kwargs: Any) -> list:
-        return [_gh_entry(repo="acme/myapp", number=42)]
-
-    monkeypatch.setattr(authored_prs, "run_gh_json", fake_run_gh_json)
+    seed_pr(
+        _isolate["db_path"],
+        pr_repo="acme/myapp",
+        pr_number=42,
+        author_login="me",
+        state="open",
+        pr_updated_at="2026-05-20T00:00:00Z",
+    )
 
     import asyncio
 

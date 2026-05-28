@@ -1,10 +1,12 @@
-"""Fetch the user's authored PRs without persisting them.
+"""Request-time read for the user's authored PRs surface.
 
-Slice C of plan-48 introduces a "My PRs (no worktree)" tier in the
-hub's Workspaces section. The rows come straight from ``gh search prs
---author:@me --state open``; nothing lives in SQLite. Filters out
-PRs already covered by another surface (worktree, inbox row,
-bookmark) so the same PR doesn't render twice.
+Reads directly from the unified ``pr`` table — discovery is
+:mod:`app.services.authored_poll`'s job; this module only projects
+PrRow rows that match the authored surface into the legacy
+``AuthoredPrRow`` shape for the route handler.
+
+Plan-61 will collapse this module entirely once the route handler
+calls ``pr_db.list_pr_sync`` directly.
 """
 from __future__ import annotations
 
@@ -13,113 +15,89 @@ import logging
 
 from app.config.loader import load_config
 from app.models.authored_pr import AuthoredPrRow
-from app.services import authored_pr_notes_db, bookmark_db, inbox_db
-from app.services.gh_cli import GhNotFound, run_gh_json
-from app.services.inbox_poll import _extract_ticket, _tracked_pr_keys_sync
+from app.services import authored_pr_notes_db, gh_identity, pr_db
 from app.services.inbox_search import (
-    _row_from_gh,
     configured_repos_index,
+    extract_ticket,
     is_repo_configured,
 )
 
 log = logging.getLogger(__name__)
 
-_GH_SEARCH_JSON_FIELDS = (
-    "number,title,url,isDraft,updatedAt,createdAt,author,repository,state"
-)
-
 
 async def fetch_authored_prs() -> list[AuthoredPrRow]:
-    """Run ``gh search prs --author:@me --state open`` and dedup
-    against every other surface that already shows this PR.
+    """Return the user's open authored PRs from the unified pr table.
 
-    Dedup sources:
+    The legacy implementation shelled ``gh search prs`` per request +
+    deduped against worktree / inbox / bookmark. Plan-60 moved both
+    duties: discovery is the authored_poll loop; dedup is the
+    ``has_worktree=False, is_bookmarked=False, is_inbox=False``
+    filter on this read.
 
-    - Local worktrees (``worktree.pr_number`` + ``pr_state.payload``):
-      pull-down already created a workspace.
-    - Inbox (``inbox.pr_repo, pr_number``): the PR is already in the
-      inbox surface — show there instead.
-    - Bookmarks: explicit pin wins (consistent with the inbox dedup).
-
-    Raises :class:`app.services.gh_cli.GhNotFound` if ``gh`` is missing.
+    Falls back to an empty list when ``gh`` is unauthed (no local
+    login resolved). Same fail-open contract as the legacy path.
     """
-    data = await run_gh_json(
-        [
-            "search", "prs",
-            "--author=@me",
-            "--state=open",
-            "--limit=100",
-            "--json", _GH_SEARCH_JSON_FIELDS,
-        ],
-        cwd=None,
-        swallow_errors=True,
-    )
-    if data is None:
+    local_login = await gh_identity.get_user_login()
+    if local_login is None:
         return []
-    if not isinstance(data, list):
-        log.warning("gh search prs --author returned non-list payload")
-        return []
-
-    tracked, inbox_keys, bookmark_keys = await asyncio.gather(
-        asyncio.to_thread(_tracked_pr_keys_sync),
-        asyncio.to_thread(inbox_db.inbox_pr_keys_sync),
-        asyncio.to_thread(bookmark_db.bookmark_pr_keys_sync),
-    )
-    excluded = tracked | inbox_keys | bookmark_keys
 
     config = load_config()
     repos_index = configured_repos_index(config.repos)
 
+    rows = await asyncio.to_thread(
+        pr_db.list_pr_sync,
+        author_login=local_login,
+        state="open",
+        is_bookmarked=False,
+        is_inbox=False,
+        has_worktree=False,
+        order_by="pr.pr_updated_at DESC",
+    )
+
     out: list[AuthoredPrRow] = []
-    surviving_keys: set[tuple[str, int]] = set()
-    for entry in data:
-        if not isinstance(entry, dict):
-            continue
-        raw = _row_from_gh(entry, source="author")
-        if raw is None:
-            continue
-        key = (raw.pr_repo, raw.pr_number)
-        if key in excluded:
-            continue
-        surviving_keys.add(key)
+    for r in rows:
         out.append(
             AuthoredPrRow(
-                pr_repo=raw.pr_repo,
-                pr_number=raw.pr_number,
-                title=raw.title,
-                url=raw.url,
-                is_draft=raw.is_draft,
-                ci_status=raw.ci_status,
-                ticket=_extract_ticket(raw.title, config.repos),
-                pr_updated_at=raw.updated_at,
-                repo_configured=is_repo_configured(raw.pr_repo, repos_index),
-                notes=None,
+                pr_repo=r.pr_repo,
+                pr_number=r.pr_number,
+                title=r.title or "",
+                url=r.url or "",
+                is_draft=r.is_draft,
+                ci_status=r.ci_status or "none",  # type: ignore[arg-type]
+                ticket=r.ticket or extract_ticket(r.title or "", config.repos),
+                pr_updated_at=r.pr_updated_at or "",
+                repo_configured=is_repo_configured(r.pr_repo, repos_index),
+                notes=r.notes,
             )
         )
 
-    # Attach persisted notes in one batch query rather than N round-
-    # trips. Authored rows that don't yet have a note simply keep
-    # ``notes=None``.
-    notes_map = await asyncio.to_thread(
-        authored_pr_notes_db.notes_by_keys_sync, surviving_keys
-    )
-    if notes_map:
-        for row in out:
-            note = notes_map.get((row.pr_repo, row.pr_number))
-            if note is not None:
-                row.notes = note
+    # The route handler historically attached notes via a batch call
+    # to authored_pr_notes_db. Notes now live on pr.notes (set above
+    # via r.notes), so the batch lookup is redundant — kept as a
+    # belt-and-suspenders fallback for any row whose pr.notes is NULL
+    # but an authored_pr_notes-style write happened through a
+    # different path. Plan-61 removes this entirely.
+    keys = {(r.pr_repo, r.pr_number) for r in out if r.notes is None}
+    if keys:
+        extra_notes = await asyncio.to_thread(
+            authored_pr_notes_db.notes_by_keys_sync, keys
+        )
+        if extra_notes:
+            for row in out:
+                if row.notes is None:
+                    note = extra_notes.get((row.pr_repo, row.pr_number))
+                    if note is not None:
+                        row.notes = note
 
-    # Newest-first, matching the inbox sort.
-    out.sort(key=lambda r: r.pr_updated_at, reverse=True)
     return out
 
 
 async def fetch_authored_prs_safe() -> list[AuthoredPrRow]:
-    """Call :func:`fetch_authored_prs` and swallow ``gh`` missing — the
-    route handler renders an empty list so the hub still loads even
-    when ``gh`` isn't installed."""
+    """No-throw wrapper. The pr_db read path can't raise GhNotFound
+    (the gh call moved to the discovery loop), so this just shields
+    the caller from any unexpected runtime error."""
     try:
         return await fetch_authored_prs()
-    except GhNotFound:
-        log.info("gh CLI not on PATH; authored-prs list empty this request")
+    except Exception as e:  # pragma: no cover — defensive
+        log.warning("authored-prs read failed: %s; returning empty", e)
         return []

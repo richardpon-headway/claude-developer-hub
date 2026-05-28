@@ -8,10 +8,10 @@ inbox rows, bookmarks are never auto-removed when the PR closes or
 merges — the row stays (with a ``closed`` / ``merged`` chip) until
 the user explicitly unbookmarks it.
 
-The background ``bookmark_poll`` task refreshes ``state``, ``title``,
-``author_login``, and ``last_refreshed_at`` via ``gh pr view`` so the
-card stays current; ``notes`` and ``bookmarked_at`` are user-owned
-and never touched by the poller.
+The background ``pr_enrichment_poll`` task refreshes ``state``,
+``title``, ``author_login``, and ``last_refreshed_at`` via ``gh pr
+view`` so the card stays current; ``notes`` and ``bookmarked_at`` are
+user-owned and never touched by the poller.
 """
 from __future__ import annotations
 

@@ -177,22 +177,33 @@ class PollingConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    pr_state_interval_seconds: float = Field(
+    pr_enrichment_interval_seconds: float = Field(
         600.0,
         gt=0,
         description=(
-            "How often to refresh per-worktree pr_state (review "
-            "decision, CI status, comment counts). Each tick shells "
-            "one `gh pr view --json …` per tracked worktree."
+            "How often the enrichment loop refreshes per-PR state "
+            "(review decision, CI status, comment counts) for EVERY "
+            "row in the unified `pr` table. Each tick shells one "
+            "`gh pr view --json …` per pr row."
         ),
     )
     inbox_interval_seconds: float = Field(
         300.0,
         gt=0,
         description=(
-            "How often to refresh the inbox cache. Each tick runs 5 "
-            "`gh search prs` queries (author / reviewer / assignee / "
-            "mentions / team-review-requested)."
+            "How often the inbox discovery loop runs. Each tick runs "
+            "3 `gh search prs` queries (reviewer / assignee / "
+            "mentions). Pruning of closed PRs is a DB sweep against "
+            "`pr.state` (filled by the enrichment loop)."
+        ),
+    )
+    authored_interval_seconds: float = Field(
+        600.0,
+        gt=0,
+        description=(
+            "How often the authored discovery loop runs. Each tick "
+            "runs one `gh search prs --author=@me --state=open` and "
+            "upserts the results into the unified `pr` table."
         ),
     )
 

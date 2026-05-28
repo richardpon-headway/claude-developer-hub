@@ -484,6 +484,31 @@ async def fetch_pr_summary(worktree_path: Path) -> PrSummary:
         cwd=worktree_path,
         swallow_errors=True,
     )
+    return await _summarize_with_unresolved_threads(payload)
+
+
+async def fetch_pr_summary_by_pr(
+    pr_repo: str, pr_number: int
+) -> PrSummary:
+    """Like :func:`fetch_pr_summary` but addressed by GitHub identity
+    rather than a local worktree path. Used by the enrichment poll
+    for ``pr`` rows that don't have a corresponding worktree.
+
+    Runs ``gh pr view <pr_number> --repo <pr_repo> --json …`` (no
+    cwd), then the same GraphQL second-fetch for unresolved threads.
+    """
+    payload = await run_gh_json(
+        [
+            "pr", "view", str(pr_number),
+            "--repo", pr_repo,
+            "--json", _GH_JSON_FIELDS,
+        ],
+        swallow_errors=True,
+    )
+    return await _summarize_with_unresolved_threads(payload)
+
+
+async def _summarize_with_unresolved_threads(payload: object) -> PrSummary:
     if payload is None:
         return PrSummary(headline="no_pr")
     if not isinstance(payload, dict):
