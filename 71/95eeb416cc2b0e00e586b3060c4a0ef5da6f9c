@@ -1,0 +1,65 @@
+backend/app/services/authored_poll.py
+  s_7d34d902a431c8::t_867d52f3d1693c 1-141
+backend/app/services/inbox_poll.py
+  s_7d34d902a431c8::t_0a8817915767fe 1,5-25,33,35-41,52-53,72-73,82,85-87,89,93,97-114,116-127,131-132,134-143,147-156,158-161,163-165
+backend/tests/test_bookmarks.py
+  s_7d34d902a431c8::t_04537f1e4433ef 12
+  s_7d34d902a431c8::t_f0e95af743be46 302,305,308-312
+backend/tests/test_authored_prs.py
+  s_7d34d902a431c8::t_927f35f47de4db 505,507-509,511-519,530,533-540
+  s_7d34d902a431c8::t_63d8779d68695f 253-255
+  s_7d34d902a431c8::t_5ab40e0ef132ea 1,15,19-32,38-39,50,53-62,74-75,77-78,87-102,110-111,113-115,119-127,136-137,139-140,144-152,162,164-167,175-183,192,201-216,227,230-242
+backend/app/services/inbox_search.py
+  s_7d34d902a431c8::t_ae8aa64c8ceee2 1,3-5,13-16,19-20,25,27,31-33,37-57
+  s_7d34d902a431c8::t_93238424e64bb5 219-230
+backend/app/services/inbox_db.py
+  s_7d34d902a431c8::t_7006ff52f72863 42-49,53-54
+backend/app/models/bookmark.py
+  s_7d34d902a431c8::t_dc95c60ef88950 11-14
+backend/app/routes/refresh.py
+  s_7d34d902a431c8::t_c626227a9110bf 1-42
+backend/app/config/schema.py
+  s_7d34d902a431c8::t_63a3352226fa6d 180,184-187,194-206
+config.example.yaml
+  s_7d34d902a431c8::t_972cbbf67b75cf 20-22
+backend/app/main.py
+  s_7d34d902a431c8::t_811c32bb2680e8 21,28,31,38,40-43,67
+backend/tests/test_inbox.py
+  s_7d34d902a431c8::t_e8f7d5130e2b95 397-399,407-408,410-413,415-416,430-432,440-445,459-461
+backend/app/services/authored_prs.py
+  s_7d34d902a431c8::t_e607352b6e71b1 1,3-9,18,21,29,31-35,37-38,40-41,47-56,58,61-70,74-91,96-98,101-102
+backend/app/services/pr_state.py
+  s_7d34d902a431c8::t_c6db1cd21095f0 487-511
+backend/app/services/gh_cli.py
+  s_7d34d902a431c8::t_0431bfd6c18f37 9-12
+backend/tests/test_authored_poll.py
+  s_7d34d902a431c8::t_fd26f974408f9b 1-218
+backend/tests/test_config.py
+  s_7d34d902a431c8::t_b2cb7661f9378b 149,151,157,159,162,164,169-173
+backend/app/services/pr_enrichment_poll.py
+  s_7d34d902a431c8::t_cb9bee4d9e4ab5 1-166
+backend/app/routes/bookmarks.py
+  s_7d34d902a431c8::t_5b412615512100 35
+  s_7d34d902a431c8::t_1cb42f7b6b6989 212
+backend/tests/test_pr_state.py
+  s_7d34d902a431c8::t_2d6654019adfc8 860,863,866-868,871-872,882,892,897,902-903,907-908,911,914-915,918-919,921,923-926,929-964,974-976,978
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7195eeb416cc2b0e00e586b3060c4a0ef5da6f9c",
+  "prompts": {},
+  "sessions": {
+    "s_7d34d902a431c8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e117a47c-47c2-413f-807a-ff088f0dbb42",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
