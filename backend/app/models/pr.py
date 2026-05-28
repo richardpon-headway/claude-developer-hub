@@ -1,13 +1,9 @@
 """Pydantic shape for a unified PR row.
 
-Mirrors the ``pr`` table created by migration 013. Replaces the
-per-surface ``BookmarkRow`` / ``InboxRow`` / ``AuthoredPrRow`` shapes
-by keying on GitHub identity ``(pr_repo, pr_number)`` and tracking
-which surfaces the row belongs to via the origin booleans.
-
-The legacy per-surface models stay during plan-59 — the shim modules
-project ``PrRow`` back to them so routes don't need to change. Plan-61
-removes the shims and routes consume ``PrRow`` directly.
+Mirrors the ``pr`` table created by migration 013. Keys on GitHub
+identity ``(pr_repo, pr_number)`` and tracks which surfaces the row
+belongs to via the origin booleans (``is_bookmarked``, ``is_inbox``,
+``is_archived``).
 """
 from __future__ import annotations
 

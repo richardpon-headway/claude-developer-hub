@@ -1,9 +1,4 @@
-"""Tests for the persistent-inbox slice (plan-48).
-
-The previous ephemeral ``InboxCache`` is gone. Inbox rows live in
-SQLite. Tests seed via :func:`tests.fixtures.inbox.seed_inbox_row` and
-assert via DB reads or HTTP responses.
-"""
+"""Tests for the persistent-inbox slice."""
 from __future__ import annotations
 
 import sqlite3
@@ -16,7 +11,8 @@ from fastapi.testclient import TestClient
 
 from app.config.schema import CDHConfig, InboxConfig
 from app.main import app
-from app.services import inbox_db, inbox_poll, inbox_search
+from app.models.pr import PrRow
+from app.services import inbox_poll, inbox_search, pr_db
 from app.services.inbox_search import (
     InboxPrRaw,
     _ci_status_from_rollup,
@@ -25,12 +21,21 @@ from app.services.inbox_search import (
     is_repo_configured,
 )
 from tests.fixtures.config import write_minimal_config, write_repo_config
-from tests.fixtures.inbox import (
-    build_inbox_row,
-    build_raw_pr,
-    seed_inbox_row,
-)
+from tests.fixtures.inbox import build_raw_pr, seed_inbox_row
 from tests.fixtures.worktree import seed_worktree
+
+
+def _list_inbox_rows(db_path: Path) -> list[PrRow]:
+    """Pull the route-visible inbox surface directly from pr_db."""
+    return pr_db.list_pr_sync(
+        is_inbox=True,
+        is_archived=False,
+        is_bookmarked=False,
+        has_worktree=False,
+        order_by="pr.pr_updated_at DESC",
+        db_path=db_path,
+    )
+
 
 # --- config schema -------------------------------------------------------
 
@@ -145,97 +150,6 @@ def test_explicit_github_repo_excludes_basename_collisions() -> None:
     assert lookup_configured_repo("corp/other", idx) is None
 
 
-# --- inbox_db helpers ----------------------------------------------------
-
-
-def test_upsert_inbox_inserts_and_then_updates(_isolate: dict[str, Path]) -> None:
-    """Insert then upsert refreshes search-driven fields but preserves
-    notes and added_at."""
-    row = build_inbox_row(
-        pr_repo="o/r",
-        pr_number=1,
-        title="first",
-        notes="my notes",
-        added_at="2026-05-14T00:00:00Z",
-        last_seen_at="2026-05-14T00:00:00Z",
-    )
-    inbox_db.upsert_inbox_sync(row, db_path=_isolate["db_path"])
-
-    refreshed = build_inbox_row(
-        pr_repo="o/r",
-        pr_number=1,
-        title="second",
-        notes=None,                            # user-edited; must NOT clobber
-        added_at="2099-01-01T00:00:00Z",        # must NOT clobber
-        last_seen_at="2026-05-21T00:00:00Z",    # MUST advance
-        pr_updated_at="2026-05-21T00:00:00Z",   # MUST advance
-    )
-    inbox_db.upsert_inbox_sync(refreshed, db_path=_isolate["db_path"])
-
-    out = inbox_db.get_inbox_sync("o/r", 1, db_path=_isolate["db_path"])
-    assert out is not None
-    assert out.title == "second"
-    assert out.notes == "my notes"                    # preserved
-    assert out.added_at == "2026-05-14T00:00:00Z"     # preserved
-    assert out.last_seen_at == "2026-05-21T00:00:00Z"
-    assert out.pr_updated_at == "2026-05-21T00:00:00Z"
-
-
-def test_list_inbox_filters_archived(_isolate: dict[str, Path]) -> None:
-    seed_inbox_row(_isolate["db_path"], pr_repo="o/r", pr_number=1)
-    seed_inbox_row(_isolate["db_path"], pr_repo="o/r", pr_number=2)
-    inbox_db.archive_inbox_sync(
-        "o/r", 2, "2026-05-14T00:00:00Z", db_path=_isolate["db_path"]
-    )
-
-    rows = inbox_db.list_inbox_sync(db_path=_isolate["db_path"])
-    assert [(r.pr_repo, r.pr_number) for r in rows] == [("o/r", 1)]
-
-
-def test_archive_is_idempotent(_isolate: dict[str, Path]) -> None:
-    seed_inbox_row(_isolate["db_path"], pr_repo="o/r", pr_number=1)
-    inbox_db.archive_inbox_sync(
-        "o/r", 1, "2026-05-14T00:00:00Z", db_path=_isolate["db_path"]
-    )
-    # Second archive — same PR, must not raise.
-    inbox_db.archive_inbox_sync(
-        "o/r", 1, "2026-05-21T00:00:00Z", db_path=_isolate["db_path"]
-    )
-    assert inbox_db.archived_keys_sync(db_path=_isolate["db_path"]) == {("o/r", 1)}
-
-
-def test_delete_inbox_clears_archive_shadow(_isolate: dict[str, Path]) -> None:
-    """Auto-removal sweep deletes both the inbox row and any matching
-    inbox_archived row so a future PR with the same number isn't
-    silently filtered out."""
-    seed_inbox_row(_isolate["db_path"], pr_repo="o/r", pr_number=1)
-    inbox_db.archive_inbox_sync(
-        "o/r", 1, "2026-05-14T00:00:00Z", db_path=_isolate["db_path"]
-    )
-    inbox_db.delete_inbox_sync("o/r", 1, db_path=_isolate["db_path"])
-    assert inbox_db.get_inbox_sync("o/r", 1, db_path=_isolate["db_path"]) is None
-    assert inbox_db.archived_keys_sync(db_path=_isolate["db_path"]) == set()
-
-
-def test_list_stale_inbox_orders_oldest_first(_isolate: dict[str, Path]) -> None:
-    seed_inbox_row(
-        _isolate["db_path"], pr_repo="o/r", pr_number=1,
-        last_seen_at="2026-05-01T00:00:00Z",
-    )
-    seed_inbox_row(
-        _isolate["db_path"], pr_repo="o/r", pr_number=2,
-        last_seen_at="2026-05-10T00:00:00Z",
-    )
-    seed_inbox_row(
-        _isolate["db_path"], pr_repo="o/r", pr_number=3,
-        last_seen_at="2026-05-20T00:00:00Z",   # not stale vs cutoff
-    )
-    stale = inbox_db.list_stale_inbox_sync(
-        "2026-05-15T00:00:00Z", limit=10, db_path=_isolate["db_path"]
-    )
-    assert stale == [("o/r", 1), ("o/r", 2)]
-
-
 # --- source accumulation across queries (auth dropped, team dropped) ----
 
 
@@ -333,7 +247,7 @@ def test_tick_persists_new_row(
 
     asyncio.run(inbox_poll._tick(state))
 
-    rows = inbox_db.list_inbox_sync(db_path=_isolate["db_path"])
+    rows = _list_inbox_rows(_isolate["db_path"])
     assert [(r.pr_repo, r.pr_number) for r in rows] == [("o/r", 42)]
 
 
@@ -363,7 +277,7 @@ def test_tick_dedups_against_worktree(
 
     asyncio.run(inbox_poll._tick(state))
 
-    rows = inbox_db.list_inbox_sync(db_path=_isolate["db_path"])
+    rows = _list_inbox_rows(_isolate["db_path"])
     assert [(r.pr_repo, r.pr_number) for r in rows] == [("o/r", 43)]
 
 
@@ -373,8 +287,10 @@ def test_tick_skips_archived_rows(
     """Archived PR re-appearing in gh search results must NOT re-enter
     the active inbox view."""
     write_minimal_config(_isolate["config_path"])
-    inbox_db.archive_inbox_sync(
-        "o/r", 42, "2026-05-14T00:00:00Z", db_path=_isolate["db_path"]
+    pr_db.upsert_pr_sync(
+        PrRow(pr_repo="o/r", pr_number=42, is_archived=True,
+              archived_at="2026-05-14T00:00:00Z"),
+        db_path=_isolate["db_path"],
     )
 
     async def fake_fetch() -> list[InboxPrRaw]:
@@ -387,8 +303,8 @@ def test_tick_skips_archived_rows(
 
     asyncio.run(inbox_poll._tick(state))
 
-    # No row inserted; list filtered (archive shadow exists but inbox row doesn't).
-    assert inbox_db.list_inbox_sync(db_path=_isolate["db_path"]) == []
+    # Archived row stays filtered from the active inbox list.
+    assert _list_inbox_rows(_isolate["db_path"]) == []
 
 
 def test_tick_auto_removes_closed_pr(
@@ -405,10 +321,8 @@ def test_tick_auto_removes_closed_pr(
         last_seen_at="2026-05-01T00:00:00Z",
     )
     # Simulate the enrichment loop having written pr.state='merged'.
-    from app.services import pr_db
-
     pr_db.upsert_pr_sync(
-        pr_db.PrRow(pr_repo="o/r", pr_number=99, state="merged"),
+        PrRow(pr_repo="o/r", pr_number=99, state="merged"),
         db_path=_isolate["db_path"],
     )
 
@@ -421,7 +335,7 @@ def test_tick_auto_removes_closed_pr(
     import asyncio
 
     asyncio.run(inbox_poll._tick(state))
-    assert inbox_db.list_inbox_sync(db_path=_isolate["db_path"]) == []
+    assert _list_inbox_rows(_isolate["db_path"]) == []
 
 
 def test_tick_keeps_still_open_stale_row(
@@ -437,10 +351,8 @@ def test_tick_keeps_still_open_stale_row(
         pr_number=99,
         last_seen_at="2026-05-01T00:00:00Z",
     )
-    from app.services import pr_db
-
     pr_db.upsert_pr_sync(
-        pr_db.PrRow(pr_repo="o/r", pr_number=99, state="open"),
+        PrRow(pr_repo="o/r", pr_number=99, state="open"),
         db_path=_isolate["db_path"],
     )
 
@@ -454,7 +366,7 @@ def test_tick_keeps_still_open_stale_row(
 
     asyncio.run(inbox_poll._tick(state))
 
-    rows = inbox_db.list_inbox_sync(db_path=_isolate["db_path"])
+    rows = _list_inbox_rows(_isolate["db_path"])
     assert len(rows) == 1
     # last_seen_at is no longer bumped by the sweep (the enrichment
     # loop's state read replaced the per-row gh probe).
@@ -488,9 +400,39 @@ def test_tick_extracts_ticket_via_configured_pattern(
     import asyncio
 
     asyncio.run(inbox_poll._tick(state))
-    rows = inbox_db.list_inbox_sync(db_path=_isolate["db_path"])
+    rows = _list_inbox_rows(_isolate["db_path"])
     assert len(rows) == 1
     assert rows[0].ticket == "PROJ-218"
+
+
+def test_tick_excludes_bookmarked_prs_from_inbox_list(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A PR that's both review-requested AND bookmarked stays out of
+    the inbox surface — bookmark wins (explicit user pin). The
+    discovery loop upserts both PRs into the unified pr table; the
+    inbox list filter (`is_bookmarked=False`) is what enforces the
+    surface precedence."""
+    write_minimal_config(_isolate["config_path"])
+    from tests.fixtures.bookmark import seed_bookmark
+
+    seed_bookmark(_isolate["db_path"], pr_repo="o/r", pr_number=42)
+
+    async def fake_fetch() -> list[InboxPrRaw]:
+        return [
+            build_raw_pr(repo="o/r", number=42, head="feat/x"),
+            build_raw_pr(repo="o/r", number=43, head="feat/y"),
+        ]
+
+    monkeypatch.setattr(inbox_poll, "fetch_inbox_prs", fake_fetch)
+
+    state = SimpleNamespace()
+    import asyncio
+
+    asyncio.run(inbox_poll._tick(state))
+
+    rows = _list_inbox_rows(_isolate["db_path"])
+    assert [(r.pr_repo, r.pr_number) for r in rows] == [("o/r", 43)]
 
 
 # --- endpoint: GET /api/inbox ------------------------------------------
@@ -538,8 +480,9 @@ def test_get_inbox_filters_archived_rows(
     write_minimal_config(_isolate["config_path"])
     seed_inbox_row(_isolate["db_path"], pr_repo="o/r", pr_number=1)
     seed_inbox_row(_isolate["db_path"], pr_repo="o/r", pr_number=2)
-    inbox_db.archive_inbox_sync(
-        "o/r", 2, "2026-05-14T00:00:00Z", db_path=_isolate["db_path"]
+    pr_db.set_archived_flag_sync(
+        "o/r", 2, True, archived_at="2026-05-14T00:00:00Z",
+        db_path=_isolate["db_path"],
     )
 
     with TestClient(app) as client:
@@ -608,13 +551,20 @@ def test_archive_endpoint_hides_row_from_list(
         assert r2.json()["prs"] == []
 
 
-def test_archive_endpoint_is_idempotent(_isolate: dict[str, Path]) -> None:
+def test_archive_endpoint_404_on_repeat_archive(
+    _isolate: dict[str, Path],
+) -> None:
+    """Archive clears ``is_inbox`` (the row vanishes from the surface),
+    so a second archive call 404s. The pr_db-layer
+    ``set_archived_flag_sync`` is still idempotent on ``archived_at``
+    (see test_pr.py:test_set_archived_flag_is_idempotent_on_archived_at)."""
     write_minimal_config(_isolate["config_path"])
     seed_inbox_row(_isolate["db_path"], pr_repo="o/r", pr_number=1)
     with TestClient(app) as client:
-        client.post("/api/inbox/o/r/1/archive")
-        r = client.post("/api/inbox/o/r/1/archive")
-    assert r.status_code == 200
+        r1 = client.post("/api/inbox/o/r/1/archive")
+        assert r1.status_code == 200
+        r2 = client.post("/api/inbox/o/r/1/archive")
+        assert r2.status_code == 404
 
 
 def test_archive_endpoint_404_when_row_missing(
@@ -642,7 +592,7 @@ def test_notes_endpoint_updates_row(
     assert r.status_code == 200
     assert r.json()["notes"] == "blocked on COR-218"
 
-    row = inbox_db.get_inbox_sync("o/r", 1, db_path=_isolate["db_path"])
+    row = pr_db.get_pr_sync("o/r", 1, db_path=_isolate["db_path"])
     assert row is not None
     assert row.notes == "blocked on COR-218"
 
@@ -659,7 +609,7 @@ def test_notes_endpoint_accepts_empty_string(
             "/api/inbox/o/r/1/notes", json={"notes": ""}
         )
     assert r.status_code == 200
-    row = inbox_db.get_inbox_sync("o/r", 1, db_path=_isolate["db_path"])
+    row = pr_db.get_pr_sync("o/r", 1, db_path=_isolate["db_path"])
     assert row is not None
     assert row.notes == ""
 

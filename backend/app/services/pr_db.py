@@ -2,12 +2,7 @@
 
 Owns every read and write of the ``pr`` table created by migration
 013. Sync (sqlite3 is sync-only); async callers wrap with
-``asyncio.to_thread`` — same convention as :mod:`app.services.inbox_db`.
-
-The shim modules (:mod:`bookmark_db`, :mod:`inbox_db`,
-:mod:`authored_pr_notes_db`) delegate into here so routes and
-pollers don't need to change in this phase. Plan-61 inlines these
-calls directly into the routes and deletes the shims.
+``asyncio.to_thread``.
 """
 from __future__ import annotations
 
@@ -275,6 +270,42 @@ def update_notes_sync(
         conn.close()
 
 
+def upsert_notes_sync(
+    pr_repo: str,
+    pr_number: int,
+    notes: str,
+    updated_at: str,
+    db_path: Path | None = None,
+) -> None:
+    """Set notes on a pr row, inserting a stub row if none exists.
+
+    Used by the authored-PR notes endpoint: the user can type a note
+    on an authored PR before the next discovery poll has written its
+    pr row, and the note must survive. Empty string is valid (clears
+    the visible note). The direct UPDATE path is preferred over
+    :func:`upsert_pr_sync` so an explicit clear-to-empty isn't
+    COALESCEd back to the previous value.
+    """
+    if db_path is None:
+        db_path = get_db_path()
+    conn = open_db(db_path)
+    try:
+        cur = conn.execute(
+            "UPDATE pr SET notes = ?, last_refreshed_at = ? "
+            "WHERE pr_repo = ? AND pr_number = ?",
+            (notes, updated_at, pr_repo, pr_number),
+        )
+        if cur.rowcount == 0:
+            conn.execute(
+                "INSERT INTO pr (pr_repo, pr_number, notes, last_refreshed_at) "
+                "VALUES (?, ?, ?, ?)",
+                (pr_repo, pr_number, notes, updated_at),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def set_bookmark_flag_sync(
     pr_repo: str,
     pr_number: int,
@@ -490,8 +521,7 @@ def list_stale_inbox_sync(
     db_path: Path | None = None,
 ) -> list[tuple[str, int]]:
     """Inbox-flagged rows whose ``last_seen_at`` is strictly older than
-    ``cutoff``, oldest first, up to ``limit``. Mirrors the legacy
-    :func:`inbox_db.list_stale_inbox_sync` query."""
+    ``cutoff``, oldest first, up to ``limit``."""
     if db_path is None:
         db_path = get_db_path()
     conn = open_db(db_path)

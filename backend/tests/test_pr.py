@@ -1,9 +1,8 @@
 """Core unit tests for the unified ``pr`` table service module.
 
 Exercises the upsert / flag-toggle / GC / list-filter surface on
-``pr_db`` directly, without going through the legacy shim modules.
-The shim modules have their own roundtrip tests in
-``test_bookmarks.py`` / ``test_inbox.py`` / ``test_authored_prs.py``.
+``pr_db`` directly. Route-level roundtrips live in ``test_bookmarks.py``
+/ ``test_inbox.py`` / ``test_authored_prs.py``.
 """
 from __future__ import annotations
 
@@ -311,28 +310,29 @@ def test_list_stale_inbox_filters_and_orders(db_path: Path) -> None:
     assert stale == [("o/r", 1), ("o/r", 2)]
 
 
-def test_delete_notes_through_authored_shim_only_clears_when_no_flag(
-    db_path: Path,
-) -> None:
-    """The authored-PR shim's delete_notes is a no-op when an origin
-    flag holds the row — pinned here to prevent regression where
-    deleting authored notes wipes bookmark notes."""
-    from app.services import authored_pr_notes_db
-
-    pr_db.upsert_pr_sync(
-        PrRow(
-            pr_repo="o/r",
-            pr_number=1,
-            is_bookmarked=True,
-            bookmarked_at="2026-01-01T00:00:00Z",
-            notes="bookmark-notes",
-        ),
-        db_path=db_path,
+def test_upsert_notes_inserts_stub_when_no_row(db_path: Path) -> None:
+    """``pr_db.upsert_notes_sync`` is the authored-PR notes path: notes
+    must survive even when no discovery poll has written a pr row yet."""
+    pr_db.upsert_notes_sync(
+        "o/r", 1, "first note", "2026-05-22T00:00:00Z", db_path=db_path
     )
-    rowcount = authored_pr_notes_db.delete_notes_sync(
-        "o/r", 1, db_path=db_path
-    )
-    assert rowcount == 0
     pr = pr_db.get_pr_sync("o/r", 1, db_path=db_path)
     assert pr is not None
-    assert pr.notes == "bookmark-notes"
+    assert pr.notes == "first note"
+    # No origin flag set — gc would evaporate the row if not for the
+    # notes column, which the plan-59 GC contract explicitly preserves.
+    assert pr_db.maybe_gc_sync("o/r", 1, db_path=db_path) == 0
+
+
+def test_upsert_notes_overwrites_existing_value(db_path: Path) -> None:
+    """An empty-string note must replace (not COALESCE-merge) a prior
+    value — explicit clears are user intent."""
+    pr_db.upsert_notes_sync(
+        "o/r", 1, "first", "2026-05-22T00:00:00Z", db_path=db_path
+    )
+    pr_db.upsert_notes_sync(
+        "o/r", 1, "", "2026-05-22T00:01:00Z", db_path=db_path
+    )
+    pr = pr_db.get_pr_sync("o/r", 1, db_path=db_path)
+    assert pr is not None
+    assert pr.notes == ""

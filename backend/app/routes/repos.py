@@ -405,10 +405,10 @@ def _schedule_pull_down_follow_up(
         # Delayed imports to avoid a circular dependency between
         # routes/repos.py and routes/inbox.py.
         from app.routes.inbox import _perform_pull_down
-        from app.services import inbox_db
+        from app.services import pr_db
 
         row = await asyncio.to_thread(
-            inbox_db.get_inbox_sync, pr_repo, pr_number
+            pr_db.get_pr_sync, pr_repo, pr_number
         )
         author_login = row.author_login if row else None
         try:
