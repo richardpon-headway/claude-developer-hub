@@ -251,15 +251,5 @@ async def _gh_pr_state(pr_repo: str, pr_number: int) -> str | None:
 def _touch_last_seen(pr_repo: str, pr_number: int, ts: str) -> None:
     """Bump ``last_seen_at`` on a row without changing other fields.
     Used by the auto-removal sweep when a probed row turns out to
-    still be open."""
-    db_path = get_db_path()
-    conn = open_db(db_path)
-    try:
-        conn.execute(
-            "UPDATE inbox SET last_seen_at = ? "
-            "WHERE pr_repo = ? AND pr_number = ?",
-            (ts, pr_repo, pr_number),
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    still be open. Delegates to the unified pr table via the shim."""
+    inbox_db.touch_last_seen_sync(pr_repo, pr_number, ts)

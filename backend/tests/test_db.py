@@ -525,15 +525,32 @@ def test_migration_005_allows_code_on_disk_status(db_path: Path) -> None:
         conn.close()
 
 
-def test_migration_006_pr_state_fk_points_at_worktree(db_path: Path) -> None:
-    """After all migrations apply, pr_state's FK target is `worktree`
-    (not a dangling `worktree_old_005`). Insert smoke-test confirms
-    the FK resolves at INSERT time."""
-    db.apply_migrations_sync(db_path)
-    conn = db.open_db(db_path)
+def test_migration_006_pr_state_fk_points_at_worktree(
+    db_path: Path, tmp_path: Path
+) -> None:
+    """At migration 012's schema, pr_state's FK target is `worktree`
+    (not a dangling `worktree_old_005`). Migration 013 supersedes this
+    by rekeying pr_state to GitHub identity — to keep this regression
+    pin meaningful for the 005/006 incident, we stop applying at 012.
+    """
+    from app.db import (
+        _PRAGMAS,
+        MIGRATIONS_DIR,
+        _apply_one,
+        _ensure_migration_table,
+    )
+
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    for pragma in _PRAGMAS:
+        conn.execute(pragma)
+    _ensure_migration_table(conn)
+    for migration in sorted(MIGRATIONS_DIR.glob("0[01][0-9]*.sql")):
+        if migration.name >= "013":
+            break
+        _apply_one(conn, migration)
+
     try:
-        # PRAGMA foreign_key_list returns rows describing each FK; the
-        # third column (index 2) is the target table name.
         fks = conn.execute("PRAGMA foreign_key_list(pr_state)").fetchall()
         assert fks, "pr_state should have FK to worktree"
         for fk in fks:
@@ -562,8 +579,7 @@ def test_migration_006_pr_state_fk_points_at_worktree(db_path: Path) -> None:
         )
         conn.commit()
 
-        # And cascade-delete still works (the FK action survived the
-        # rebuild).
+        # Cascade-delete still works.
         conn.execute("DELETE FROM worktree WHERE name = 'wt'")
         conn.commit()
         remaining = conn.execute(
@@ -572,6 +588,292 @@ def test_migration_006_pr_state_fk_points_at_worktree(db_path: Path) -> None:
         assert remaining == 0
     finally:
         conn.close()
+
+
+# --- migration 013_unified_pr ----------------------------------------------
+
+
+def _apply_through_012(
+    db_path: Path,
+) -> sqlite3.Connection:
+    """Apply migrations 001 through 012 to a fresh DB, return an open
+    connection so the test can seed legacy table state before invoking
+    013. The connection has PRAGMAs applied + the _migration tracking
+    table created — equivalent to apply_migrations_sync's setup path.
+    """
+    from app.db import (
+        _PRAGMAS,
+        MIGRATIONS_DIR,
+        _apply_one,
+        _ensure_migration_table,
+    )
+
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    for pragma in _PRAGMAS:
+        conn.execute(pragma)
+    _ensure_migration_table(conn)
+    for migration in sorted(MIGRATIONS_DIR.glob("0[01][0-9]*.sql")):
+        if migration.name >= "013":
+            break
+        _apply_one(conn, migration)
+    return conn
+
+
+def test_migration_013_folds_every_legacy_table_into_pr(
+    db_path: Path, tmp_path: Path
+) -> None:
+    """Seed rows across all four legacy PR-keyed tables plus a worktree-
+    only PR, run 013, assert each ``(pr_repo, pr_number)`` appears
+    exactly once in ``pr`` with the correct origin flags. Six cases:
+
+    1. bookmark-only with notes
+    2. inbox-only
+    3. inbox_archived shadowing an inbox row
+    4. bookmark + inbox overlap (both flags set on one row)
+    5. worktree + bookmark overlap (worktree FK gets a parent)
+    6. authored_pr_notes-only
+
+    Also asserts the rebuilt schema: pr_author_login column gone from
+    worktree, four legacy tables absent from sqlite_master, pr_state
+    rekeyed.
+    """
+    conn = _apply_through_012(db_path)
+    try:
+        # (1) bookmark-only with notes
+        conn.execute(
+            "INSERT INTO bookmark (pr_repo, pr_number, title, author_login, "
+            "url, state, notes, ticket, bookmarked_at, last_refreshed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "o/r", 1, "B-only", "alice", "https://gh/o/r/pull/1",
+                "open", "bookmark-notes", "TICK-1",
+                "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z",
+            ),
+        )
+        # (2) inbox-only
+        conn.execute(
+            "INSERT INTO inbox (pr_repo, pr_number, title, author_login, "
+            "url, is_draft, ci_status, sources, notes, ticket, "
+            "pr_updated_at, added_at, last_seen_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "o/r", 2, "I-only", "bob", "https://gh/o/r/pull/2",
+                0, "pass", '["reviewer"]', None, None,
+                "2026-01-03T00:00:00Z", "2026-01-03T00:00:00Z",
+                "2026-01-03T00:00:00Z",
+            ),
+        )
+        # (3) inbox_archived shadowing an inbox row
+        conn.execute(
+            "INSERT INTO inbox (pr_repo, pr_number, title, author_login, "
+            "url, is_draft, ci_status, sources, notes, ticket, "
+            "pr_updated_at, added_at, last_seen_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "o/r", 3, "I-arch", "bob", "https://gh/o/r/pull/3",
+                0, "pass", '["assignee"]', None, None,
+                "2026-01-04T00:00:00Z", "2026-01-04T00:00:00Z",
+                "2026-01-04T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO inbox_archived (pr_repo, pr_number, archived_at) "
+            "VALUES (?, ?, ?)",
+            ("o/r", 3, "2026-01-05T00:00:00Z"),
+        )
+        # (4) bookmark + inbox overlap
+        conn.execute(
+            "INSERT INTO inbox (pr_repo, pr_number, title, author_login, "
+            "url, is_draft, ci_status, sources, notes, ticket, "
+            "pr_updated_at, added_at, last_seen_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "o/r", 4, "Both", "carol", "https://gh/o/r/pull/4",
+                0, "pending", '["mention"]', "inbox-notes", None,
+                "2026-01-06T00:00:00Z", "2026-01-06T00:00:00Z",
+                "2026-01-06T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO bookmark (pr_repo, pr_number, title, author_login, "
+            "url, state, notes, ticket, bookmarked_at, last_refreshed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "o/r", 4, "Both", "carol", "https://gh/o/r/pull/4",
+                "open", "bookmark-notes-win", None,
+                "2026-01-07T00:00:00Z", "2026-01-07T00:00:00Z",
+            ),
+        )
+        # (5) worktree + bookmark overlap (worktree row references pr)
+        conn.execute(
+            "INSERT INTO worktree (repo, name, path, branch, ticket, "
+            "pr_number, pr_repo, pr_author_login, created_at, status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "myrepo", "wt5", str(tmp_path / "wt5"), "feat/5", None,
+                5, "o/r", "dan", "2026-01-08T00:00:00Z", "ready",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO bookmark (pr_repo, pr_number, title, author_login, "
+            "url, state, notes, ticket, bookmarked_at, last_refreshed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "o/r", 5, "WB", "dan", "https://gh/o/r/pull/5",
+                "open", None, None,
+                "2026-01-09T00:00:00Z", "2026-01-09T00:00:00Z",
+            ),
+        )
+        # (6) authored_pr_notes-only
+        conn.execute(
+            "INSERT INTO authored_pr_notes (pr_repo, pr_number, notes, "
+            "updated_at) VALUES (?, ?, ?, ?)",
+            ("o/r", 6, "authored-only", "2026-01-10T00:00:00Z"),
+        )
+        # Plus a worktree-only PR (no bookmark / inbox / authored) so
+        # the worktree-fold step exercises the WHERE pr_repo IS NOT
+        # NULL clause.
+        conn.execute(
+            "INSERT INTO worktree (repo, name, path, branch, ticket, "
+            "pr_number, pr_repo, pr_author_login, created_at, status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "myrepo", "wt7", str(tmp_path / "wt7"), "feat/7", None,
+                7, "o/r", "eve", "2026-01-11T00:00:00Z", "ready",
+            ),
+        )
+        # Seed one pr_state row keyed (legacy shape) to a worktree —
+        # 013's rekey should fold it under (o/r, 5).
+        conn.execute(
+            "INSERT INTO pr_state (repo, worktree_name, headline, payload, "
+            "checked_at) VALUES (?, ?, ?, ?, ?)",
+            (
+                "myrepo", "wt5", "ready_to_merge",
+                '{"pr_number": 5, "url": "https://gh/o/r/pull/5", '
+                '"headline": "ready_to_merge"}',
+                "2026-01-12T00:00:00Z",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Now apply 013.
+    db.apply_migrations_sync(db_path)
+
+    conn = db.open_db(db_path)
+    try:
+        # Every (pr_repo, pr_number) appears exactly once in pr.
+        rows = list(conn.execute(
+            "SELECT pr_repo, pr_number, is_bookmarked, is_inbox, "
+            "       is_archived, notes, author_login "
+            "FROM pr ORDER BY pr_number"
+        ))
+        # PR 1 — bookmark-only
+        assert rows[0] == ("o/r", 1, 1, 0, 0, "bookmark-notes", "alice")
+        # PR 2 — inbox-only
+        assert rows[1] == ("o/r", 2, 0, 1, 0, None, "bob")
+        # PR 3 — inbox + archived
+        assert rows[2] == ("o/r", 3, 0, 1, 1, None, "bob")
+        # PR 4 — bookmark + inbox; bookmark notes win
+        assert rows[3] == ("o/r", 4, 1, 1, 0, "bookmark-notes-win", "carol")
+        # PR 5 — bookmark + worktree-attached
+        assert rows[4] == ("o/r", 5, 1, 0, 0, None, "dan")
+        # PR 6 — authored-only (no origin flag, notes only)
+        assert rows[5] == ("o/r", 6, 0, 0, 0, "authored-only", None)
+        # PR 7 — worktree-only (no origin flag, no notes)
+        assert rows[6] == ("o/r", 7, 0, 0, 0, None, "eve")
+
+        # pr_state rekeyed to (pr_repo, pr_number).
+        ps = conn.execute(
+            "SELECT pr_repo, pr_number, headline FROM pr_state"
+        ).fetchall()
+        assert ps == [("o/r", 5, "ready_to_merge")]
+
+        # worktree.pr_author_login column is gone.
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(worktree)")]
+        assert "pr_author_login" not in cols
+
+        # The 4 legacy tables are gone.
+        tables = {
+            r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert "bookmark" not in tables
+        assert "inbox" not in tables
+        assert "inbox_archived" not in tables
+        assert "authored_pr_notes" not in tables
+
+        # pr_state's FK now points at pr (not worktree).
+        fks = conn.execute("PRAGMA foreign_key_list(pr_state)").fetchall()
+        assert fks, "pr_state should have a FK"
+        for fk in fks:
+            assert fk[2] == "pr", (
+                f"pr_state FK target must be 'pr', got {fk[2]!r}"
+            )
+
+        # worktree's new FK to pr is present.
+        fks = conn.execute("PRAGMA foreign_key_list(worktree)").fetchall()
+        assert fks, "worktree should have a FK to pr"
+        for fk in fks:
+            assert fk[2] == "pr", (
+                f"worktree FK target must be 'pr', got {fk[2]!r}"
+            )
+    finally:
+        conn.close()
+
+
+def test_migration_013_is_idempotent(db_path: Path) -> None:
+    """Re-running ``apply_migrations_sync`` after 013 lands must be a
+    no-op — the runner's ``_migration`` table skips already-applied
+    migrations. Catches regression where 013's defensive ``DROP TABLE
+    IF EXISTS`` would otherwise wipe the new ``pr`` table on a second
+    run."""
+    db.apply_migrations_sync(db_path)
+    # Insert a row to prove it survives a second call.
+    conn = db.open_db(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO pr (pr_repo, pr_number, is_bookmarked, "
+            "bookmarked_at) VALUES (?, ?, 1, ?)",
+            ("o/r", 1, "2026-01-01T00:00:00Z"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    db.apply_migrations_sync(db_path)
+
+    conn = db.open_db(db_path)
+    try:
+        rows = list(conn.execute(
+            "SELECT pr_repo, pr_number, is_bookmarked FROM pr"
+        ))
+    finally:
+        conn.close()
+    assert rows == [("o/r", 1, 1)]
+
+
+def test_migration_013_creates_forced_pre_backup(
+    db_path: Path, tmp_path: Path
+) -> None:
+    """Public users upgrading within the 24h backup window would
+    otherwise get no fresh pre-013 snapshot. The forced backup runs
+    unconditionally when 013 is pending."""
+    # Stop at 012 so 013 is pending on the next apply.
+    conn = _apply_through_012(db_path)
+    conn.close()
+    # Create a recent rolling backup so _backup_if_stale would normally
+    # skip — the forced backup must still fire.
+    recent_bak = db_path.parent / f"{db_path.name}.bak.recent"
+    recent_bak.write_bytes(b"x")
+
+    db.apply_migrations_sync(db_path)
+
+    target = db_path.parent / f"{db_path.name}.bak.pre-013_unified_pr"
+    assert target.exists(), "expected forced pre-013 backup file"
 
 
 # --- migration discovery ---------------------------------------------------

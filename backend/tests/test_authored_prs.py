@@ -344,12 +344,16 @@ def test_pull_down_authored_happy_path(
     body = r.json()
     assert body["repo"] == "myapp"
 
-    # Verify the worktree row got @me as pr_author_login (resolved via
-    # get_user_login at the route layer).
+    # Verify the unified pr row got @me as author_login (resolved via
+    # get_user_login at the route layer; the worktree projects it via
+    # LEFT JOIN at read time).
     conn = sqlite3.connect(_isolate["db_path"])
     try:
         row = conn.execute(
-            "SELECT pr_author_login FROM worktree WHERE repo=?",
+            "SELECT pr.author_login "
+            "FROM worktree w "
+            "JOIN pr ON pr.pr_repo = w.pr_repo AND pr.pr_number = w.pr_number "
+            "WHERE w.repo = ?",
             ("myapp",),
         ).fetchone()
     finally:

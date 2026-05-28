@@ -32,8 +32,9 @@ from pydantic import BaseModel, Field
 from app.config.loader import load_config
 from app.config.schema import RepoConfig
 from app.models.inbox import InboxCiStatus, InboxRow
+from app.models.pr import PrRow
 from app.models.worktree import now_iso
-from app.services import authored_pr_notes_db, inbox_db, inbox_poll, terminal
+from app.services import authored_pr_notes_db, inbox_db, inbox_poll, pr_db, terminal
 from app.services import worktree as wt_svc
 from app.services.gh_cli import GhFailed, GhNotFound, run_gh_json
 from app.services.inbox_search import configured_repos_index, lookup_configured_repo
@@ -249,9 +250,11 @@ async def _perform_pull_down(
     onboard-complete callback). This function just wires up the gh
     fetch + worktree creation.
 
-    ``author_login`` is passed through to the worktree row so the hub
-    can split owner vs. reviewing tiers without re-querying gh. ``None``
-    is acceptable — the pr_state poll backfills it on its next tick.
+    ``author_login`` is written to ``pr.author_login`` (the unified
+    pr table — worktree.pr_author_login was dropped by migration 013
+    and the field is projected via LEFT JOIN at read time). ``None``
+    is acceptable; the pr_state poll fills the column on its next
+    tick from gh's fresh payload.
     """
     config = load_config()
     repo = lookup_configured_repo(pr_repo, configured_repos_index(config.repos))
@@ -325,18 +328,29 @@ async def _perform_pull_down(
         )
         raise HTTPException(code, msg) from e
 
-    # Set pr_number + pr_repo + pr_author_login on the new worktree
-    # row. The dedup filter in the inbox poll will then exclude this
-    # PR on the next tick, and the hub can split owner vs. reviewing
-    # workspaces without re-querying gh.
+    # Set pr_number + pr_repo on the new worktree row. The dedup
+    # filter in the inbox poll will then exclude this PR on the next
+    # tick.
     await asyncio.to_thread(
         wt_svc.update_worktree_pr_sync,
         repo.name,
         worktree.name,
         pr_number,
         pr_repo,
-        author_login,
     )
+    # Write the author onto the unified pr row (the worktree projects
+    # it via JOIN). Captured at pull-down time from the originating
+    # surface's row so the REVIEWING-tier split has a value before
+    # the next pr_state poll tick.
+    if author_login is not None:
+        await asyncio.to_thread(
+            pr_db.upsert_pr_sync,
+            PrRow(
+                pr_repo=pr_repo,
+                pr_number=pr_number,
+                author_login=author_login,
+            ),
+        )
 
     # Surface transition: if this PR had notes attached on the
     # authored-PR tier, migrate them to the new worktree row so the

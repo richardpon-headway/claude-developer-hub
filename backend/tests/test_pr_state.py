@@ -525,12 +525,9 @@ def test_summarize_end_to_end() -> None:
 
 
 def test_upsert_and_get_pr_state(_isolate: dict[str, Path]) -> None:
-    seed_worktree(
-        _isolate["db_path"],
-        "myrepo",
-        "feature1",
-        path=_isolate["dev_root"] / "feature1",
-    )
+    from tests.fixtures.pr import seed_pr
+
+    seed_pr(_isolate["db_path"], pr_repo="acme/repo", pr_number=42)
     summary = PrSummary(
         headline="ready_to_merge",
         pr_number=42,
@@ -539,8 +536,12 @@ def test_upsert_and_get_pr_state(_isolate: dict[str, Path]) -> None:
         checks=PrChecks(passed=3, total=3),
         comments=PrComments(human=1, bot=0, total=1),
     )
-    upsert_pr_state_sync("myrepo", "feature1", summary, db_path=_isolate["db_path"])
-    fetched = get_pr_state_sync("myrepo", "feature1", db_path=_isolate["db_path"])
+    upsert_pr_state_sync(
+        "acme/repo", 42, summary, db_path=_isolate["db_path"]
+    )
+    fetched = get_pr_state_sync(
+        "acme/repo", 42, db_path=_isolate["db_path"]
+    )
     assert fetched is not None
     assert fetched.headline == "ready_to_merge"
     assert fetched.payload["pr_number"] == 42
@@ -548,17 +549,16 @@ def test_upsert_and_get_pr_state(_isolate: dict[str, Path]) -> None:
 
 
 def test_upsert_replaces_existing_row(_isolate: dict[str, Path]) -> None:
-    seed_worktree(
-        _isolate["db_path"],
-        "myrepo",
-        "feature1",
-        path=_isolate["dev_root"] / "feature1",
-    )
+    from tests.fixtures.pr import seed_pr
+
+    seed_pr(_isolate["db_path"], pr_repo="acme/repo", pr_number=1)
     s1 = PrSummary(headline="checks_running", pr_number=1)
     s2 = PrSummary(headline="ready_to_merge", pr_number=1)
-    upsert_pr_state_sync("myrepo", "feature1", s1, db_path=_isolate["db_path"])
-    upsert_pr_state_sync("myrepo", "feature1", s2, db_path=_isolate["db_path"])
-    fetched = get_pr_state_sync("myrepo", "feature1", db_path=_isolate["db_path"])
+    upsert_pr_state_sync("acme/repo", 1, s1, db_path=_isolate["db_path"])
+    upsert_pr_state_sync("acme/repo", 1, s2, db_path=_isolate["db_path"])
+    fetched = get_pr_state_sync(
+        "acme/repo", 1, db_path=_isolate["db_path"]
+    )
     assert fetched.headline == "ready_to_merge"
 
 
@@ -601,9 +601,8 @@ def test_fetch_pr_summary_parses_gh_json(
     assert summary.headline == "human_comment"
     assert summary.pr_number == 7
     assert summary.comments.human == 1
-    # Author flows through so the hub's REVIEWING-tier split can use
-    # it (directly via list-worktrees, indirectly via lazy backfill of
-    # the worktree.pr_author_login column).
+    # Author flows through so the pr_state poll can write pr.author_
+    # login on the unified pr row alongside the cached state.
     assert summary.author_login == "sarah-h"
 
 
@@ -762,6 +761,8 @@ def test_pr_state_refresh_endpoint(
         "myrepo",
         "feature1",
         path=_isolate["dev_root"] / "feature1",
+        pr_repo="acme/myrepo",
+        pr_number=99,
     )
 
     # Stub the actual gh call so the test is offline-safe.
@@ -787,8 +788,10 @@ def test_pr_state_refresh_endpoint(
     assert body["checks"]["passed"] == 4
     assert "checked_at" in body
 
-    # Row written to DB
-    fetched = get_pr_state_sync("myrepo", "feature1", db_path=_isolate["db_path"])
+    # Row written to DB keyed by GitHub identity.
+    fetched = get_pr_state_sync(
+        "acme/myrepo", 99, db_path=_isolate["db_path"]
+    )
     assert fetched is not None
     assert fetched.headline == "ready_to_merge"
 
@@ -804,15 +807,20 @@ def test_pr_state_refresh_404_when_worktree_missing(_isolate: dict[str, Path]) -
 
 
 def test_list_worktrees_includes_pr_state(_isolate: dict[str, Path]) -> None:
+    from tests.fixtures.pr import seed_pr
+
     seed_worktree(
         _isolate["db_path"],
         "myrepo",
         "feature1",
         path=_isolate["dev_root"] / "feature1",
+        pr_repo="acme/myrepo",
+        pr_number=1,
     )
+    seed_pr(_isolate["db_path"], pr_repo="acme/myrepo", pr_number=1)
     upsert_pr_state_sync(
-        "myrepo",
-        "feature1",
+        "acme/myrepo",
+        1,
         PrSummary(
             headline="ci_failing",
             pr_number=1,
@@ -849,17 +857,15 @@ def test_list_worktrees_handles_missing_pr_state(_isolate: dict[str, Path]) -> N
     assert rows[0]["pr_state"] is None
 
 
-# --- poll-loop backfill of worktree.pr_author_login ------------------------
+# --- poll-loop writes author_login onto the unified pr row ----------------
 
 
-def test_poll_backfills_pr_author_login(
+def test_poll_writes_pr_author_login_onto_pr_row(
     monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
 ) -> None:
-    """A worktree row created before the pr_author_login column existed
-    starts with NULL. Once the poll fetches a fresh gh payload that
-    carries an author, the next tick should write it onto the
-    worktree row so the hub can route the row to REVIEWING vs. an
-    owner tier."""
+    """The pr_state poll fetches a fresh gh payload, then writes
+    pr.author_login alongside the pr_state cache. WorktreeRow surfaces
+    the value via LEFT JOIN to pr at read time."""
     import sqlite3
 
     from app.services import pr_state_poll
@@ -869,6 +875,8 @@ def test_poll_backfills_pr_author_login(
         "myrepo",
         "feature1",
         path=_isolate["dev_root"] / "feature1",
+        pr_repo="acme/myrepo",
+        pr_number=99,
     )
 
     async def fake_fetch(path: Path) -> PrSummary:
@@ -888,22 +896,20 @@ def test_poll_backfills_pr_author_login(
     conn = sqlite3.connect(_isolate["db_path"])
     try:
         row = conn.execute(
-            "SELECT pr_author_login FROM worktree "
-            "WHERE repo='myrepo' AND name='feature1'"
+            "SELECT author_login FROM pr "
+            "WHERE pr_repo='acme/myrepo' AND pr_number=99"
         ).fetchone()
     finally:
         conn.close()
     assert row == ("alex-r",)
 
 
-def test_poll_does_not_overwrite_existing_pr_author_login(
+def test_poll_skips_worktrees_without_attached_pr(
     monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
 ) -> None:
-    """If the worktree row already has a pr_author_login (set at
-    pull-down), a subsequent poll tick should not overwrite it — even
-    if gh returns a different value (e.g., the PR's author got
-    renamed). The pull-down value reflects what the user clicked on;
-    we don't want background polls rewriting that."""
+    """A worktree with NULL pr_repo/pr_number can't have a pr_state
+    row (the FK would dangle). The poll should silently skip — the
+    next pull-down attaches a PR and the following tick picks it up."""
     import sqlite3
 
     from app.services import pr_state_poll
@@ -914,35 +920,23 @@ def test_poll_does_not_overwrite_existing_pr_author_login(
         "feature1",
         path=_isolate["dev_root"] / "feature1",
     )
-    # Pre-set as if the pull-down path already captured the author.
-    conn = sqlite3.connect(_isolate["db_path"])
-    try:
-        conn.execute(
-            "UPDATE worktree SET pr_author_login = 'sarah-h' "
-            "WHERE repo='myrepo' AND name='feature1'"
-        )
-        conn.commit()
-    finally:
-        conn.close()
+
+    fetch_called = False
 
     async def fake_fetch(path: Path) -> PrSummary:
-        return PrSummary(
-            headline="ready_to_merge",
-            pr_number=99,
-            author_login="someone-else",
-            checks=PrChecks(passed=4, total=4),
-        )
+        nonlocal fetch_called
+        fetch_called = True
+        return PrSummary(headline="no_pr")
 
     monkeypatch.setattr(pr_state, "fetch_pr_summary", fake_fetch)
 
     asyncio.run(pr_state_poll._tick())
 
+    assert fetch_called is False, "should skip worktrees without a PR"
+
     conn = sqlite3.connect(_isolate["db_path"])
     try:
-        row = conn.execute(
-            "SELECT pr_author_login FROM worktree "
-            "WHERE repo='myrepo' AND name='feature1'"
-        ).fetchone()
+        n_pr_state = conn.execute("SELECT COUNT(*) FROM pr_state").fetchone()[0]
     finally:
         conn.close()
-    assert row == ("sarah-h",)
+    assert n_pr_state == 0

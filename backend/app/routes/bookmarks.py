@@ -285,7 +285,7 @@ async def pull_down_bookmark(pr_repo: str, pr_number: int) -> PullDownResponse:
             f"PR {pr_repo}#{pr_number} is not bookmarked",
         )
     return await _perform_pull_down(
-        pr_repo, pr_number, author_login=row.author_login,
+        pr_repo, pr_number, author_login=row.author_login
     )
 
 

@@ -43,6 +43,15 @@ def seed_worktree(
 
     conn = sqlite3.connect(db_path)
     try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        # The worktree's (pr_repo, pr_number) FK references pr. When a
+        # test seeds a worktree with a PR attached, make sure a parent
+        # pr row exists so the INSERT doesn't trip the FK.
+        if pr_repo is not None and pr_number is not None:
+            conn.execute(
+                "INSERT OR IGNORE INTO pr (pr_repo, pr_number) VALUES (?, ?)",
+                (pr_repo, pr_number),
+            )
         conn.execute(
             "INSERT INTO worktree "
             "(repo, name, path, branch, ticket, created_at, status, "
