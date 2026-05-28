@@ -228,6 +228,97 @@ def _reconcile_orphaned_setting_up(conn: sqlite3.Connection) -> int:
     return len(to_code) + len(to_failed)
 
 
+_DESTRUCTIVE_MIGRATIONS = ("013_unified_pr.sql",)
+
+
+def _force_backup_destructive(
+    db_path: Path,
+    pending_names: set[str],
+    applied_names: set[str],
+) -> None:
+    """Force an unconditional pre-migration backup before any
+    destructive migration runs against an existing user DB,
+    regardless of the 24h staleness gate.
+
+    Destructive migrations drop multiple tables; a user upgrading
+    within the 24h backup window would otherwise get no fresh
+    snapshot. The pre-<id> file lives alongside the rolling
+    timestamped backups but isn't pruned by the MAX_BACKUPS cap
+    (it's the user's one-shot rescue point for THIS destructive
+    upgrade).
+
+    Skips when ``applied_names`` is empty — a fresh install has no
+    data worth snapshotting and the destructive migration is just
+    laying down the new schema.
+    """
+    if not db_path.exists():
+        return
+    if not applied_names:
+        return
+    for name in _DESTRUCTIVE_MIGRATIONS:
+        if name not in pending_names:
+            continue
+        stem = name.split(".sql", 1)[0]
+        target = db_path.parent / f"{db_path.name}.bak.pre-{stem}"
+        if target.exists():
+            return
+        try:
+            shutil.copy2(db_path, target)
+            log.info("pre-destructive backup created: %s", target)
+        except OSError as e:
+            log.warning(
+                "failed to create pre-destructive backup at %s: %s", target, e
+            )
+        return
+
+
+def _log_013_fold(conn: sqlite3.Connection) -> None:
+    """Post-013 diagnostic: count rows in the unified pr table by
+    origin flag, plus any dangling FKs surfaced by foreign_key_check.
+    Defensive — a query failure here must not crash the lifespan hook
+    (the migration has already committed)."""
+    try:
+        n_bookmarked = conn.execute(
+            "SELECT COUNT(*) FROM pr WHERE is_bookmarked = 1"
+        ).fetchone()[0]
+        n_inbox = conn.execute(
+            "SELECT COUNT(*) FROM pr WHERE is_inbox = 1"
+        ).fetchone()[0]
+        n_archived = conn.execute(
+            "SELECT COUNT(*) FROM pr WHERE is_archived = 1"
+        ).fetchone()[0]
+        n_authored_notes = conn.execute(
+            "SELECT COUNT(*) FROM pr "
+            "WHERE notes IS NOT NULL "
+            "  AND is_bookmarked = 0 AND is_inbox = 0 AND is_archived = 0"
+        ).fetchone()[0]
+        n_worktree_pr = conn.execute(
+            "SELECT COUNT(*) FROM worktree "
+            "WHERE pr_repo IS NOT NULL AND pr_number IS NOT NULL"
+        ).fetchone()[0]
+        n_pr_state = conn.execute("SELECT COUNT(*) FROM pr_state").fetchone()[0]
+        log.info(
+            "migration 013: %d bookmark, %d inbox, %d archived, "
+            "%d authored notes, %d worktree-attached, %d pr_state "
+            "rows folded into pr",
+            n_bookmarked, n_inbox, n_archived,
+            n_authored_notes, n_worktree_pr, n_pr_state,
+        )
+    except sqlite3.Error as e:
+        log.warning("migration 013 fold-count diagnostic failed: %s", e)
+
+    try:
+        fk_violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if fk_violations:
+            log.warning(
+                "migration 013: %d dangling FK rows detected by "
+                "foreign_key_check: %r",
+                len(fk_violations), fk_violations,
+            )
+    except sqlite3.Error as e:
+        log.warning("migration 013 foreign_key_check diagnostic failed: %s", e)
+
+
 def apply_migrations_sync(db_path: Path | None = None) -> None:
     if db_path is None:
         db_path = get_db_path()
@@ -239,9 +330,16 @@ def apply_migrations_sync(db_path: Path | None = None) -> None:
         _ensure_migration_table(conn)
         applied = _applied_migrations(conn)
         pending = [p for p in _discover_migrations() if p.name not in applied]
+
+        _force_backup_destructive(
+            db_path, {p.name for p in pending}, applied
+        )
+
         for migration in pending:
             log.info("applying migration %s", migration.name)
             _apply_one(conn, migration)
+            if migration.name == "013_unified_pr.sql":
+                _log_013_fold(conn)
 
         if _table_exists(conn, "worktree"):
             _reconcile_orphaned_setting_up(conn)

@@ -107,10 +107,11 @@ class PrSummary:
     base_ref: str | None = None
     head_ref: str | None = None
     updated_at: str | None = None
-    # GitHub login of the PR's author. Carried so the hub can lazy-
-    # backfill ``worktree.pr_author_login`` for worktrees that pre-
-    # date the column. None when the PR doesn't exist yet or when
-    # gh's payload didn't include an author (e.g. deleted account).
+    # GitHub login of the PR's author. Carried so the pr_state poll
+    # can write ``pr.author_login`` on the unified pr row alongside
+    # the pr_state cache (replaces the legacy ``worktree.pr_author_
+    # login`` lazy-backfill removed in plan-59). None when the PR
+    # doesn't exist yet or when gh's payload didn't include an author.
     author_login: str | None = None
     labels: list[str] = field(default_factory=list)
     # Number of PR review threads that are NOT resolved AND NOT
@@ -514,13 +515,13 @@ def _now_iso() -> str:
 
 
 def upsert_pr_state_sync(
-    repo: str,
-    worktree_name: str,
+    pr_repo: str,
+    pr_number: int,
     summary: PrSummary,
     db_path: Path | None = None,
 ) -> str:
-    """Insert or replace the pr_state row. Returns the ``checked_at``
-    timestamp written so callers can echo it back."""
+    """Insert or replace the pr_state row keyed by GitHub identity.
+    Returns the ``checked_at`` timestamp so callers can echo it back."""
     if db_path is None:
         db_path = get_db_path()
     checked_at = _now_iso()
@@ -528,13 +529,13 @@ def upsert_pr_state_sync(
     conn = open_db(db_path)
     try:
         conn.execute(
-            "INSERT INTO pr_state (repo, worktree_name, headline, payload, checked_at) "
+            "INSERT INTO pr_state (pr_repo, pr_number, headline, payload, checked_at) "
             "VALUES (?, ?, ?, ?, ?) "
-            "ON CONFLICT(repo, worktree_name) DO UPDATE SET "
+            "ON CONFLICT(pr_repo, pr_number) DO UPDATE SET "
             "  headline = excluded.headline, "
             "  payload = excluded.payload, "
             "  checked_at = excluded.checked_at",
-            (repo, worktree_name, summary.headline, payload_json, checked_at),
+            (pr_repo, pr_number, summary.headline, payload_json, checked_at),
         )
         conn.commit()
     finally:
@@ -543,7 +544,7 @@ def upsert_pr_state_sync(
 
 
 def get_pr_state_sync(
-    repo: str, worktree_name: str, db_path: Path | None = None
+    pr_repo: str, pr_number: int, db_path: Path | None = None
 ) -> PrStateRow | None:
     if db_path is None:
         db_path = get_db_path()
@@ -551,8 +552,8 @@ def get_pr_state_sync(
     try:
         row = conn.execute(
             "SELECT headline, payload, checked_at FROM pr_state "
-            "WHERE repo = ? AND worktree_name = ?",
-            (repo, worktree_name),
+            "WHERE pr_repo = ? AND pr_number = ?",
+            (pr_repo, pr_number),
         ).fetchone()
     finally:
         conn.close()

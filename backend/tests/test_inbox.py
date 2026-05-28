@@ -168,8 +168,11 @@ def test_tracked_keys_reads_from_pr_state_url(_isolate: dict[str, Path]) -> None
     seed_worktree(
         _isolate["db_path"], "myapp", "feat1", branch="feat/x"
     )
+    from tests.fixtures.pr import seed_pr
+
+    seed_pr(_isolate["db_path"], pr_repo="o/myapp", pr_number=99)
     seed_pr_state(
-        _isolate["db_path"], "myapp", "feat1", pr_number=99, pr_repo="o/myapp"
+        _isolate["db_path"], pr_repo="o/myapp", pr_number=99
     )
     keys = inbox_poll._tracked_pr_keys_sync()
     assert keys == {("o/myapp", 99)}
@@ -180,17 +183,20 @@ def test_tracked_keys_handles_pr_state_with_malformed_url(
 ) -> None:
     import json
 
+    from tests.fixtures.pr import seed_pr
+
     seed_worktree(
         _isolate["db_path"], "myapp", "feat1", branch="feat/x"
     )
+    seed_pr(_isolate["db_path"], pr_repo="o/myapp", pr_number=99)
     conn = sqlite3.connect(_isolate["db_path"])
     try:
         conn.execute(
-            "INSERT INTO pr_state (repo, worktree_name, headline, payload, checked_at) "
-            "VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO pr_state (pr_repo, pr_number, headline, payload, "
+            "checked_at) VALUES (?, ?, ?, ?, ?)",
             (
-                "myapp",
-                "feat1",
+                "o/myapp",
+                99,
                 "no_pr",
                 json.dumps({"pr_number": None, "url": None}),
                 "2026-05-14T00:00:00Z",
@@ -825,7 +831,11 @@ def test_pull_down_same_repo_happy_path(
     conn = sqlite3.connect(_isolate["db_path"])
     try:
         row = conn.execute(
-            "SELECT pr_number, pr_repo, pr_author_login FROM worktree WHERE repo=?",
+            "SELECT w.pr_number, w.pr_repo, pr.author_login "
+            "FROM worktree w "
+            "LEFT JOIN pr "
+            "  ON pr.pr_repo = w.pr_repo AND pr.pr_number = w.pr_number "
+            "WHERE w.repo = ?",
             ("myapp",),
         ).fetchone()
     finally:

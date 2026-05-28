@@ -457,11 +457,16 @@ def test_pull_down_bookmark_happy_path(
         r = client.post("/api/bookmarks/acme/myapp/42/pull-down")
     assert r.status_code == 200, r.text
 
-    # Bookmark's author_login was passed through to the worktree row.
+    # Bookmark's author_login was written to the unified pr row;
+    # the worktree projects it via LEFT JOIN at read time.
     conn = sqlite3.connect(_isolate["db_path"])
     try:
         row = conn.execute(
-            "SELECT pr_author_login FROM worktree WHERE repo=?", ("myapp",)
+            "SELECT pr.author_login "
+            "FROM worktree w "
+            "JOIN pr ON pr.pr_repo = w.pr_repo AND pr.pr_number = w.pr_number "
+            "WHERE w.repo = ?",
+            ("myapp",),
         ).fetchone()
     finally:
         conn.close()

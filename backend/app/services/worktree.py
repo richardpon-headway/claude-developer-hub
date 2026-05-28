@@ -62,14 +62,16 @@ def reset_log(repo: str, name: str) -> None:
 
 _LIST_SELECT = (
     "SELECT w.repo, w.name, w.path, w.branch, w.ticket, w.pr_number, w.pr_repo, "
-    "       w.pr_author_login, w.notes, w.created_at, w.status, "
+    "       pr.author_login, w.notes, w.created_at, w.status, "
     "       (SELECT 1 FROM terminal_session s "
     "        WHERE s.repo = w.repo AND s.worktree_name = w.name "
     "          AND s.role = 'claude' LIMIT 1) IS NOT NULL, "
-    "       p.payload, p.checked_at "
+    "       ps.payload, ps.checked_at "
     "FROM worktree w "
-    "LEFT JOIN pr_state p "
-    "  ON p.repo = w.repo AND p.worktree_name = w.name"
+    "LEFT JOIN pr "
+    "  ON pr.pr_repo = w.pr_repo AND pr.pr_number = w.pr_number "
+    "LEFT JOIN pr_state ps "
+    "  ON ps.pr_repo = w.pr_repo AND ps.pr_number = w.pr_number"
 )
 
 
@@ -224,24 +226,27 @@ def update_worktree_pr_sync(
     name: str,
     pr_number: int,
     pr_repo: str,
-    pr_author_login: str | None = None,
     db_path: Path | None = None,
 ) -> None:
-    """Set the worktree's PR identifiers (and optionally its author).
+    """Set the worktree's PR identifiers.
 
-    ``pr_author_login`` uses COALESCE so callers without an author in
-    hand (e.g., the configure-and-pull-down follow-up that doesn't
-    carry the InboxPr row) don't wipe a value an earlier write set.
+    Inserts an empty pr row first (if one doesn't already exist) so
+    the worktree's FK to `pr` resolves. The pr_state poll and the
+    bookmark/inbox surfaces fill in the metadata fields later via
+    upsert; this just guarantees the linkage doesn't dangle.
     """
     if db_path is None:
         db_path = get_db_path()
     conn = open_db(db_path)
     try:
         conn.execute(
-            "UPDATE worktree SET pr_number = ?, pr_repo = ?, "
-            "  pr_author_login = COALESCE(?, pr_author_login) "
+            "INSERT OR IGNORE INTO pr (pr_repo, pr_number) VALUES (?, ?)",
+            (pr_repo, pr_number),
+        )
+        conn.execute(
+            "UPDATE worktree SET pr_number = ?, pr_repo = ? "
             "WHERE repo = ? AND name = ?",
-            (pr_number, pr_repo, pr_author_login, repo, name),
+            (pr_number, pr_repo, repo, name),
         )
         conn.commit()
     finally:
@@ -266,31 +271,6 @@ def update_worktree_notes_sync(
         conn.execute(
             "UPDATE worktree SET notes = ? WHERE repo = ? AND name = ?",
             (notes, repo, name),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def update_worktree_pr_author_sync(
-    repo: str,
-    name: str,
-    pr_author_login: str,
-    db_path: Path | None = None,
-) -> None:
-    """Lazy-backfill the pr_author_login column for a worktree row.
-    Called by the pr_state poll loop when the column is NULL and the
-    fresh gh payload carries a non-empty author. Only writes when the
-    existing value is NULL to avoid stomping on a value the pull-down
-    path already set."""
-    if db_path is None:
-        db_path = get_db_path()
-    conn = open_db(db_path)
-    try:
-        conn.execute(
-            "UPDATE worktree SET pr_author_login = ? "
-            "WHERE repo = ? AND name = ? AND pr_author_login IS NULL",
-            (pr_author_login, repo, name),
         )
         conn.commit()
     finally:

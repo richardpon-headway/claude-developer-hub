@@ -101,11 +101,11 @@ class WorktreeRow(BaseModel):
     ticket: str | None = None
     pr_number: int | None = None
     pr_repo: str | None = None
-    # GitHub login of the PR's author when known. Captured at pull-down
-    # time from the inbox row's `author_login`, and lazy-filled by the
-    # pr_state poll for worktrees created before this column existed.
-    # None means "not yet known" — the hub treats None as owner-by-
-    # default so legacy rows behave as they did before.
+    # GitHub login of the PR's author when known. Projected at read
+    # time via LEFT JOIN to `pr.author_login` (the storage column on
+    # `worktree` was dropped by migration 013). None means "no
+    # matching pr row yet" — the hub treats None as owner-by-default
+    # so unattached worktrees behave the same as before.
     pr_author_login: str | None = None
     # Free-form per-workspace notes (markdown). NULL or "" means the
     # row has no notes. Edited inline on the hub and on the workspace

@@ -988,6 +988,7 @@ async def refresh_pr_state(repo: str, name: str) -> PrStateSummary:
     `gh pr view` synchronously. Returns the fresh classified summary.
     Used by the popover's "Refresh now" button so the user doesn't
     have to wait for the next polling tick (~3 min)."""
+    from app.services import pr_db
     from app.services.pr_state import (
         fetch_pr_summary,
         upsert_pr_state_sync,
@@ -996,6 +997,12 @@ async def refresh_pr_state(repo: str, name: str) -> PrStateSummary:
     row = await asyncio.to_thread(svc.get_worktree_sync, repo, name)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"worktree not found: {repo}/{name}")
+
+    if row.pr_repo is None or row.pr_number is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"worktree {repo}/{name} has no attached PR; click 'Get PR URL' first",
+        )
 
     worktree_path = Path(row.path)
     if not worktree_path.is_dir():
@@ -1012,8 +1019,20 @@ async def refresh_pr_state(repo: str, name: str) -> PrStateSummary:
             "`gh` CLI not on PATH. Install GitHub CLI to enable PR state.",
         ) from e
 
+    # Ensure the pr row exists before pr_state's FK insert fires —
+    # the worktree's `update_worktree_pr_sync` writer normally
+    # populates this, but a stale worktree pointing at a pr row that
+    # was deleted out from under it would otherwise raise.
+    await asyncio.to_thread(
+        pr_db.upsert_pr_sync,
+        pr_db.PrRow(
+            pr_repo=row.pr_repo,
+            pr_number=row.pr_number,
+            author_login=summary.author_login,
+        ),
+    )
     checked_at = await asyncio.to_thread(
-        upsert_pr_state_sync, repo, name, summary
+        upsert_pr_state_sync, row.pr_repo, row.pr_number, summary
     )
 
     payload = summary.to_payload()

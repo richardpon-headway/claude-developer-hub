@@ -19,12 +19,9 @@ from pathlib import Path
 from typing import Any
 
 from app.config.loader import load_config
-from app.services import pr_state
+from app.services import pr_db, pr_state
 from app.services.gh_cli import GhNotFound
-from app.services.worktree import (
-    list_worktrees_sync,
-    update_worktree_pr_author_sync,
-)
+from app.services.worktree import list_worktrees_sync
 
 log = logging.getLogger(__name__)
 
@@ -67,31 +64,41 @@ async def _fetch_one(row: Any, sem: asyncio.Semaphore) -> None:
                 # place; the user will see stale data flagged by status
                 # going 'stale' elsewhere.
                 return
+            # Worktrees without an attached PR have no pr_state row to
+            # write (the pr_state FK to `pr` would be unresolvable).
+            # Skip — the next pull-down + PR-button click attaches a PR
+            # and the following tick picks it up.
+            if row.pr_repo is None or row.pr_number is None:
+                return
             # Look up via the module rather than a local import so
             # tests can monkeypatch pr_state.fetch_pr_summary and have
             # the polling loop see it too.
             summary = await pr_state.fetch_pr_summary(wt_path)
+            # Make sure a pr row exists before pr_state's FK insert
+            # fires. The author_login on the unified pr row gets
+            # filled here from gh's fresh payload, matching the
+            # legacy lazy-backfill semantic (just on a different
+            # column).
             await asyncio.to_thread(
-                pr_state.upsert_pr_state_sync, row.repo, row.name, summary
+                pr_db.upsert_pr_sync,
+                pr_db.PrRow(
+                    pr_repo=row.pr_repo,
+                    pr_number=row.pr_number,
+                    author_login=summary.author_login,
+                ),
             )
-            # Lazy backfill: worktrees created before the
-            # pr_author_login column existed have NULL there. Once we
-            # have a fresh gh payload with an author, write it to the
-            # worktree row so the hub can route this row to REVIEWING
-            # vs. an owner tier without needing the pull-down path to
-            # have populated it. The helper itself no-ops when the
-            # column already has a value, so this is safe to call
-            # every tick.
-            if summary.author_login and row.pr_author_login is None:
-                await asyncio.to_thread(
-                    update_worktree_pr_author_sync,
-                    row.repo,
-                    row.name,
-                    summary.author_login,
-                )
+            await asyncio.to_thread(
+                pr_state.upsert_pr_state_sync,
+                row.pr_repo,
+                row.pr_number,
+                summary,
+            )
         except GhNotFound:
             # gh missing → log once-per-tick is enough; suppress per-row.
-            log.info("gh CLI not on PATH; skipping pr_state poll for %s/%s", row.repo, row.name)
+            log.info(
+                "gh CLI not on PATH; skipping pr_state poll for %s/%s",
+                row.repo, row.name,
+            )
         except Exception as e:
             log.warning(
                 "pr_state fetch failed for %s/%s: %s", row.repo, row.name, e
