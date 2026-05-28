@@ -1,8 +1,8 @@
-"""Cross-repo PR inbox: shell ``gh search prs`` for the user's open PRs
-across all repos they have access to.
+"""Cross-repo PR search helpers — discovery for the inbox + authored polls.
 
-Three serial searches per poll, in priority order so the primary source
-chip (``sources[0]``) reflects the highest-priority signal:
+Inbox discovery (``fetch_inbox_prs``) runs three serial queries in
+priority order so the primary source chip (``sources[0]``) reflects
+the highest-priority signal:
 
 1. ``user-review-requested:@me`` → ``source="reviewer"`` (direct
    reviewer only — the ``user-review-requested`` qualifier excludes
@@ -10,25 +10,51 @@ chip (``sources[0]``) reflects the highest-priority signal:
 2. ``assignee:@me`` → ``source="assignee"``
 3. ``mentions:@me`` → ``source="mentions"``
 
-``author:@me`` and ``team-review-requested:<team>`` were both dropped
-in the persistent-inbox redesign — see plan-48. Author-routed PRs
-surface in the Workspaces section (auto-promote tier); team-mediated
-review requests are no longer auto-watched at all (bookmark them
-manually if you want one in your inbox).
+Authored discovery (``fetch_authored_prs_raw``) runs one query for
+``author:@me`` and shares the row mapper. The two were originally
+split across `inbox_poll` (auto-watch) and a request-time fetcher in
+`authored_prs.py`; both polling paths now live here.
 
 ``gh search prs`` is a single network round-trip per call and runs
-without a ``cwd`` (it queries github.com directly). The service
-returns rows with raw fields + a coarse ``ci_status`` classifier.
+without a ``cwd`` (it queries github.com directly). The helpers
+return rows with raw fields + a coarse ``ci_status`` classifier.
 """
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.services.gh_cli import GhNotFound, run_gh_json
 
+if TYPE_CHECKING:
+    from app.config.schema import RepoConfig
+
 log = logging.getLogger(__name__)
+
+
+def extract_ticket(title: str, repos: list[RepoConfig]) -> str | None:
+    """Try each configured repo's ``ticket_pattern`` against a PR
+    title. Returns the first match, ``None`` if nothing matches.
+
+    Discovery loops can see PRs from unconfigured upstream repos, so
+    we can't scope by ``pr_repo`` — we try every configured repo's
+    pattern. Acceptable because patterns are user-specific anti-
+    collision regexes (e.g. ``r"[A-Z]+-\\d+"``) and even a stray
+    match produces a usable Jira link.
+
+    Moved here from ``inbox_poll.py`` so both inbox + authored polls
+    can share the helper without an inter-module import.
+    """
+    for repo in repos:
+        pattern = getattr(repo, "ticket_pattern", None)
+        if not pattern:
+            continue
+        m = re.search(pattern, title)
+        if m:
+            return m.group(0)
+    return None
 
 
 # Fields ``gh search prs --json`` actually supports.
@@ -188,6 +214,18 @@ async def _search(query: str, *, source: str) -> list[InboxPrRaw]:
         if row is not None:
             out.append(row)
     return out
+
+
+async def fetch_authored_prs_raw() -> list[InboxPrRaw]:
+    """Run ``gh search prs --author:@me --state=open`` and map results
+    through the same row mapper :func:`fetch_inbox_prs` uses.
+
+    Each row's ``sources`` is seeded to ``["author"]`` so the row
+    flows through the same merge + projection paths as inbox rows.
+    Raises :class:`app.services.gh_cli.GhNotFound` if ``gh`` is
+    missing — callers (the polling loop) catch and log once-per-tick.
+    """
+    return await _search("author:@me", source="author")
 
 
 async def fetch_inbox_prs() -> list[InboxPrRaw]:

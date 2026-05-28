@@ -109,38 +109,6 @@ def delete_bookmark_sync(
     return 1
 
 
-def refresh_bookmark_state_sync(
-    pr_repo: str,
-    pr_number: int,
-    *,
-    state: str,
-    title: str,
-    author_login: str,
-    ticket: str | None,
-    last_refreshed_at: str,
-    db_path: Path | None = None,
-) -> int:
-    """Refresh the search-driven fields on a bookmark. Scoped by
-    ``is_bookmarked=1`` so a parallel surface's flag changes don't
-    clobber unrelated columns. Returns rowcount."""
-    if db_path is None:
-        db_path = get_db_path()
-    conn = open_db(db_path)
-    try:
-        cur = conn.execute(
-            "UPDATE pr SET "
-            "  state = ?, title = ?, author_login = ?, ticket = ?, "
-            "  last_refreshed_at = ? "
-            "WHERE pr_repo = ? AND pr_number = ? AND is_bookmarked = 1",
-            (state, title, author_login, ticket, last_refreshed_at,
-             pr_repo, pr_number),
-        )
-        conn.commit()
-        return cur.rowcount
-    finally:
-        conn.close()
-
-
 def update_bookmark_notes_sync(
     pr_repo: str,
     pr_number: int,

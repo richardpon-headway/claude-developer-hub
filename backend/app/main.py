@@ -18,26 +18,29 @@ from app.routes import (
     bookmarks,
     config,
     inbox,
+    refresh,
     repos,
     skills,
     token_usage,
     workspace,
     worktrees,
 )
-from app.services.bookmark_poll import bookmark_poll_loop
+from app.services.authored_poll import authored_poll_loop
 from app.services.inbox_poll import inbox_poll_loop
 from app.services.iterm_supervisor import iterm_supervisor
-from app.services.pr_state_poll import pr_state_poll_loop
+from app.services.pr_enrichment_poll import enrichment_poll_loop
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await apply_migrations()
     supervisor_task = asyncio.create_task(iterm_supervisor(app.state))
-    pr_state_task = asyncio.create_task(pr_state_poll_loop(app.state))
+    enrichment_task = asyncio.create_task(enrichment_poll_loop(app.state))
     inbox_task = asyncio.create_task(inbox_poll_loop(app.state))
-    bookmark_task = asyncio.create_task(bookmark_poll_loop(app.state))
-    background_tasks = (supervisor_task, pr_state_task, inbox_task, bookmark_task)
+    authored_task = asyncio.create_task(authored_poll_loop(app.state))
+    background_tasks = (
+        supervisor_task, enrichment_task, inbox_task, authored_task,
+    )
     try:
         yield
     finally:
@@ -61,6 +64,7 @@ app.include_router(skills.router)
 app.include_router(inbox.router)
 app.include_router(bookmarks.router)
 app.include_router(authored_prs.router)
+app.include_router(refresh.router)
 
 
 @app.get("/api/health")

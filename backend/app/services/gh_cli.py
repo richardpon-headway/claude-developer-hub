@@ -6,9 +6,10 @@ codebase has to re-implement otherwise: ``gh`` missing from PATH, the
 
 Callers fall into two patterns:
 
-- **Polling / background callers** (e.g. ``pr_state_poll``,
-  ``inbox_poll``): pass ``swallow_errors=True`` so generic failures
-  log and return ``None`` rather than crashing the loop.
+- **Polling / background callers** (e.g. ``pr_enrichment_poll``,
+  ``inbox_poll``, ``authored_poll``): pass ``swallow_errors=True`` so
+  generic failures log and return ``None`` rather than crashing the
+  loop.
 - **Request handlers** (e.g. ``GET /api/worktree/.../pr-url``): pass
   ``swallow_errors=False`` so generic failures raise :class:`GhFailed`
   which the route layer converts to ``HTTPException(502)``.

@@ -32,7 +32,7 @@ from app.models.worktree import now_iso
 from app.services import authored_pr_notes_db, bookmark_db
 from app.services.bookmark_db import BookmarkExistsError
 from app.services.gh_cli import GhFailed, GhNotFound, run_gh_json
-from app.services.inbox_poll import _extract_ticket
+from app.services.inbox_search import extract_ticket
 
 log = logging.getLogger(__name__)
 
@@ -209,7 +209,7 @@ async def add_bookmark(req: AddBookmarkRequest) -> BookmarkPayload:
     state = _normalize_state(data.get("state"))
 
     config = load_config()
-    ticket = _extract_ticket(title, config.repos)
+    ticket = extract_ticket(title, config.repos)
 
     # Surface transition: if this PR had notes attached on the
     # authored-PR tier, migrate them into the new bookmark row so the

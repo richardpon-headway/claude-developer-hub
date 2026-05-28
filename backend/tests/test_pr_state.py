@@ -857,18 +857,19 @@ def test_list_worktrees_handles_missing_pr_state(_isolate: dict[str, Path]) -> N
     assert rows[0]["pr_state"] is None
 
 
-# --- poll-loop writes author_login onto the unified pr row ----------------
+# --- enrichment loop writes pr metadata + pr_state ------------------------
 
 
-def test_poll_writes_pr_author_login_onto_pr_row(
+def test_enrichment_writes_pr_metadata_for_worktreed_pr(
     monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
 ) -> None:
-    """The pr_state poll fetches a fresh gh payload, then writes
-    pr.author_login alongside the pr_state cache. WorktreeRow surfaces
-    the value via LEFT JOIN to pr at read time."""
+    """For a worktree-attached PR row, the enrichment loop calls
+    ``fetch_pr_summary(worktree_path)`` and writes the classifier
+    output to both pr (scalar metadata) and pr_state (rich payload)."""
     import sqlite3
 
-    from app.services import pr_state_poll
+    from app.services import pr_enrichment_poll
+    from tests.fixtures.pr import seed_pr
 
     seed_worktree(
         _isolate["db_path"],
@@ -878,6 +879,7 @@ def test_poll_writes_pr_author_login_onto_pr_row(
         pr_repo="acme/myrepo",
         pr_number=99,
     )
+    seed_pr(_isolate["db_path"], pr_repo="acme/myrepo", pr_number=99)
 
     async def fake_fetch(path: Path) -> PrSummary:
         return PrSummary(
@@ -887,39 +889,78 @@ def test_poll_writes_pr_author_login_onto_pr_row(
             title="ready",
             author_login="alex-r",
             checks=PrChecks(passed=4, total=4),
+            labels=["ready_to_merge"],
         )
 
     monkeypatch.setattr(pr_state, "fetch_pr_summary", fake_fetch)
 
-    asyncio.run(pr_state_poll._tick())
+    asyncio.run(pr_enrichment_poll._tick())
 
     conn = sqlite3.connect(_isolate["db_path"])
     try:
         row = conn.execute(
-            "SELECT author_login FROM pr "
-            "WHERE pr_repo='acme/myrepo' AND pr_number=99"
+            "SELECT title, url, author_login, state, ci_status "
+            "FROM pr WHERE pr_repo='acme/myrepo' AND pr_number=99"
         ).fetchone()
     finally:
         conn.close()
-    assert row == ("alex-r",)
+    assert row == ("ready", "https://github.com/x/y/pull/99", "alex-r",
+                   "open", "pass")
 
 
-def test_poll_skips_worktrees_without_attached_pr(
+def test_enrichment_walks_non_worktree_rows(
     monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
 ) -> None:
-    """A worktree with NULL pr_repo/pr_number can't have a pr_state
-    row (the FK would dangle). The poll should silently skip — the
-    next pull-down attaches a PR and the following tick picks it up."""
+    """A pr row with no attached worktree (e.g., a bookmarked PR)
+    still gets enriched via the no-cwd ``gh pr view`` form."""
     import sqlite3
 
-    from app.services import pr_state_poll
+    from app.services import pr_enrichment_poll
+    from tests.fixtures.pr import seed_pr
 
-    seed_worktree(
+    seed_pr(
         _isolate["db_path"],
-        "myrepo",
-        "feature1",
-        path=_isolate["dev_root"] / "feature1",
+        pr_repo="acme/myrepo",
+        pr_number=7,
+        is_bookmarked=True,
+        bookmarked_at="2026-05-21T00:00:00Z",
     )
+
+    captured: dict[str, object] = {}
+
+    async def fake_fetch_by_pr(pr_repo: str, pr_number: int) -> PrSummary:
+        captured["pr_repo"] = pr_repo
+        captured["pr_number"] = pr_number
+        return PrSummary(
+            headline="merged",
+            pr_number=pr_number,
+            url=f"https://github.com/{pr_repo}/pull/{pr_number}",
+            title="done",
+            author_login="alex-r",
+            labels=["merged"],
+        )
+
+    monkeypatch.setattr(pr_state, "fetch_pr_summary_by_pr", fake_fetch_by_pr)
+
+    asyncio.run(pr_enrichment_poll._tick())
+
+    assert captured == {"pr_repo": "acme/myrepo", "pr_number": 7}
+    conn = sqlite3.connect(_isolate["db_path"])
+    try:
+        row = conn.execute(
+            "SELECT state, title FROM pr "
+            "WHERE pr_repo='acme/myrepo' AND pr_number=7"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row == ("merged", "done")
+
+
+def test_enrichment_skips_when_no_pr_rows(
+    monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
+) -> None:
+    """No pr rows → no gh fetches. Bounds the cold-start no-op."""
+    from app.services import pr_enrichment_poll
 
     fetch_called = False
 
@@ -930,9 +971,11 @@ def test_poll_skips_worktrees_without_attached_pr(
 
     monkeypatch.setattr(pr_state, "fetch_pr_summary", fake_fetch)
 
-    asyncio.run(pr_state_poll._tick())
+    asyncio.run(pr_enrichment_poll._tick())
 
-    assert fetch_called is False, "should skip worktrees without a PR"
+    assert fetch_called is False
+
+    import sqlite3
 
     conn = sqlite3.connect(_isolate["db_path"])
     try:

@@ -39,10 +39,19 @@ def _to_inbox_row(pr: pr_db.PrRow) -> InboxRow | None:
 
 
 def list_inbox_sync(db_path: Path | None = None) -> list[InboxRow]:
-    """Inbox rows that aren't archived, newest first."""
+    """Inbox rows that aren't archived, newest first.
+
+    Filters out bookmarked + worktree-attached rows so the legacy
+    surface precedence ("bookmark wins over inbox", "worktreed PR
+    doesn't show in inbox") is preserved without write-side dedup —
+    plan-60 moved that responsibility off the poll loop and onto
+    this read query.
+    """
     rows = pr_db.list_pr_sync(
         is_inbox=True,
         is_archived=False,
+        is_bookmarked=False,
+        has_worktree=False,
         order_by="pr.pr_updated_at DESC",
         db_path=db_path,
     )
