@@ -1,16 +1,16 @@
-"""Bookmark HTTP endpoints (plan-48, Slice B).
+"""Bookmark HTTP endpoints.
 
 Bookmarks are manually-added PR watches: paste a GitHub PR URL into
 the hub, the backend fetches the PR's metadata via ``gh pr view`` and
-persists a row in the ``bookmark`` table. Bookmarks render in their
-own section alongside the inbox; the lifecycle is symmetric (explicit
-add, explicit remove). Close / merge never auto-removes a bookmark —
-the row keeps rendering with a ``closed`` / ``merged`` chip until the
-user unbookmarks it.
+flips ``pr.is_bookmarked=1`` on the unified pr row. Bookmarks render
+in their own section alongside the inbox; the lifecycle is symmetric
+(explicit add, explicit remove). Close / merge never auto-removes a
+bookmark — the row keeps rendering with a ``closed`` / ``merged``
+chip until the user unbookmarks it.
 
 - ``GET /api/bookmarks`` — list rows, newest-bookmarked first.
 - ``POST /api/bookmarks`` — body ``{ url: string }``. Parses the URL,
-  fetches via ``gh pr view``, inserts. Idempotent-by-error: a second
+  fetches via ``gh pr view``, upserts. Idempotent-by-error: a second
   POST for the same PR returns 409 (so the user knows their existing
   bookmark wasn't overwritten).
 - ``DELETE /api/bookmarks/{pr_repo}/{pr_number}`` — unbookmark.
@@ -27,10 +27,9 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.config.loader import load_config
-from app.models.bookmark import BookmarkRow, BookmarkState
+from app.models.pr import PrRow, PrState
 from app.models.worktree import now_iso
-from app.services import authored_pr_notes_db, bookmark_db
-from app.services.bookmark_db import BookmarkExistsError
+from app.services import pr_db
 from app.services.gh_cli import GhFailed, GhNotFound, run_gh_json
 from app.services.inbox_search import extract_ticket
 
@@ -53,7 +52,7 @@ _PR_URL_RE = re.compile(
 # ---------------------------------------------------------------------
 
 
-class BookmarkPayload(BaseModel):
+class BookmarkPr(BaseModel):
     """Wire shape for one bookmark row."""
 
     pr_repo: str
@@ -61,7 +60,7 @@ class BookmarkPayload(BaseModel):
     title: str
     author_login: str
     url: str
-    state: BookmarkState
+    state: PrState
     notes: str | None = None
     ticket: str | None = None
     bookmarked_at: str
@@ -69,21 +68,30 @@ class BookmarkPayload(BaseModel):
 
 
 class BookmarkListResponse(BaseModel):
-    bookmarks: list[BookmarkPayload]
+    bookmarks: list[BookmarkPr]
 
 
-def _payload_from_row(row: BookmarkRow) -> BookmarkPayload:
-    return BookmarkPayload(
-        pr_repo=row.pr_repo,
-        pr_number=row.pr_number,
-        title=row.title,
-        author_login=row.author_login,
-        url=row.url,
-        state=row.state,
-        notes=row.notes,
-        ticket=row.ticket,
-        bookmarked_at=row.bookmarked_at,
-        last_refreshed_at=row.last_refreshed_at,
+def _payload_from_row(pr: PrRow) -> BookmarkPr:
+    # last_refreshed_at fallback: pr_state.checked_at (set by the
+    # enrichment poll) → pr.last_refreshed_at (set by the gh-pr-view
+    # bookmark write) → bookmarked_at (always present on a bookmarked
+    # row). Bookmarked_at is the floor because every bookmarked row
+    # has it.
+    checked_at = pr.pr_state.checked_at if pr.pr_state else None
+    last_refreshed_at = (
+        checked_at or pr.last_refreshed_at or pr.bookmarked_at or ""
+    )
+    return BookmarkPr(
+        pr_repo=pr.pr_repo,
+        pr_number=pr.pr_number,
+        title=pr.title or "",
+        author_login=pr.author_login or "",
+        url=pr.url or "",
+        state=pr.state or "open",
+        notes=pr.notes,
+        ticket=pr.ticket,
+        bookmarked_at=pr.bookmarked_at or "",
+        last_refreshed_at=last_refreshed_at,
     )
 
 
@@ -94,7 +102,11 @@ def _payload_from_row(row: BookmarkRow) -> BookmarkPayload:
 
 @router.get("/bookmarks", response_model=BookmarkListResponse)
 async def list_bookmarks() -> BookmarkListResponse:
-    rows = await asyncio.to_thread(bookmark_db.list_bookmarks_sync)
+    rows = await asyncio.to_thread(
+        pr_db.list_pr_sync,
+        is_bookmarked=True,
+        order_by="pr.bookmarked_at DESC",
+    )
     return BookmarkListResponse(bookmarks=[_payload_from_row(r) for r in rows])
 
 
@@ -126,8 +138,8 @@ def _parse_pr_url(url: str) -> tuple[str, int]:
     return f"{owner}/{name}", int(n)
 
 
-def _normalize_state(value: object) -> BookmarkState:
-    """Coerce ``gh pr view --json state`` to the BookmarkState enum.
+def _normalize_state(value: object) -> PrState:
+    """Coerce ``gh pr view --json state`` to the PrState enum.
 
     GitHub returns ``OPEN`` / ``CLOSED`` / ``MERGED``. Anything else
     defaults to ``closed`` (defensive — a future GitHub state shouldn't
@@ -140,16 +152,26 @@ def _normalize_state(value: object) -> BookmarkState:
 
 @router.post(
     "/bookmarks",
-    response_model=BookmarkPayload,
+    response_model=BookmarkPr,
     status_code=status.HTTP_201_CREATED,
 )
-async def add_bookmark(req: AddBookmarkRequest) -> BookmarkPayload:
+async def add_bookmark(req: AddBookmarkRequest) -> BookmarkPr:
     """Parse the URL, fetch the PR's metadata via ``gh pr view``,
-    insert a bookmark row.
+    flip ``is_bookmarked`` on the unified pr row.
 
     Refuses with 400 (bad URL), 404 (PR doesn't exist), 409 (already
     bookmarked), 502 (gh failure)."""
     pr_repo, pr_number = _parse_pr_url(req.url)
+
+    # Pre-check for the 409 contract. The unified upsert is MAX/COALESCE,
+    # so it would silently absorb a duplicate-bookmark POST without
+    # this guard.
+    existing = await asyncio.to_thread(pr_db.get_pr_sync, pr_repo, pr_number)
+    if existing is not None and existing.is_bookmarked:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"PR {pr_repo}#{pr_number} is already bookmarked",
+        )
 
     try:
         data = await run_gh_json(
@@ -206,49 +228,38 @@ async def add_bookmark(req: AddBookmarkRequest) -> BookmarkPayload:
         )
     author = (data.get("author") or {}).get("login") or ""
     url = data.get("url") or req.url
-    state = _normalize_state(data.get("state"))
+    pr_state_value = _normalize_state(data.get("state"))
 
     config = load_config()
     ticket = extract_ticket(title, config.repos)
 
-    # Surface transition: if this PR had notes attached on the
-    # authored-PR tier, migrate them into the new bookmark row so the
-    # user doesn't lose what they typed. Best-effort — a missing row
-    # is the common case (most bookmarks are PRs the user discovered
-    # outside the authored tier).
-    authored_notes = await asyncio.to_thread(
-        authored_pr_notes_db.get_notes_sync, pr_repo, pr_number
-    )
-
     now = now_iso()
-    row = BookmarkRow(
+    row = PrRow(
         pr_repo=pr_repo,
         pr_number=pr_number,
+        is_bookmarked=True,
+        bookmarked_at=now,
         title=title,
         author_login=author,
         url=url,
-        state=state,
-        notes=authored_notes,
         ticket=ticket,
-        bookmarked_at=now,
+        state=pr_state_value,
         last_refreshed_at=now,
     )
+    await asyncio.to_thread(pr_db.upsert_pr_sync, row)
 
-    try:
-        await asyncio.to_thread(bookmark_db.insert_bookmark_sync, row)
-    except BookmarkExistsError as e:
+    # Re-read to pick up any prior fields (notes, pr_state) that the
+    # upsert preserved via COALESCE / LEFT JOIN.
+    fresh = await asyncio.to_thread(pr_db.get_pr_sync, pr_repo, pr_number)
+    if fresh is None:
+        # Should be impossible — we just upserted. Raised as 502 so
+        # the user sees the failure mode (DB race / disk full) rather
+        # than a silent 500.
         raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            f"PR {pr_repo}#{pr_number} is already bookmarked",
-        ) from e
-
-    # Notes successfully copied into the bookmark — drop the source row.
-    if authored_notes is not None:
-        await asyncio.to_thread(
-            authored_pr_notes_db.delete_notes_sync, pr_repo, pr_number
+            status.HTTP_502_BAD_GATEWAY,
+            f"bookmark write for {pr_repo}#{pr_number} did not persist",
         )
-
-    return _payload_from_row(row)
+    return _payload_from_row(fresh)
 
 
 # ---------------------------------------------------------------------
@@ -276,10 +287,8 @@ async def pull_down_bookmark(pr_repo: str, pr_number: int) -> PullDownResponse:
     with the rest of the model). If the user wants the bookmark gone
     after pull-down, they can click Unbookmark.
     """
-    row = await asyncio.to_thread(
-        bookmark_db.get_bookmark_sync, pr_repo, pr_number
-    )
-    if row is None:
+    row = await asyncio.to_thread(pr_db.get_pr_sync, pr_repo, pr_number)
+    if row is None or not row.is_bookmarked:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             f"PR {pr_repo}#{pr_number} is not bookmarked",
@@ -305,14 +314,16 @@ class DeleteBookmarkResponse(BaseModel):
 async def delete_bookmark(
     pr_repo: str, pr_number: int
 ) -> DeleteBookmarkResponse:
-    affected = await asyncio.to_thread(
-        bookmark_db.delete_bookmark_sync, pr_repo, pr_number
-    )
-    if affected == 0:
+    existing = await asyncio.to_thread(pr_db.get_pr_sync, pr_repo, pr_number)
+    if existing is None or not existing.is_bookmarked:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             f"PR {pr_repo}#{pr_number} is not bookmarked",
         )
+    await asyncio.to_thread(
+        pr_db.set_bookmark_flag_sync, pr_repo, pr_number, False
+    )
+    await asyncio.to_thread(pr_db.maybe_gc_sync, pr_repo, pr_number)
     return DeleteBookmarkResponse()
 
 
@@ -336,12 +347,16 @@ class UpdateNotesResponse(BaseModel):
 async def update_notes(
     pr_repo: str, pr_number: int, req: UpdateNotesRequest
 ) -> UpdateNotesResponse:
-    affected = await asyncio.to_thread(
-        bookmark_db.update_bookmark_notes_sync, pr_repo, pr_number, req.notes
-    )
-    if affected == 0:
+    # 404 if the row exists but isn't a bookmark — preserves the
+    # surface-scoped semantics the shim's `update_bookmark_notes_sync`
+    # used to enforce via `AND is_bookmarked = 1`.
+    existing = await asyncio.to_thread(pr_db.get_pr_sync, pr_repo, pr_number)
+    if existing is None or not existing.is_bookmarked:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             f"PR {pr_repo}#{pr_number} is not bookmarked",
         )
+    await asyncio.to_thread(
+        pr_db.update_notes_sync, pr_repo, pr_number, req.notes
+    )
     return UpdateNotesResponse(notes=req.notes)

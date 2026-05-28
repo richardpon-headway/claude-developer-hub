@@ -1,76 +1,16 @@
-"""Tests for the bookmark slice (plan-48, Slice B)."""
+"""Tests for the bookmark routes."""
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services import bookmark_db, inbox_db, inbox_poll
-from app.services.bookmark_db import BookmarkExistsError
-from app.services.inbox_search import InboxPrRaw
-from tests.fixtures.bookmark import build_bookmark_row, seed_bookmark
+from app.services import pr_db
+from tests.fixtures.bookmark import seed_bookmark
 from tests.fixtures.config import write_minimal_config, write_repo_config
-from tests.fixtures.inbox import build_raw_pr
-
-# --- bookmark_db helpers -------------------------------------------------
-
-
-def test_list_bookmarks_ordered_newest_first(_isolate: dict[str, Path]) -> None:
-    seed_bookmark(
-        _isolate["db_path"], pr_repo="o/r", pr_number=1,
-        bookmarked_at="2026-05-01T00:00:00Z",
-    )
-    seed_bookmark(
-        _isolate["db_path"], pr_repo="o/r", pr_number=2,
-        bookmarked_at="2026-05-20T00:00:00Z",
-    )
-    rows = bookmark_db.list_bookmarks_sync(db_path=_isolate["db_path"])
-    assert [r.pr_number for r in rows] == [2, 1]
-
-
-def test_insert_bookmark_raises_on_duplicate(
-    _isolate: dict[str, Path],
-) -> None:
-    seed_bookmark(_isolate["db_path"], pr_repo="o/r", pr_number=1)
-    with pytest.raises(BookmarkExistsError):
-        bookmark_db.insert_bookmark_sync(
-            build_bookmark_row(pr_repo="o/r", pr_number=1),
-            db_path=_isolate["db_path"],
-        )
-
-
-def test_delete_bookmark_returns_rowcount(
-    _isolate: dict[str, Path],
-) -> None:
-    seed_bookmark(_isolate["db_path"], pr_repo="o/r", pr_number=1)
-    assert bookmark_db.delete_bookmark_sync(
-        "o/r", 1, db_path=_isolate["db_path"]
-    ) == 1
-    assert bookmark_db.delete_bookmark_sync(
-        "o/r", 1, db_path=_isolate["db_path"]
-    ) == 0
-
-
-def test_update_bookmark_notes_rowcount(_isolate: dict[str, Path]) -> None:
-    assert bookmark_db.update_bookmark_notes_sync(
-        "o/r", 1, "x", db_path=_isolate["db_path"]
-    ) == 0
-    seed_bookmark(_isolate["db_path"], pr_repo="o/r", pr_number=1)
-    assert bookmark_db.update_bookmark_notes_sync(
-        "o/r", 1, "x", db_path=_isolate["db_path"]
-    ) == 1
-
-
-def test_bookmark_pr_keys_returns_set(_isolate: dict[str, Path]) -> None:
-    seed_bookmark(_isolate["db_path"], pr_repo="o/r", pr_number=1)
-    seed_bookmark(_isolate["db_path"], pr_repo="o/r", pr_number=2)
-    assert bookmark_db.bookmark_pr_keys_sync(
-        db_path=_isolate["db_path"]
-    ) == {("o/r", 1), ("o/r", 2)}
 
 
 # --- POST /api/bookmarks (add) -----------------------------------------
@@ -223,6 +163,39 @@ def test_add_bookmark_accepts_url_with_trailing_path(
     assert r.status_code == 201, r.text
 
 
+def test_add_bookmark_layers_onto_existing_unbookmarked_row(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pr row that exists via another surface (e.g. authored-tier
+    notes) can still be bookmarked — only the duplicate ``is_bookmarked``
+    case triggers 409. Existing notes survive via COALESCE."""
+    write_minimal_config(_isolate["config_path"])
+    pr_db.upsert_notes_sync(
+        "acme/myapp", 42, "carry me over", "2026-05-22T00:00:00Z",
+        db_path=_isolate["db_path"],
+    )
+
+    from app.routes import bookmarks as bookmarks_route
+
+    async def fake_run_gh_json(args: list, **kwargs: Any) -> dict:
+        return {
+            "title": "fix the thing",
+            "author": {"login": "alice"},
+            "url": "https://github.com/acme/myapp/pull/42",
+            "state": "OPEN",
+        }
+
+    monkeypatch.setattr(bookmarks_route, "run_gh_json", fake_run_gh_json)
+
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/bookmarks",
+            json={"url": "https://github.com/acme/myapp/pull/42"},
+        )
+    assert r.status_code == 201, r.text
+    assert r.json()["notes"] == "carry me over"
+
+
 # --- GET /api/bookmarks (list) -----------------------------------------
 
 
@@ -248,6 +221,22 @@ def test_list_bookmarks_returns_persisted_rows(
     assert body["bookmarks"][0]["title"] == "one"
 
 
+def test_list_bookmarks_orders_newest_first(_isolate: dict[str, Path]) -> None:
+    write_minimal_config(_isolate["config_path"])
+    seed_bookmark(
+        _isolate["db_path"], pr_repo="o/r", pr_number=1,
+        bookmarked_at="2026-05-01T00:00:00Z",
+    )
+    seed_bookmark(
+        _isolate["db_path"], pr_repo="o/r", pr_number=2,
+        bookmarked_at="2026-05-20T00:00:00Z",
+    )
+    with TestClient(app) as client:
+        r = client.get("/api/bookmarks")
+    nums = [b["pr_number"] for b in r.json()["bookmarks"]]
+    assert nums == [2, 1]
+
+
 # --- DELETE /api/bookmarks ---------------------------------------------
 
 
@@ -258,7 +247,8 @@ def test_delete_bookmark_happy_path(_isolate: dict[str, Path]) -> None:
         r = client.delete("/api/bookmarks/acme/myapp/1")
     assert r.status_code == 200
     assert r.json() == {"deleted": True}
-    assert bookmark_db.list_bookmarks_sync(db_path=_isolate["db_path"]) == []
+    # GC should have evaporated the row (no other flag / notes / worktree).
+    assert pr_db.get_pr_sync("acme/myapp", 1, db_path=_isolate["db_path"]) is None
 
 
 def test_delete_bookmark_404_when_missing(_isolate: dict[str, Path]) -> None:
@@ -280,11 +270,11 @@ def test_update_bookmark_notes(_isolate: dict[str, Path]) -> None:
             json={"notes": "tracking this for follow-up"},
         )
     assert r.status_code == 200
-    row = bookmark_db.get_bookmark_sync(
+    pr = pr_db.get_pr_sync(
         "acme/myapp", 1, db_path=_isolate["db_path"]
     )
-    assert row is not None
-    assert row.notes == "tracking this for follow-up"
+    assert pr is not None
+    assert pr.notes == "tracking this for follow-up"
 
 
 def test_update_bookmark_notes_404_when_missing(
@@ -297,39 +287,6 @@ def test_update_bookmark_notes_404_when_missing(
             json={"notes": "x"},
         )
     assert r.status_code == 404
-
-
-# --- inbox + bookmark precedence (post-plan-60) --------------------------
-
-
-def test_inbox_tick_skips_bookmarked_prs_in_list(
-    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A PR that's both review-requested AND bookmarked stays out of
-    the inbox surface — bookmark wins (explicit user pin). After
-    plan-60 the discovery loop upserts both PRs into the unified pr
-    table; the inbox-shim's list_inbox_sync filters out bookmarked
-    rows so the surface precedence is preserved."""
-    write_minimal_config(_isolate["config_path"])
-    seed_bookmark(
-        _isolate["db_path"], pr_repo="o/r", pr_number=42,
-    )
-
-    async def fake_fetch() -> list[InboxPrRaw]:
-        return [
-            build_raw_pr(repo="o/r", number=42, head="feat/x"),
-            build_raw_pr(repo="o/r", number=43, head="feat/y"),
-        ]
-
-    monkeypatch.setattr(inbox_poll, "fetch_inbox_prs", fake_fetch)
-
-    state = SimpleNamespace()
-    import asyncio
-
-    asyncio.run(inbox_poll._tick(state))
-
-    rows = inbox_db.list_inbox_sync(db_path=_isolate["db_path"])
-    assert [(r.pr_repo, r.pr_number) for r in rows] == [("o/r", 43)]
 
 
 # --- POST /api/bookmarks/.../pull-down ----------------------------------
@@ -396,73 +353,3 @@ def test_pull_down_bookmark_happy_path(
     finally:
         conn.close()
     assert row == ("alice",)
-
-
-# --- notes migration on bookmark add ------------------------------------
-
-
-def test_add_bookmark_migrates_authored_notes(
-    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """If the user had typed notes against the authored-PR tier and
-    then bookmarks the same PR, the notes should carry over and the
-    authored_pr_notes row should be deleted."""
-    write_minimal_config(_isolate["config_path"])
-
-    from app.services import authored_pr_notes_db
-    authored_pr_notes_db.upsert_notes_sync(
-        "acme/myapp", 42, "carry me over", "2026-05-22T00:00:00Z",
-        db_path=_isolate["db_path"],
-    )
-
-    from app.routes import bookmarks as bookmarks_route
-
-    async def fake_run_gh_json(args: list, **kwargs: Any) -> dict:
-        return {
-            "title": "fix the thing",
-            "author": {"login": "alice"},
-            "url": "https://github.com/acme/myapp/pull/42",
-            "state": "OPEN",
-        }
-
-    monkeypatch.setattr(bookmarks_route, "run_gh_json", fake_run_gh_json)
-
-    with TestClient(app) as client:
-        r = client.post(
-            "/api/bookmarks",
-            json={"url": "https://github.com/acme/myapp/pull/42"},
-        )
-    assert r.status_code == 201, r.text
-    assert r.json()["notes"] == "carry me over"
-
-    # Source row gone.
-    assert authored_pr_notes_db.get_notes_sync(
-        "acme/myapp", 42, db_path=_isolate["db_path"]
-    ) is None
-
-
-def test_add_bookmark_no_authored_notes_is_a_noop(
-    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Bookmark add still works when there's nothing to migrate."""
-    write_minimal_config(_isolate["config_path"])
-
-    from app.routes import bookmarks as bookmarks_route
-
-    async def fake_run_gh_json(args: list, **kwargs: Any) -> dict:
-        return {
-            "title": "fix",
-            "author": {"login": "alice"},
-            "url": "https://github.com/acme/myapp/pull/42",
-            "state": "OPEN",
-        }
-
-    monkeypatch.setattr(bookmarks_route, "run_gh_json", fake_run_gh_json)
-
-    with TestClient(app) as client:
-        r = client.post(
-            "/api/bookmarks",
-            json={"url": "https://github.com/acme/myapp/pull/42"},
-        )
-    assert r.status_code == 201, r.text
-    assert r.json()["notes"] is None

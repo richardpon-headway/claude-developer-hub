@@ -1,23 +1,22 @@
 """Inbox HTTP endpoints (persistent-inbox redesign — see plan-48).
 
-- ``GET /api/inbox`` — list rows from the ``inbox`` table (joined out
-  against ``inbox_archived``).
+- ``GET /api/inbox`` — list rows from the unified ``pr`` table where
+  ``is_inbox=1`` and the row hasn't been archived / bookmarked /
+  pulled-down into a worktree (read-time surface precedence).
 - ``POST /api/inbox/refresh`` — force an immediate poll tick.
 - ``POST /api/inbox/{pr_repo}/{pr_number}/archive`` — sticky-dismiss
-  a row (records into ``inbox_archived``; never resurfaces from the
-  next ``gh search prs`` tick).
+  a row (sets ``is_archived=1`` + clears ``is_inbox``).
 - ``PUT /api/inbox/{pr_repo}/{pr_number}/notes`` — overwrite the
-  ``inbox.notes`` column. Empty string clears the note.
+  ``pr.notes`` column. Empty string clears the note.
 - ``POST /api/inbox/{pr_repo}/{pr_number}/pull-down`` — fetch the PR's
-  branch and create a local worktree. Reads the matching row from the
-  persisted inbox (the ephemeral cache is gone).
+  branch and create a local worktree.
 - ``POST /api/inbox/{pr_repo}/{pr_number}/configure-and-pull-down`` —
   spawn Claude to onboard the upstream repo, with a follow-up that
   triggers pull-down once onboarding completes.
 
 The poll loop in :mod:`app.services.inbox_poll` runs every 60s and
-upserts into ``inbox``. Read endpoints just query SQLite — no
-in-memory state.
+upserts into ``pr`` via :mod:`pr_db`. Read endpoints just query
+SQLite — no in-memory state.
 """
 from __future__ import annotations
 
@@ -31,13 +30,16 @@ from pydantic import BaseModel, Field
 
 from app.config.loader import load_config
 from app.config.schema import RepoConfig
-from app.models.inbox import InboxCiStatus, InboxRow
-from app.models.pr import PrRow
+from app.models.pr import PrCiStatus, PrRow
 from app.models.worktree import now_iso
-from app.services import authored_pr_notes_db, inbox_db, inbox_poll, pr_db, terminal
+from app.services import inbox_poll, pr_db, terminal
 from app.services import worktree as wt_svc
 from app.services.gh_cli import GhFailed, GhNotFound, run_gh_json
-from app.services.inbox_search import configured_repos_index, lookup_configured_repo
+from app.services.inbox_search import (
+    ReposIndex,
+    configured_repos_index,
+    lookup_configured_repo,
+)
 
 log = logging.getLogger(__name__)
 
@@ -55,9 +57,8 @@ _NOTES_MAX_LENGTH = 10_000
 # ---------------------------------------------------------------------
 
 
-class InboxPrPayload(BaseModel):
-    """Wire shape for one inbox row. Mirrors :class:`InboxRow` plus
-    derived UI fields (``repo_configured``)."""
+class InboxPr(BaseModel):
+    """Wire shape for one inbox row."""
 
     pr_repo: str
     pr_number: int
@@ -65,7 +66,7 @@ class InboxPrPayload(BaseModel):
     author_login: str
     url: str
     is_draft: bool
-    ci_status: InboxCiStatus
+    ci_status: PrCiStatus
     sources: list[str]
     notes: str | None = None
     ticket: str | None = None
@@ -78,26 +79,25 @@ class InboxPrPayload(BaseModel):
 
 
 class InboxResponse(BaseModel):
-    prs: list[InboxPrPayload]
+    prs: list[InboxPr]
 
 
-def _payload_from_row(row: InboxRow, *, repos: list[RepoConfig]) -> InboxPrPayload:
-    idx = configured_repos_index(repos)
-    return InboxPrPayload(
-        pr_repo=row.pr_repo,
-        pr_number=row.pr_number,
-        title=row.title,
-        author_login=row.author_login,
-        url=row.url,
-        is_draft=row.is_draft,
-        ci_status=row.ci_status,
-        sources=list(row.sources),
-        notes=row.notes,
-        ticket=row.ticket,
-        pr_updated_at=row.pr_updated_at,
-        added_at=row.added_at,
-        last_seen_at=row.last_seen_at,
-        repo_configured=lookup_configured_repo(row.pr_repo, idx) is not None,
+def _payload_from_row(pr: PrRow, *, repos_index: ReposIndex) -> InboxPr:
+    return InboxPr(
+        pr_repo=pr.pr_repo,
+        pr_number=pr.pr_number,
+        title=pr.title or "",
+        author_login=pr.author_login or "",
+        url=pr.url or "",
+        is_draft=pr.is_draft,
+        ci_status=pr.ci_status or "none",
+        sources=list(pr.inbox_sources),
+        notes=pr.notes,
+        ticket=pr.ticket,
+        pr_updated_at=pr.pr_updated_at or "",
+        added_at=pr.inbox_added_at or "",
+        last_seen_at=pr.last_seen_at or "",
+        repo_configured=lookup_configured_repo(pr.pr_repo, repos_index) is not None,
     )
 
 
@@ -108,9 +108,17 @@ def _payload_from_row(row: InboxRow, *, repos: list[RepoConfig]) -> InboxPrPaylo
 
 @router.get("/inbox", response_model=InboxResponse)
 async def get_inbox() -> InboxResponse:
-    rows = await asyncio.to_thread(inbox_db.list_inbox_sync)
+    rows = await asyncio.to_thread(
+        pr_db.list_pr_sync,
+        is_inbox=True,
+        is_archived=False,
+        is_bookmarked=False,
+        has_worktree=False,
+        order_by="pr.pr_updated_at DESC",
+    )
     repos = (await asyncio.to_thread(load_config)).repos
-    return InboxResponse(prs=[_payload_from_row(r, repos=repos) for r in rows])
+    idx = configured_repos_index(repos)
+    return InboxResponse(prs=[_payload_from_row(r, repos_index=idx) for r in rows])
 
 
 @router.post("/inbox/refresh", response_model=InboxResponse)
@@ -133,27 +141,36 @@ async def refresh_inbox(request: Request) -> InboxResponse:
 
 @router.post(
     "/inbox/{pr_repo:path}/{pr_number}/archive",
-    response_model=InboxPrPayload,
+    response_model=InboxPr,
 )
-async def archive_inbox(pr_repo: str, pr_number: int) -> InboxPrPayload:
-    """Mark the row as user-dismissed. Idempotent; archiving twice is
-    a no-op. The row stays in ``inbox`` (so its notes survive a future
-    un-archive) but is filtered out of ``GET /api/inbox``.
+async def archive_inbox(pr_repo: str, pr_number: int) -> InboxPr:
+    """Mark the row as user-dismissed: clears ``is_inbox`` and sets
+    ``is_archived=1`` (preserving the original ``archived_at`` via
+    COALESCE — see ``set_archived_flag_sync``).
 
-    Refuses (404) when no matching inbox row exists — guards against
-    archiving a row the poll already auto-removed (close/merge race).
+    Refuses (404) when no matching inbox row exists, including a
+    repeat archive of a row already dismissed (since the inbox flag
+    is gone). Guards against archiving a row the poll already
+    auto-removed (close/merge race).
     """
-    row = await asyncio.to_thread(inbox_db.get_inbox_sync, pr_repo, pr_number)
-    if row is None:
+    row = await asyncio.to_thread(pr_db.get_pr_sync, pr_repo, pr_number)
+    if row is None or not row.is_inbox:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             f"PR {pr_repo}#{pr_number} not in inbox",
         )
+    # Set archived first so the row stays addressable through inbox_keys
+    # callers until the inbox flag drops. (Order matters when GC paths
+    # check origin flags between the two writes.)
     await asyncio.to_thread(
-        inbox_db.archive_inbox_sync, pr_repo, pr_number, now_iso()
+        pr_db.set_archived_flag_sync,
+        pr_repo, pr_number, True, archived_at=now_iso(),
+    )
+    await asyncio.to_thread(
+        pr_db.set_inbox_flag_sync, pr_repo, pr_number, False
     )
     repos = (await asyncio.to_thread(load_config)).repos
-    return _payload_from_row(row, repos=repos)
+    return _payload_from_row(row, repos_index=configured_repos_index(repos))
 
 
 # ---------------------------------------------------------------------
@@ -177,15 +194,16 @@ async def update_notes(
     pr_repo: str, pr_number: int, req: UpdateNotesRequest
 ) -> UpdateNotesResponse:
     """Overwrite the row's notes. Empty string is valid (clears).
-    Refuses (404) when no matching row exists."""
-    affected = await asyncio.to_thread(
-        inbox_db.update_inbox_notes_sync, pr_repo, pr_number, req.notes
-    )
-    if affected == 0:
+    Refuses (404) when no matching inbox row exists."""
+    existing = await asyncio.to_thread(pr_db.get_pr_sync, pr_repo, pr_number)
+    if existing is None or not existing.is_inbox:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             f"PR {pr_repo}#{pr_number} not in inbox",
         )
+    await asyncio.to_thread(
+        pr_db.update_notes_sync, pr_repo, pr_number, req.notes
+    )
     return UpdateNotesResponse(notes=req.notes)
 
 
@@ -329,8 +347,8 @@ async def _perform_pull_down(
         raise HTTPException(code, msg) from e
 
     # Set pr_number + pr_repo on the new worktree row. The dedup
-    # filter in the inbox poll will then exclude this PR on the next
-    # tick.
+    # filter in the inbox list (has_worktree=False) will then exclude
+    # this PR.
     await asyncio.to_thread(
         wt_svc.update_worktree_pr_sync,
         repo.name,
@@ -350,23 +368,6 @@ async def _perform_pull_down(
                 pr_number=pr_number,
                 author_login=author_login,
             ),
-        )
-
-    # Surface transition: if this PR had notes attached on the
-    # authored-PR tier, migrate them to the new worktree row so the
-    # user doesn't lose what they typed. Authoritative regardless of
-    # caller (the inbox / authored / bookmark pull-down routes all
-    # benefit). Best-effort — a missing row is the common case.
-    authored_notes = await asyncio.to_thread(
-        authored_pr_notes_db.get_notes_sync, pr_repo, pr_number
-    )
-    if authored_notes:
-        await asyncio.to_thread(
-            wt_svc.update_worktree_notes_sync,
-            repo.name, worktree.name, authored_notes,
-        )
-        await asyncio.to_thread(
-            authored_pr_notes_db.delete_notes_sync, pr_repo, pr_number
         )
 
     return PullDownResponse(repo=repo.name, name=worktree.name)
@@ -389,8 +390,8 @@ async def pull_down(pr_repo: str, pr_number: int) -> PullDownResponse:
       the backend re-checks since config could have changed between
       the poll and the click.
     """
-    row = await asyncio.to_thread(inbox_db.get_inbox_sync, pr_repo, pr_number)
-    if row is None:
+    row = await asyncio.to_thread(pr_db.get_pr_sync, pr_repo, pr_number)
+    if row is None or not row.is_inbox:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             f"PR {pr_repo}#{pr_number} not in inbox",
@@ -432,8 +433,8 @@ async def configure_and_pull_down(
       endpoint covers that case.
     - iTerm2 isn't connected (503).
     """
-    row = await asyncio.to_thread(inbox_db.get_inbox_sync, pr_repo, pr_number)
-    if row is None:
+    row = await asyncio.to_thread(pr_db.get_pr_sync, pr_repo, pr_number)
+    if row is None or not row.is_inbox:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             f"PR {pr_repo}#{pr_number} not in inbox",

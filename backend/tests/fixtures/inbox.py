@@ -1,20 +1,17 @@
-"""Inbox builders for tests.
+"""Inbox builders + seeders for tests.
 
-The helpers below construct the data shapes the persistent-inbox slice
-operates on. They use sensible defaults — pass kwargs to override
-just the fields a specific test cares about.
-
-After plan-48 the in-memory ``InboxCache`` / ``InboxPr`` are gone;
-seed test rows directly into the ``inbox`` SQLite table via
-:func:`seed_inbox_row`.
+``build_raw_pr`` constructs the search-layer shape (``InboxPrRaw``)
+that the poll tick consumes. ``seed_inbox_row`` is a thin wrapper
+over :func:`seed_pr` for tests that need a persisted inbox-flagged
+pr row.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
-from app.models.inbox import InboxRow
-from app.services import inbox_db
+from app.models.pr import PrRow
 from app.services.inbox_search import InboxPrRaw
+from tests.fixtures.pr import seed_pr
 
 
 def build_raw_pr(
@@ -27,7 +24,7 @@ def build_raw_pr(
     title: str | None = None,
 ) -> InboxPrRaw:
     """Build an ``InboxPrRaw`` — the search-layer shape before the
-    poll tick maps it into an ``InboxRow`` for the DB."""
+    poll tick maps it into a pr row for the DB."""
     return InboxPrRaw(
         pr_repo=repo,
         pr_number=number,
@@ -43,7 +40,8 @@ def build_raw_pr(
     )
 
 
-def build_inbox_row(
+def seed_inbox_row(
+    db_path: Path,
     *,
     pr_repo: str = "o/r",
     pr_number: int = 1,
@@ -58,29 +56,22 @@ def build_inbox_row(
     pr_updated_at: str = "2026-05-14T00:00:00Z",
     added_at: str = "2026-05-14T00:00:00Z",
     last_seen_at: str = "2026-05-14T00:00:00Z",
-) -> InboxRow:
-    """Build a persisted-inbox row with sensible defaults."""
-    return InboxRow(
+) -> PrRow:
+    """Insert one inbox-flagged pr row + return it."""
+    return seed_pr(
+        db_path,
         pr_repo=pr_repo,
         pr_number=pr_number,
+        is_inbox=True,
+        inbox_added_at=added_at,
+        inbox_sources=sources if sources is not None else ["reviewer"],
         title=title or f"PR #{pr_number}",
         author_login=author_login,
         url=url or f"https://github.com/{pr_repo}/pull/{pr_number}",
         is_draft=is_draft,
-        ci_status=ci_status,  # type: ignore[arg-type]
-        sources=sources if sources is not None else ["reviewer"],
+        ci_status=ci_status,
         notes=notes,
         ticket=ticket,
         pr_updated_at=pr_updated_at,
-        added_at=added_at,
         last_seen_at=last_seen_at,
     )
-
-
-def seed_inbox_row(db_path: Path, **kwargs: object) -> InboxRow:
-    """Convenience: build an ``InboxRow`` + insert it via the upsert
-    helper. Returns the row that was inserted so tests can chain on
-    it (assert fields, archive it, etc.)."""
-    row = build_inbox_row(**kwargs)  # type: ignore[arg-type]
-    inbox_db.upsert_inbox_sync(row, db_path=db_path)
-    return row
