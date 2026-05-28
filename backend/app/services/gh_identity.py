@@ -20,13 +20,17 @@ from app.services.gh_cli import GhNotFound, run_gh_json
 log = logging.getLogger(__name__)
 
 _cached_login: str | None = None
-_cache_lock = asyncio.Lock()
+# Lock created lazily inside the running loop. A module-level
+# ``asyncio.Lock()`` binds to whichever loop is current at import time,
+# which breaks under pytest where each test runs in a fresh loop.
+_cache_lock: asyncio.Lock | None = None
 
 
 def reset_cache() -> None:
     """Test hook — clear the cached login so a fresh call re-shells gh."""
-    global _cached_login
+    global _cached_login, _cache_lock
     _cached_login = None
+    _cache_lock = None
 
 
 async def get_user_login() -> str | None:
@@ -37,9 +41,11 @@ async def get_user_login() -> str | None:
     serialized so we don't fire two ``gh`` subprocesses for the same
     answer.
     """
-    global _cached_login
+    global _cached_login, _cache_lock
     if _cached_login is not None:
         return _cached_login
+    if _cache_lock is None:
+        _cache_lock = asyncio.Lock()
     async with _cache_lock:
         if _cached_login is not None:
             return _cached_login
