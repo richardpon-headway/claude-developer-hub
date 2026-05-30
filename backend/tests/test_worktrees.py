@@ -1,6 +1,14 @@
-"""Tests for the worktree CRUD slice (model, service, /api/worktree)."""
+"""Tests for the worktree CRUD slice (model, service, /api/worktree).
+
+Create-flow tests exercise ``wt_svc.create_worktree`` directly via
+``asyncio.run(...)``. The bare ``POST /api/worktree`` endpoint was
+removed once pull-down funnelled through ``inbox._perform_pull_down``
+and ``recreate`` covered the retry path; the route exposed no
+production behavior that needed HTTP framing.
+"""
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -9,6 +17,7 @@ from fastapi.testclient import TestClient
 from app import db
 from app.main import app
 from app.models.worktree import derive_worktree_name, extract_ticket
+from app.services import worktree as wt_svc
 from tests.fixtures.config import write_repo_config
 from tests.fixtures.worktree import init_git_repo, seed_worktree
 
@@ -60,17 +69,16 @@ def test_list_worktrees_initially_empty() -> None:
     assert "user_login" in body
 
 
-def test_create_unknown_repo_400(_isolate: dict[str, Path]) -> None:
+def test_create_unknown_repo_raises(_isolate: dict[str, Path]) -> None:
     write_repo_config(
         _isolate["config_path"],
         _isolate["dev_root"],
         _isolate["dev_root"] / "ignored",
         name="registered",
     )
-    with TestClient(app) as client:
-        r = client.post("/api/worktree", json={"repo": "not-registered", "branch": "main"})
-    assert r.status_code == 400
-    assert "unknown repo" in r.json()["detail"]
+    with pytest.raises(wt_svc.WorktreeCreationError) as exc_info:
+        asyncio.run(wt_svc.create_worktree("not-registered", "main"))
+    assert "unknown repo" in str(exc_info.value)
 
 
 def test_create_happy_path(_isolate: dict[str, Path]) -> None:
@@ -83,33 +91,36 @@ def test_create_happy_path(_isolate: dict[str, Path]) -> None:
         setup_steps=[{"cmd": "echo setup-ran", "cwd": ""}],
     )
 
-    with TestClient(app) as client:
-        r = client.post("/api/worktree", json={"repo": "myapp", "branch": "feature"})
-        assert r.status_code == 200
-        body = r.json()
-        assert body["status"] == "ready"
-        assert body["name"] == "feature"
-        assert body["branch"] == "feature"
-        assert Path(body["path"]).exists()
+    row = asyncio.run(wt_svc.create_worktree("myapp", "feature"))
+    assert row.status == "ready"
+    assert row.name == "feature"
+    assert row.branch == "feature"
+    assert Path(row.path).exists()
 
-        r2 = client.get("/api/worktree/myapp/feature")
-    detail = r2.json()
+    with TestClient(app) as client:
+        r = client.get("/api/worktree/myapp/feature")
+    detail = r.json()
     assert detail["row"]["status"] == "ready"
     assert any("setup-ran" in line for line in detail["log"])
 
 
-def test_create_duplicate_409(_isolate: dict[str, Path]) -> None:
+def test_create_returns_existing_row_on_duplicate(
+    _isolate: dict[str, Path],
+) -> None:
+    """Second call for the same (repo, branch) is a no-op — returns
+    the existing ready row instead of raising. The strict-mode 409
+    contract was retired with the bare-POST endpoint; pull-down is
+    a user-clicked action and a second click must be idempotent."""
     repo_path = _isolate["dev_root"] / "myapp"
     _init_git_repo(repo_path)
     write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
 
-    with TestClient(app) as client:
-        r1 = client.post("/api/worktree", json={"repo": "myapp", "branch": "feature"})
-        assert r1.status_code == 200
-        assert r1.json()["status"] == "ready"
-        r2 = client.post("/api/worktree", json={"repo": "myapp", "branch": "feature"})
-    assert r2.status_code == 409
-    assert "already exists" in r2.json()["detail"]
+    first = asyncio.run(wt_svc.create_worktree("myapp", "feature"))
+    assert first.status == "ready"
+    second = asyncio.run(wt_svc.create_worktree("myapp", "feature"))
+    assert second.status == "ready"
+    assert second.created_at == first.created_at  # same row, not reinserted
+    assert second.path == first.path
 
 
 def test_setup_step_failure_marks_code_on_disk(_isolate: dict[str, Path]) -> None:
@@ -129,17 +140,15 @@ def test_setup_step_failure_marks_code_on_disk(_isolate: dict[str, Path]) -> Non
         ],
     )
 
+    row = asyncio.run(wt_svc.create_worktree("myapp", "feature"))
+    assert row.status == "code_on_disk"
+    # And the on-disk path actually exists — that's the whole
+    # premise of the new status.
+    assert Path(row.path).is_dir()
+
     with TestClient(app) as client:
-        r = client.post("/api/worktree", json={"repo": "myapp", "branch": "feature"})
-        assert r.status_code == 200
-        body = r.json()
-        assert body["status"] == "code_on_disk"
-        # And the on-disk path actually exists — that's the whole
-        # premise of the new status.
-        assert Path(body["path"]).is_dir()
-        r2 = client.get("/api/worktree/myapp/feature")
-    detail = r2.json()
-    log = detail["log"]
+        r = client.get("/api/worktree/myapp/feature")
+    log = r.json()["log"]
     assert any("first-step-ok" in line for line in log)
     assert any("setup step 1 failed" in line for line in log)
     assert not any("should-not-run" in line for line in log)
@@ -170,12 +179,11 @@ def test_setup_step_resolves_mise_shim_over_system_path(
         setup_steps=[{"cmd": "pnpm hello", "cwd": ""}],
     )
 
+    row = asyncio.run(wt_svc.create_worktree("myapp", "feature"))
+    assert row.status == "ready"
     with TestClient(app) as client:
-        r = client.post("/api/worktree", json={"repo": "myapp", "branch": "feature"})
-        assert r.status_code == 200
-        assert r.json()["status"] == "ready"
-        r2 = client.get("/api/worktree/myapp/feature")
-    log = r2.json()["log"]
+        r = client.get("/api/worktree/myapp/feature")
+    log = r.json()["log"]
     assert any("from-shim-pnpm hello" in line for line in log), log
 
 
@@ -198,12 +206,11 @@ def test_setup_runs_when_mise_shims_dir_absent(
         setup_steps=[{"cmd": "echo setup-ran", "cwd": ""}],
     )
 
+    row = asyncio.run(wt_svc.create_worktree("myapp", "feature"))
+    assert row.status == "ready"
     with TestClient(app) as client:
-        r = client.post("/api/worktree", json={"repo": "myapp", "branch": "feature"})
-        assert r.status_code == 200
-        assert r.json()["status"] == "ready"
-        r2 = client.get("/api/worktree/myapp/feature")
-    log = r2.json()["log"]
+        r = client.get("/api/worktree/myapp/feature")
+    log = r.json()["log"]
     assert any("setup-ran" in line for line in log), log
 
 
@@ -214,15 +221,129 @@ def test_missing_branch_marks_failed(_isolate: dict[str, Path]) -> None:
     _init_git_repo(repo_path)
     write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
 
+    row = asyncio.run(wt_svc.create_worktree("myapp", "nope-not-real"))
+    assert row.status == "failed"
+    assert not Path(row.path).is_dir()
     with TestClient(app) as client:
-        r = client.post("/api/worktree", json={"repo": "myapp", "branch": "nope-not-real"})
-        assert r.status_code == 200
-        body = r.json()
-        assert body["status"] == "failed"
-        assert not Path(body["path"]).is_dir()
-        r2 = client.get("/api/worktree/myapp/nope_not_real")
-    detail = r2.json()
+        r = client.get("/api/worktree/myapp/nope_not_real")
+    detail = r.json()
     assert any("not found locally or on origin" in line for line in detail["log"])
+
+
+# --- create_worktree idempotency contract --------------------------------
+
+
+def test_create_idempotent_returns_existing_ready_row(
+    _isolate: dict[str, Path],
+) -> None:
+    """Already-ready row + matching on-disk worktree: a second
+    ``create_worktree`` call returns the existing row immediately
+    without re-running any git step (no log lines from a second pass)."""
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
+
+    first = asyncio.run(wt_svc.create_worktree("myapp", "feature"))
+    assert first.status == "ready"
+
+    # Reset the in-memory log buffer so we can prove no git step ran
+    # on the second call.
+    wt_svc.reset_log("myapp", "feature")
+
+    second = asyncio.run(wt_svc.create_worktree("myapp", "feature"))
+    assert second.status == "ready"
+    assert second.created_at == first.created_at
+    # Empty log buffer → _create_worktree_async didn't run on the
+    # second call.
+    assert wt_svc.get_log("myapp", "feature") == []
+
+
+def test_create_idempotent_resumes_setting_up_row(
+    _isolate: dict[str, Path],
+) -> None:
+    """Pre-existing setting_up row + matching on-disk worktree
+    (simulates a backend killed during setup_steps): retry should
+    complete setup_steps and transition the row to ready without
+    deleting/reinserting."""
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    write_repo_config(
+        _isolate["config_path"],
+        _isolate["dev_root"],
+        repo_path,
+        setup_steps=[{"cmd": "echo resumed-setup", "cwd": ""}],
+    )
+
+    # Seed a partially-completed first attempt: row in setting_up,
+    # on-disk git worktree already registered.
+    target = _isolate["dev_root"] / "myapp_worktree_feature"
+    import subprocess
+    subprocess.run(
+        ["git", "-C", str(repo_path), "worktree", "add", str(target), "feature"],
+        check=True,
+        capture_output=True,
+    )
+    seed_worktree(
+        _isolate["db_path"],
+        "myapp",
+        "feature",
+        path=target,
+        branch="feature",
+        status="setting_up",
+        mkdir=False,
+    )
+    seeded_created_at = wt_svc.get_worktree_sync(
+        "myapp", "feature", db_path=_isolate["db_path"]
+    )
+    assert seeded_created_at is not None
+    seeded_ts = seeded_created_at.created_at
+
+    row = asyncio.run(wt_svc.create_worktree("myapp", "feature"))
+    assert row.status == "ready"
+    assert row.created_at == seeded_ts  # same row, not reinserted
+    # Setup step actually re-ran.
+    assert any("resumed-setup" in line for line in wt_svc.get_log("myapp", "feature"))
+
+
+def test_create_raises_on_branch_mismatch(_isolate: dict[str, Path]) -> None:
+    """An existing row with a different branch on the same short name is
+    a genuine collision — surface it as ``WorktreeCreationError`` so the
+    user picks a different name or deletes the existing row."""
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
+
+    seed_worktree(
+        _isolate["db_path"],
+        "myapp",
+        "feature",
+        branch="main",  # different from the requested "feature"
+        status="ready",
+    )
+    with pytest.raises(wt_svc.WorktreeCreationError) as exc_info:
+        asyncio.run(wt_svc.create_worktree("myapp", "feature"))
+    msg = str(exc_info.value)
+    assert "already exists" in msg
+    assert "different branch" in msg
+
+
+def test_create_recovers_stray_directory_at_target(
+    _isolate: dict[str, Path],
+) -> None:
+    """No DB row but a stray (non-worktree) directory sits at the
+    target path: ``create_worktree`` must remove it and proceed."""
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
+
+    target = _isolate["dev_root"] / "myapp_worktree_feature"
+    target.mkdir()
+    (target / "stale.txt").write_text("debris from a prior killed attempt\n")
+
+    row = asyncio.run(wt_svc.create_worktree("myapp", "feature"))
+    assert row.status == "ready"
+    assert Path(row.path).is_dir()
+    assert not (Path(row.path) / "stale.txt").exists()
 
 
 def test_get_worktree_404() -> None:
@@ -249,15 +370,12 @@ def test_recreate_409_when_status_is_ready(_isolate: dict[str, Path]) -> None:
     _init_git_repo(repo_path)
     write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
 
+    seeded = asyncio.run(wt_svc.create_worktree("myapp", "feature"))
+    assert seeded.status == "ready"
     with TestClient(app) as client:
-        r1 = client.post(
-            "/api/worktree", json={"repo": "myapp", "branch": "feature"}
-        )
-        assert r1.status_code == 200
-        assert r1.json()["status"] == "ready"
-        r2 = client.post("/api/worktree/myapp/feature/recreate")
-    assert r2.status_code == 409
-    assert "stale" in r2.json()["detail"]
+        r = client.post("/api/worktree/myapp/feature/recreate")
+    assert r.status_code == 409
+    assert "stale" in r.json()["detail"]
 
 
 def test_recreate_allows_code_on_disk(_isolate: dict[str, Path]) -> None:
@@ -272,19 +390,16 @@ def test_recreate_allows_code_on_disk(_isolate: dict[str, Path]) -> None:
         setup_steps=[{"cmd": "false", "cwd": ""}],  # guaranteed fail
     )
 
+    seeded = asyncio.run(wt_svc.create_worktree("myapp", "feature"))
+    assert seeded.status == "code_on_disk"
+    old_created_at = seeded.created_at
+    # Recreate should be accepted (and will fail setup again, since we
+    # didn't fix the failing step — but that's the user's problem,
+    # not the endpoint's).
     with TestClient(app) as client:
-        r1 = client.post(
-            "/api/worktree", json={"repo": "myapp", "branch": "feature"}
-        )
-        assert r1.status_code == 200
-        assert r1.json()["status"] == "code_on_disk"
-        old_created_at = r1.json()["created_at"]
-        # Recreate should be accepted (and will fail setup again,
-        # since we didn't fix the failing step — but that's the
-        # user's problem, not the endpoint's).
-        r2 = client.post("/api/worktree/myapp/feature/recreate")
-    assert r2.status_code == 200, r2.text
-    body = r2.json()
+        r = client.post("/api/worktree/myapp/feature/recreate")
+    assert r.status_code == 200, r.text
+    body = r.json()
     assert body["status"] == "code_on_disk"  # still fails setup
     assert body["created_at"] != old_created_at  # fresh row
 
@@ -296,16 +411,12 @@ def test_recreate_still_rejects_failed(_isolate: dict[str, Path]) -> None:
     _init_git_repo(repo_path)
     write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
 
+    seeded = asyncio.run(wt_svc.create_worktree("myapp", "nope-not-real"))
+    assert seeded.status == "failed"
     with TestClient(app) as client:
-        r1 = client.post(
-            "/api/worktree",
-            json={"repo": "myapp", "branch": "nope-not-real"},
-        )
-        assert r1.status_code == 200
-        assert r1.json()["status"] == "failed"
-        r2 = client.post("/api/worktree/myapp/nope_not_real/recreate")
-    assert r2.status_code == 409
-    assert "code_on_disk" in r2.json()["detail"]
+        r = client.post("/api/worktree/myapp/nope_not_real/recreate")
+    assert r.status_code == 409
+    assert "code_on_disk" in r.json()["detail"]
 
 
 def test_recreate_stale_row_drops_and_reinserts(_isolate: dict[str, Path]) -> None:
@@ -317,39 +428,37 @@ def test_recreate_stale_row_drops_and_reinserts(_isolate: dict[str, Path]) -> No
     _init_git_repo(repo_path)
     write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
 
-    with TestClient(app) as client:
-        r1 = client.post(
-            "/api/worktree", json={"repo": "myapp", "branch": "feature"}
+    seeded = asyncio.run(wt_svc.create_worktree("myapp", "feature"))
+    assert seeded.status == "ready"
+    old_path = seeded.path
+    old_created_at = seeded.created_at
+
+    # Simulate: user `rm -rf`d the on-disk directory WITHOUT
+    # running `git worktree prune`. Git still tracks the (now-
+    # broken) worktree as prunable. The recreate endpoint must
+    # prune git's tracking itself before `git worktree add`
+    # can succeed against the same path.
+    import shutil
+
+    shutil.rmtree(old_path)
+    # NOTE: deliberately NOT running `git worktree prune` here —
+    # the endpoint should handle the un-pruned case.
+    conn = db.open_db(_isolate["db_path"])
+    try:
+        conn.execute(
+            "UPDATE worktree SET status='stale' WHERE repo=? AND name=?",
+            ("myapp", "feature"),
         )
-        assert r1.status_code == 200, r1.text
-        old_path = r1.json()["path"]
-        old_created_at = r1.json()["created_at"]
+        conn.commit()
+    finally:
+        conn.close()
 
-        # Simulate: user `rm -rf`d the on-disk directory WITHOUT
-        # running `git worktree prune`. Git still tracks the (now-
-        # broken) worktree as prunable. The recreate endpoint must
-        # prune git's tracking itself before `git worktree add`
-        # can succeed against the same path.
-        import shutil
-
-        shutil.rmtree(old_path)
-        # NOTE: deliberately NOT running `git worktree prune` here —
-        # the endpoint should handle the un-pruned case.
-        conn = db.open_db(_isolate["db_path"])
-        try:
-            conn.execute(
-                "UPDATE worktree SET status='stale' WHERE repo=? AND name=?",
-                ("myapp", "feature"),
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
-        # Click Recreate — should re-run create_worktree against the
-        # same branch and return a fresh ready row.
-        r2 = client.post("/api/worktree/myapp/feature/recreate")
-    assert r2.status_code == 200, r2.text
-    body = r2.json()
+    # Click Recreate — should re-run create_worktree against the
+    # same branch and return a fresh ready row.
+    with TestClient(app) as client:
+        r = client.post("/api/worktree/myapp/feature/recreate")
+    assert r.status_code == 200, r.text
+    body = r.json()
     assert body["status"] == "ready"
     assert body["branch"] == "feature"
     assert body["name"] == "feature"
@@ -376,21 +485,18 @@ def test_delete_happy_path_removes_row_and_directory(
     _init_git_repo(repo_path)
     write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
 
-    with TestClient(app) as client:
-        r1 = client.post(
-            "/api/worktree", json={"repo": "myapp", "branch": "feature"}
-        )
-        assert r1.status_code == 200, r1.text
-        wt_path = Path(r1.json()["path"])
-        assert wt_path.exists()
+    seeded = asyncio.run(wt_svc.create_worktree("myapp", "feature"))
+    wt_path = Path(seeded.path)
+    assert wt_path.exists()
 
-        r2 = client.delete("/api/worktree/myapp/feature")
-        assert r2.status_code == 200, r2.text
-        assert r2.json() == {"deleted": True}
+    with TestClient(app) as client:
+        r1 = client.delete("/api/worktree/myapp/feature")
+        assert r1.status_code == 200, r1.text
+        assert r1.json() == {"deleted": True}
 
         # Row dropped.
-        r3 = client.get("/api/worktrees")
-        assert r3.json()["worktrees"] == []
+        r2 = client.get("/api/worktrees")
+        assert r2.json()["worktrees"] == []
 
     # On-disk path is gone.
     assert not wt_path.exists()
@@ -440,23 +546,20 @@ def test_delete_succeeds_when_path_already_gone(
     _init_git_repo(repo_path)
     write_repo_config(_isolate["config_path"], _isolate["dev_root"], repo_path)
 
+    seeded = asyncio.run(wt_svc.create_worktree("myapp", "feature"))
+    wt_path = Path(seeded.path)
+
+    # User `rm -rf`d the directory outside CDH.
+    import shutil
+    shutil.rmtree(wt_path)
+    assert not wt_path.exists()
+
     with TestClient(app) as client:
-        r1 = client.post(
-            "/api/worktree", json={"repo": "myapp", "branch": "feature"}
-        )
+        r1 = client.delete("/api/worktree/myapp/feature")
         assert r1.status_code == 200, r1.text
-        wt_path = Path(r1.json()["path"])
 
-        # User `rm -rf`d the directory outside CDH.
-        import shutil
-        shutil.rmtree(wt_path)
-        assert not wt_path.exists()
-
-        r2 = client.delete("/api/worktree/myapp/feature")
-        assert r2.status_code == 200, r2.text
-
-        r3 = client.get("/api/worktrees")
-        assert r3.json()["worktrees"] == []
+        r2 = client.get("/api/worktrees")
+        assert r2.json()["worktrees"] == []
 
 
 def test_delete_drops_row_even_when_git_remove_fails(
