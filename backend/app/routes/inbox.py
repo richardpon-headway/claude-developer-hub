@@ -237,13 +237,17 @@ def _local_branch_for_fork_pr(pr_number: int, head_ref: str) -> str:
 async def _fetch_pr_ref(
     repo_path: Path, pr_number: int, local_branch: str
 ) -> None:
-    """``git fetch origin pull/<n>/head:<local_branch>`` inside the
-    configured repo's checkout. Raises HTTPException 502 on failure."""
+    """``git fetch origin +pull/<n>/head:<local_branch>`` inside the
+    configured repo's checkout. The leading ``+`` makes the fetch
+    force-update the local branch, so a stale ref from a prior killed
+    pull-down (or a force-pushed PR HEAD) gets overwritten with the
+    current GitHub PR HEAD — pull-down stays idempotent under retry.
+    Raises HTTPException 502 on failure."""
     proc = await asyncio.create_subprocess_exec(
         "git",
         "fetch",
         "origin",
-        f"pull/{pr_number}/head:{local_branch}",
+        f"+pull/{pr_number}/head:{local_branch}",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=str(repo_path),

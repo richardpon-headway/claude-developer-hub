@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import logging
 import os
+import shutil
 from pathlib import Path
 
 from app.config.loader import load_config
@@ -28,6 +30,9 @@ from app.models.worktree import (
     extract_ticket,
     now_iso,
 )
+from app.services import git_cli
+
+log = logging.getLogger(__name__)
 
 LOG_BUFFER_MAX_LINES = 1000
 
@@ -362,7 +367,14 @@ async def _create_worktree_async(
     target: Path,
     db_path: Path | None = None,
 ) -> None:
-    """Run the actual git + setup_steps work. Updates DB status as it goes."""
+    """Run the actual git + setup_steps work. Updates DB status as it goes.
+
+    Idempotent under retry: if a prior attempt was killed mid-flight,
+    each git step detects the partially-completed state and either
+    skips the step (worktree already registered to this branch) or
+    cleans up the stray on-disk state (untracked directory at the
+    target path) before continuing.
+    """
     repo_path = Path(repo.path)
 
     # Step 1: fetch (best-effort — works offline or with no origin remote).
@@ -401,17 +413,56 @@ async def _create_worktree_async(
             )
             return
 
-    # Step 3: worktree add
-    rc = await _run_logged(
-        repo.name, short_name, "worktree-add",
-        ["git", "worktree", "add", str(target), branch],
-        cwd=repo_path,
-    )
-    if rc != 0:
-        await asyncio.to_thread(
-            update_worktree_status_sync, repo.name, short_name, "failed", db_path
+    # Step 3: worktree add — pre-check for partial state from a prior
+    # killed attempt.
+    target_str = str(target)
+    existing_wts = await git_cli.list_git_worktrees(repo_path)
+    registered = next((w for w in existing_wts if w.path == target_str), None)
+    if registered is not None:
+        if registered.branch == branch:
+            # Prior attempt already added the worktree to git's tracking
+            # for the same branch — skip the add and continue into setup.
+            await _append_log(
+                repo.name, short_name,
+                f"git worktree already registered at {target} for branch '{branch}'; resuming",
+            )
+        else:
+            await _append_log(
+                repo.name, short_name,
+                f"target path {target} is registered as a worktree for a "
+                f"different branch ({registered.branch!r}); refusing to overwrite",
+            )
+            await asyncio.to_thread(
+                update_worktree_status_sync, repo.name, short_name, "failed", db_path
+            )
+            return
+    else:
+        if target.exists():
+            # Untracked stray directory (left over from a prior killed
+            # attempt before `git worktree add` registered it, or
+            # placed by the user). Clear it + prune git's stale
+            # tracking so the upcoming add can succeed.
+            await _append_log(
+                repo.name, short_name,
+                f"removing stray directory at {target} before worktree add",
+            )
+            await asyncio.to_thread(shutil.rmtree, target, ignore_errors=True)
+            prune = await asyncio.create_subprocess_exec(
+                "git", "-C", str(repo_path), "worktree", "prune",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await prune.wait()
+        rc = await _run_logged(
+            repo.name, short_name, "worktree-add",
+            ["git", "worktree", "add", target_str, branch],
+            cwd=repo_path,
         )
-        return
+        if rc != 0:
+            await asyncio.to_thread(
+                update_worktree_status_sync, repo.name, short_name, "failed", db_path
+            )
+            return
 
     # Step 4: setup_steps (config-driven; no hardcoded mise/make/pnpm)
     for i, step in enumerate(repo.setup_steps):
@@ -448,49 +499,79 @@ async def _create_worktree_async(
 async def create_worktree(
     repo_name: str, branch: str, db_path: Path | None = None
 ) -> WorktreeRow:
-    """Create a worktree end-to-end: validate, insert row, run git +
-    setup_steps, return the final row.
+    """Create a worktree end-to-end, idempotently.
 
-    This blocks the request for the duration of setup (potentially tens of
-    seconds for large repos). For Slice E that's the simplest reliable
-    design — TestClient and asyncio.create_task interact badly enough that
-    background-task scheduling isn't worth the debugging cost yet. A
-    future slice will introduce a proper worker (lifespan-owned task
-    + asyncio.Queue) so the POST can return immediately.
+    Validates the repo, then resolves the target row for ``(repo, name)``:
 
-    Raises ``WorktreeCreationError`` for client-correctable preconditions
-    (unknown repo, name collision, target already exists) BEFORE inserting
-    a row, so callers get a clean 4xx and no orphan rows.
+    - **No existing row** — insert one in ``setting_up`` and run the
+      full git + setup_steps flow.
+    - **Existing row, same branch, status=ready** — return it
+      immediately as a no-op. The first attempt already completed.
+    - **Existing row, same branch, status in {setting_up, failed,
+      code_on_disk}** — treat as a resume point. Re-run the git +
+      setup_steps flow; each step detects what's already in place
+      and skips or recovers.
+    - **Existing row, different branch** — raise
+      ``WorktreeCreationError``. A genuinely different branch chose
+      the same short name; the user picks a different name or
+      deletes the existing.
+
+    Blocks the request for the duration of setup (potentially tens of
+    seconds for large repos). TestClient + asyncio.create_task interact
+    badly enough that background-task scheduling isn't worth the
+    debugging cost yet.
+
+    Raises ``WorktreeCreationError`` for the unknown-repo and
+    branch-mismatch preconditions BEFORE any DB write, so callers get a
+    clean 4xx and no orphan rows.
     """
     repo = _resolve_repo(repo_name)
     short_name = derive_worktree_name(branch, repo.branch_prefix, repo.ticket_pattern)
-
-    existing = await asyncio.to_thread(get_worktree_sync, repo_name, short_name, db_path)
-    if existing is not None:
-        raise WorktreeCreationError(
-            f"a worktree already exists for repo={repo_name} "
-            f"name={short_name} (status={existing.status})"
-        )
-
     target = _resolve_target_path(repo, short_name)
-    if target.exists():
-        raise WorktreeCreationError(f"target path already exists on disk: {target}")
 
-    row = WorktreeRow(
-        repo=repo.name,
-        name=short_name,
-        path=str(target),
-        branch=branch,
-        ticket=extract_ticket(branch, repo.ticket_pattern),
-        pr_number=None,
-        pr_repo=None,
-        created_at=now_iso(),
-        status="setting_up",
+    existing = await asyncio.to_thread(
+        get_worktree_sync, repo_name, short_name, db_path
     )
-    await asyncio.to_thread(insert_worktree_sync, row, db_path)
+    if existing is not None:
+        if existing.branch != branch:
+            raise WorktreeCreationError(
+                f"worktree '{short_name}' already exists for a different "
+                f"branch ({existing.branch!r}) — pick a different name or "
+                f"delete the existing"
+            )
+        if existing.status == "ready":
+            return existing
+        log.info(
+            "resuming existing worktree row mid-create",
+            extra={
+                "repo": repo.name,
+                "name": short_name,
+                "existing_status": existing.status,
+            },
+        )
+        # Flip back to setting_up so concurrent readers see the resume
+        # in flight rather than the stale terminal status.
+        await asyncio.to_thread(
+            update_worktree_status_sync, repo.name, short_name, "setting_up", db_path
+        )
+    else:
+        row = WorktreeRow(
+            repo=repo.name,
+            name=short_name,
+            path=str(target),
+            branch=branch,
+            ticket=extract_ticket(branch, repo.ticket_pattern),
+            pr_number=None,
+            pr_repo=None,
+            created_at=now_iso(),
+            status="setting_up",
+        )
+        await asyncio.to_thread(insert_worktree_sync, row, db_path)
 
     await _create_worktree_async(repo, branch, short_name, target, db_path)
 
-    final = await asyncio.to_thread(get_worktree_sync, repo.name, short_name, db_path)
-    assert final is not None  # we just inserted it
+    final = await asyncio.to_thread(
+        get_worktree_sync, repo.name, short_name, db_path
+    )
+    assert final is not None  # we just inserted or resumed it
     return final

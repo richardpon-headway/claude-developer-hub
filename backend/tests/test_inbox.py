@@ -1,6 +1,7 @@
 """Tests for the persistent-inbox slice."""
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,7 +23,7 @@ from app.services.inbox_search import (
 )
 from tests.fixtures.config import write_minimal_config, write_repo_config
 from tests.fixtures.inbox import build_raw_pr, seed_inbox_row
-from tests.fixtures.worktree import seed_worktree
+from tests.fixtures.worktree import init_git_repo, seed_worktree
 
 
 def _list_inbox_rows(db_path: Path) -> list[PrRow]:
@@ -796,6 +797,163 @@ def test_pull_down_fork_pr_fetches_pull_ref(
     _, pr_n, local_b = fetch_args_seen[0]
     assert pr_n == 58
     assert local_b == "cdh-pr-58-feat/forked"
+
+
+def test_fetch_pr_ref_force_overwrites_existing_branch(
+    _isolate: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The refspec prefix ``+`` makes ``_fetch_pr_ref`` force-update an
+    existing local branch from a prior killed pull-down attempt. Stand
+    up a real upstream + downstream + ``refs/pull/<n>/head`` ref, seed a
+    stale ``cdh-pr-<n>-<head>`` branch on the downstream, and assert
+    the second fetch points it at the new upstream SHA."""
+    import subprocess
+
+    from app.routes.inbox import _fetch_pr_ref, _local_branch_for_fork_pr
+
+    pr_number = 99
+    head_ref = "feat/forked"
+    local_branch = _local_branch_for_fork_pr(pr_number, head_ref)
+
+    upstream = tmp_path / "upstream"
+    init_git_repo(upstream)
+    # First "PR HEAD" — what the killed attempt fetched.
+    subprocess.run(
+        ["git", "-C", str(upstream), "checkout", "-b", head_ref, "-q"],
+        check=True,
+    )
+    (upstream / "first.txt").write_text("v1\n")
+    subprocess.run(["git", "-C", str(upstream), "add", "-A"], check=True)
+    subprocess.run(
+        ["git", "-C", str(upstream), "commit", "-m", "v1", "-q"], check=True
+    )
+    stale_sha = subprocess.run(
+        ["git", "-C", str(upstream), "rev-parse", "HEAD"],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    subprocess.run(
+        ["git", "-C", str(upstream), "update-ref",
+         f"refs/pull/{pr_number}/head", stale_sha],
+        check=True,
+    )
+
+    # Downstream repo (where _fetch_pr_ref runs).
+    downstream = tmp_path / "downstream"
+    init_git_repo(downstream)
+    subprocess.run(
+        ["git", "-C", str(downstream), "remote", "add", "origin", str(upstream)],
+        check=True,
+    )
+    # Seed the stale local branch as if a prior attempt completed the
+    # fetch then died before create_worktree finished.
+    subprocess.run(
+        ["git", "-C", str(downstream), "fetch", "origin",
+         f"+pull/{pr_number}/head:{local_branch}"],
+        check=True, capture_output=True,
+    )
+    before_sha = subprocess.run(
+        ["git", "-C", str(downstream), "rev-parse", local_branch],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    assert before_sha == stale_sha
+
+    # Upstream PR moves forward (force-push or new commit).
+    (upstream / "second.txt").write_text("v2\n")
+    subprocess.run(["git", "-C", str(upstream), "add", "-A"], check=True)
+    subprocess.run(
+        ["git", "-C", str(upstream), "commit", "-m", "v2", "-q"], check=True
+    )
+    fresh_sha = subprocess.run(
+        ["git", "-C", str(upstream), "rev-parse", "HEAD"],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    subprocess.run(
+        ["git", "-C", str(upstream), "update-ref",
+         f"refs/pull/{pr_number}/head", fresh_sha],
+        check=True,
+    )
+    assert fresh_sha != stale_sha
+
+    # Retry — the ``+`` refspec must force-update the local branch.
+    asyncio.run(_fetch_pr_ref(downstream, pr_number, local_branch))
+    after_sha = subprocess.run(
+        ["git", "-C", str(downstream), "rev-parse", local_branch],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    assert after_sha == fresh_sha
+
+
+def test_pull_down_fork_pr_retry_after_mid_flight_kill(
+    _isolate: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fork PR pull-down killed mid-flight (first call's ``_fetch_pr_ref``
+    raises 502) must succeed on retry — the second call completes the
+    fetch and the worktree row lands in ``ready``. Covers the
+    bookmark / inbox / authored pull-down surfaces transitively via
+    the shared ``_perform_pull_down``."""
+    repo_path = tmp_path / "myapp"
+    init_git_repo(repo_path)
+    write_repo_config(
+        _isolate["config_path"],
+        tmp_path,
+        repo_path,
+        name="myapp",
+        github_repo="acme/myapp",
+    )
+
+    from app.routes import inbox as inbox_route
+
+    async def fake_run_gh_json(args: list, **kwargs: Any) -> dict:
+        return {"headRefName": "feat/forked", "isCrossRepository": True}
+
+    monkeypatch.setattr(inbox_route, "run_gh_json", fake_run_gh_json)
+
+    call_count = {"n": 0}
+
+    async def flaky_then_real_fetch(
+        repo_p: Path, pr_n: int, local_b: str,
+    ) -> None:
+        from fastapi import HTTPException
+        from fastapi import status as fa_status
+
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise HTTPException(
+                fa_status.HTTP_502_BAD_GATEWAY,
+                "simulated mid-flight kill before fetch returned",
+            )
+        # Second call: stand up the local branch (mirroring what the
+        # real fetch would have done after talking to origin) and let
+        # _perform_pull_down continue into create_worktree.
+        proc = await asyncio.create_subprocess_exec(
+            "git", "-C", str(repo_p), "branch", local_b,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+
+    monkeypatch.setattr(inbox_route, "_fetch_pr_ref", flaky_then_real_fetch)
+
+    seed_inbox_row(
+        _isolate["db_path"], pr_repo="acme/myapp", pr_number=58,
+    )
+
+    with TestClient(app) as client:
+        first = client.post("/api/inbox/acme/myapp/58/pull-down")
+        assert first.status_code == 502, first.text
+        second = client.post("/api/inbox/acme/myapp/58/pull-down")
+
+    assert second.status_code == 200, second.text
+    assert call_count["n"] == 2
+
+    conn = sqlite3.connect(_isolate["db_path"])
+    try:
+        row = conn.execute(
+            "SELECT status FROM worktree WHERE repo = 'myapp'",
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row == ("ready",)
 
 
 # --- endpoint: configure-and-pull-down ----------------------------------

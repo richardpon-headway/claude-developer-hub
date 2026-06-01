@@ -129,7 +129,7 @@ export function HubPage() {
                   <p className="text-sm text-zinc-400">
                     {repos.length === 0
                       ? "Add a repo first, then create a worktree from a branch."
-                      : "No worktrees yet. Create one via POST /api/worktree."}
+                      : "No worktrees yet. Pull down a bookmarked, inbox, or authored PR to create one."}
                   </p>
                 </div>
               )}

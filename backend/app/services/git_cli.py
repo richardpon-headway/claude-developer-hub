@@ -1,19 +1,25 @@
-"""Shared helper for shelling out to ``git`` inside a worktree.
+"""Shared async helpers for shelling out to ``git`` inside a worktree
+or repo checkout.
 
-Centralizes the small handful of git subprocess calls the file-view
-endpoint needs:
+Covers the small handful of git subprocess calls the file-view endpoint
+and the worktree-create flow need:
 
 - ``current_branch``: name of HEAD's branch (or ``None`` for detached).
 - ``merge_base``: SHA of the common ancestor with a base ref.
 - ``diff_against_ref``: parsed unified-diff hunks for one file vs a ref.
 - ``rename_source``: the old path when this file is a rename in the
   branch's history.
+- ``list_git_worktrees``: parsed ``git worktree list --porcelain`` for
+  a repo checkout — used by ``create_worktree`` to detect a worktree
+  that a prior killed attempt already registered.
 
-All functions take the worktree path as ``wt_path`` and run git with
-``-C <wt_path>``. Failures return empty / ``None`` rather than raise —
+All functions take a path as ``wt_path`` / ``repo_path`` and run git with
+``-C <path>``. Failures return empty / ``None`` rather than raise —
 the file-view endpoint prefers to render a degraded UI (no diff
 overlay) over a 5xx, since git can legitimately fail for valid reasons
-(detached HEAD, base ref missing locally, file untracked, etc.).
+(detached HEAD, base ref missing locally, file untracked, etc.); the
+worktree-create flow falls back on ``git worktree add`` exit codes to
+report real problems.
 """
 from __future__ import annotations
 
@@ -266,6 +272,61 @@ async def is_tracked(wt_path: Path, rel_path: Path) -> bool:
         ["ls-files", "--error-unmatch", "--", str(rel_path)],
     )
     return rc == 0
+
+
+@dataclass(frozen=True)
+class GitWorktree:
+    """One row from ``git worktree list --porcelain``.
+
+    ``branch`` is ``None`` for detached-HEAD / bare worktrees (the
+    porcelain record omits the ``branch`` line in those cases).
+    """
+
+    path: str
+    branch: str | None
+    detached: bool
+    locked: bool
+    prunable: bool
+
+
+async def list_git_worktrees(repo_path: Path) -> list[GitWorktree]:
+    """Parsed output of ``git worktree list --porcelain`` run inside
+    ``repo_path``. Returns an empty list on any git failure — callers
+    treat "couldn't list" the same as "nothing pre-existing." Used by
+    ``create_worktree`` to recognize a worktree that a prior killed
+    attempt already registered.
+
+    The parser is shared with the sync ``worktree_import`` flow (see
+    ``parse_worktree_list_porcelain``); only the subprocess wrapper
+    differs (async here, sync there).
+    """
+    # Local import — ``worktree_import`` doesn't import this module, so
+    # there's no cycle, but the function-level import keeps the module
+    # load order obvious.
+    from app.services.worktree_import import (
+        _branch_from_record,
+        parse_worktree_list_porcelain,
+    )
+
+    rc, out, _ = await _run_git(repo_path, ["worktree", "list", "--porcelain"])
+    if rc != 0:
+        return []
+    out_text = out.decode("utf-8", errors="replace")
+    result: list[GitWorktree] = []
+    for rec in parse_worktree_list_porcelain(out_text):
+        path = rec.get("worktree")
+        if not isinstance(path, str):
+            continue
+        result.append(
+            GitWorktree(
+                path=path,
+                branch=_branch_from_record(rec),
+                detached=bool(rec.get("detached")),
+                locked=bool(rec.get("locked")),
+                prunable=bool(rec.get("prunable")),
+            )
+        )
+    return result
 
 
 async def rename_source(
