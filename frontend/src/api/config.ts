@@ -30,3 +30,6 @@ export const runGlobalSkill = (skill: string) =>
 
 export const runGlobalFreeform = (prompt: string) =>
   apiPost<GlobalSkillResponse>("/api/skills/global/freeform", { prompt });
+
+export const openGlobalClaude = () =>
+  apiPost<GlobalSkillResponse>("/api/skills/global/open", {});

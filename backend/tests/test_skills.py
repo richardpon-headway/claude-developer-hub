@@ -211,6 +211,85 @@ def test_spawn_global_claude_window_sends_correct_keystrokes(
     fake_window.async_activate.assert_awaited_once()
 
 
+def test_spawn_global_claude_window_no_prompt_launches_plain_claude(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """With ``initial_prompt=None`` the helper launches a bare
+    ``claude`` (blank session) rather than ``claude '<prompt>'``."""
+    import iterm2
+
+    fake_window = build_fake_global_window(window_id="W8", session_id="S8")
+    monkeypatch.setattr(
+        iterm2.Window, "async_create", AsyncMock(return_value=fake_window)
+    )
+    fake_app = MagicMock()
+    fake_app.async_activate = AsyncMock()
+    monkeypatch.setattr(iterm2, "async_get_app", AsyncMock(return_value=fake_app))
+
+    from app.config.schema import ITermWindow
+
+    frame = ITermWindow(width=900, height=700, x=10, y=20)
+
+    result = asyncio.run(
+        iterm_spawn.spawn_global_claude_window(MagicMock(), tmp_path, frame)
+    )
+    assert result.window_id == "W8"
+
+    sent = fake_window.current_tab.current_session.async_send_text.await_args.args[0]
+    assert sent == f"cd {tmp_path}\nclaude\n"
+
+
+# --- blank-session ("Open Claude") endpoint ---------------------------------
+
+
+def test_open_503_when_iterm_disconnected(_isolate: dict[str, Path]) -> None:
+    write_minimal_config(
+        _isolate["config_path"], _isolate["dev_root"], global_skills=[]
+    )
+    with TestClient(app) as client:
+        client.app.state.iterm = SimpleNamespace(connection=None)
+        r = client.post("/api/skills/global/open")
+    assert r.status_code == 503
+
+
+def test_open_400_when_development_root_missing(
+    _isolate: dict[str, Path], tmp_path: Path
+) -> None:
+    bogus = tmp_path / "no-such-dir"
+    _isolate["config_path"].write_text(
+        yaml.safe_dump(
+            {"development_root": str(bogus), "repos": [], "global_skills": []}
+        )
+    )
+    with TestClient(app) as client:
+        client.app.state.iterm = SimpleNamespace(connection=MagicMock())
+        r = client.post("/api/skills/global/open")
+    assert r.status_code == 400
+    assert "development_root" in r.json()["detail"]
+
+
+def test_open_happy_path_spawns_blank_claude_in_dev_root(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End-to-end: a blank ``claude`` session opens in development_root
+    with no prompt argument."""
+    write_minimal_config(
+        _isolate["config_path"], _isolate["dev_root"], global_skills=[]
+    )
+    fake_window = build_fake_global_window(window_id="GW0", session_id="GS0")
+    _stub_iterm2(monkeypatch, fake_window)
+
+    with TestClient(app) as client:
+        client.app.state.iterm = SimpleNamespace(connection=MagicMock())
+        r = client.post("/api/skills/global/open")
+
+    assert r.status_code == 200, r.text
+    assert r.json() == {"spawned": True}
+
+    sent = fake_window.current_tab.current_session.async_send_text.await_args.args[0]
+    assert sent == f"cd {_isolate['dev_root']}\nclaude\n"
+
+
 # --- free-form prompt endpoint ----------------------------------------------
 
 

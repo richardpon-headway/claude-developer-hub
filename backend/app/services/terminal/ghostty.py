@@ -149,18 +149,23 @@ def _resolve_claude_cli() -> str:
 
 
 async def spawn_one_tab_claude(
-    cwd: Path, initial_prompt: str, size: GhosttyWindow
+    cwd: Path, initial_prompt: str | None, size: GhosttyWindow
 ) -> None:
     """Open a fresh single-tab Ghostty window at ``cwd`` running
-    ``claude '<initial_prompt>'`` as the startup command.
+    ``claude '<initial_prompt>'`` as the startup command. When
+    ``initial_prompt`` is ``None`` a plain ``claude`` (blank session)
+    is launched instead.
 
     No tracking is persisted — send-driven spawns are intentionally
     untracked (see PR #108 for rationale).
     """
     _require_available()
 
-    quoted_prompt = shell_single_quote(initial_prompt)
-    command = f"{_resolve_claude_cli()} {quoted_prompt}"
+    claude_cli = _resolve_claude_cli()
+    command = (
+        claude_cli if initial_prompt is None
+        else f"{claude_cli} {shell_single_quote(initial_prompt)}"
+    )
 
     script = [
         'tell application "Ghostty"',

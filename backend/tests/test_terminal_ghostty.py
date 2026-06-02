@@ -162,6 +162,28 @@ def test_spawn_one_tab_claude_emits_expected_applescript(
     assert "new window with configuration cfg" in script
 
 
+def test_spawn_one_tab_claude_no_prompt_runs_bare_claude(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """With ``initial_prompt=None`` the startup command is a bare
+    ``claude`` — no quoted prompt argument."""
+    _force_available(monkeypatch, tmp_path)
+    proc_mock = _make_subprocess_mock()
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", proc_mock)
+
+    asyncio.run(
+        ghostty.spawn_one_tab_claude(
+            tmp_path, None, GhosttyWindow(width=120, height=40)
+        )
+    )
+
+    args = proc_mock.await_args.args
+    script = "\n".join(arg for arg in args[2:] if arg != "-e")
+    # No single-quoted prompt argument is appended.
+    assert "claude '" not in script
+    assert "set command of cfg" in script
+
+
 def test_spawn_one_tab_claude_propagates_osascript_failure(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
