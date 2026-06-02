@@ -1,0 +1,66 @@
+backend/app/services/worktree.py
+  s_12df1f062bf07b::t_7f1dc70d7093d1 42-50
+  s_12df1f062bf07b::t_b9c84d7460245a 539,544-545
+  s_12df1f062bf07b::t_84f1905a9746a1 620-634,636-638,640
+  s_12df1f062bf07b::t_b00fb49bcea445 675,691
+  s_12df1f062bf07b::t_79b1c44c9eac72 51-58
+  s_12df1f062bf07b::t_a5cf6a7311e226 516-538,540-543,546-576,580-595,597-600,606-609,612-613,618,651-658,660,690,693-726,728,730-733
+  s_12df1f062bf07b::t_fd7140d5d3e947 659,665-666
+backend/app/main.py
+  s_12df1f062bf07b::t_f038e6dd6c0b1a 28,33,49-58,60
+backend/tests/test_inbox.py
+  s_12df1f062bf07b::t_247b433f6ce294 806-808
+  s_12df1f062bf07b::t_7ab497b5f87dd3 17
+  s_12df1f062bf07b::t_6f252aa24d2113 958-964,972
+  s_12df1f062bf07b::t_954f573f199515 727-731
+frontend/src/components/PrCard.tsx
+  s_12df1f062bf07b::t_0b1eace300aa2c 320-326
+  s_12df1f062bf07b::t_60c138f35b219b 489-493,509-528
+backend/tests/conftest.py
+  s_12df1f062bf07b::t_9015659d49ad84 38-42,44
+backend/tests/test_authored_prs.py
+  s_12df1f062bf07b::t_75b87a4105b11d 316-320
+  s_12df1f062bf07b::t_2a67e29e75668b 12
+frontend/src/components/WorkspaceList.test.tsx
+  s_12df1f062bf07b::t_056f3d40142715 295-301
+backend/tests/test_worktrees.py
+  s_12df1f062bf07b::t_ddf10c94a5445e 496-501,506
+  s_12df1f062bf07b::t_7b0e4151324c54 349-446
+  s_12df1f062bf07b::t_609e930556c196 94,118,120,143,182,209,224,246,253,301,343,471,491,517,534,595,656
+  s_12df1f062bf07b::t_177d7e41403c6e 560-565,570
+frontend/src/components/BookmarkList.test.tsx
+  s_12df1f062bf07b::t_71c97da928953a 70
+  s_12df1f062bf07b::t_7304fad984331e 6-26
+  s_12df1f062bf07b::t_bb8cfd666df6bc 164-165,168
+  s_12df1f062bf07b::t_61b0adbfc7463d 145-163,166-167,169-171
+backend/tests/test_bookmarks.py
+  s_12df1f062bf07b::t_bb251b242ffc49 12
+  s_12df1f062bf07b::t_501c442725bab0 342-346
+frontend/src/components/InboxList.test.tsx
+  s_12df1f062bf07b::t_20b4ad38923ea6 215-216,219
+  s_12df1f062bf07b::t_7ffba5313f68cd 6-26
+  s_12df1f062bf07b::t_d83a18888399c8 193,213-214,218
+frontend/src/components/AuthoredPrTier.test.tsx
+  s_12df1f062bf07b::t_afbcab5ecc6876 126,130
+  s_12df1f062bf07b::t_82880d5053e0bb 127-128,131
+  s_12df1f062bf07b::t_a3f7a13d78b734 6-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e2ae3aeb2140f394f1d9507c85160d22fd5d74d8",
+  "prompts": {},
+  "sessions": {
+    "s_12df1f062bf07b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "052d1598-a98f-4408-958e-520f918738a2",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
