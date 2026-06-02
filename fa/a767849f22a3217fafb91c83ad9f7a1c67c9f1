@@ -1,0 +1,42 @@
+frontend/src/api/config.ts
+  s_7a2e752bde9218::t_0a5a256d90e5bb 33-35
+backend/tests/test_skills.py
+  s_7a2e752bde9218::t_dc1d2bb163a201 214-292
+backend/app/services/iterm_spawn.py
+  s_7a2e752bde9218::t_67e065b3315e44 155,158-163,171-173,175
+backend/app/routes/skills.py
+  s_7a2e752bde9218::t_fa559b148e79e3 77-102
+  s_7a2e752bde9218::t_f3484ae79e1376 124
+frontend/src/components/GlobalSkillsTile.tsx
+  s_7a2e752bde9218::t_b439f8c41bae30 5-10
+  s_7a2e752bde9218::t_3798f35487352a 43-46
+  s_7a2e752bde9218::t_64f538154e5585 131-150
+frontend/src/components/GlobalSkillsTile.test.tsx
+  s_7a2e752bde9218::t_8e8d618cc72baa 127-141
+  s_7a2e752bde9218::t_2c8092e59ce831 29
+backend/app/services/terminal/__init__.py
+  s_7a2e752bde9218::t_bb90a18f74be58 65,67-70
+backend/tests/test_terminal_ghostty.py
+  s_7a2e752bde9218::t_d8dc6c5288aadb 165-186
+backend/app/services/terminal/ghostty.py
+  s_7a2e752bde9218::t_28111bfbe9bd55 152,155-157,164-168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "faa767849f22a3217fafb91c83ad9f7a1c67c9f1",
+  "prompts": {},
+  "sessions": {
+    "s_7a2e752bde9218": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "68181310-f037-41c3-bc2b-b3adb29a658a",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
