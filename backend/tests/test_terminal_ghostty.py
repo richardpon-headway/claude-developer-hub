@@ -227,38 +227,12 @@ def test_spawn_raises_when_unavailable(
         )
 
 
-# --- focus ------------------------------------------------------------------
-
-
-def test_focus_window_returns_true_on_found(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    _force_available(monkeypatch, tmp_path)
-    proc_mock = _make_subprocess_mock(stdout=b"true\n")
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", proc_mock)
-
-    found = asyncio.run(ghostty.focus_window("WID-1", "TAB-A"))
-    assert found is True
-
-
-def test_focus_window_returns_false_when_window_gone(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    _force_available(monkeypatch, tmp_path)
-    proc_mock = _make_subprocess_mock(stdout=b"false\n")
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", proc_mock)
-
-    found = asyncio.run(ghostty.focus_window("WID-NOPE", None))
-    assert found is False
-
-
 # --- DB integration: terminal_kind='ghostty' write -------------------------
 
 
 def test_upsert_records_terminal_kind_ghostty(_isolate: dict[str, Path]) -> None:
     """When the spawn-iterm route persists a Ghostty spawn, the
-    terminal_session row gets ``terminal_kind='ghostty'`` so the
-    Focus endpoint dispatches correctly later."""
+    terminal_session row records ``terminal_kind='ghostty'``."""
     from app.services.iterm_spawn import SpawnResult, upsert_iterm_sessions_sync
 
     repo, name = "myapp", "ft"

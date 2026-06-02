@@ -21,7 +21,7 @@ from app.config.schema import ITermWindow
 from app.main import app
 from app.services import iterm_spawn
 from app.services import iterm_supervisor as supervisor
-from tests.fixtures.iterm import build_fake_window, seed_iterm_session
+from tests.fixtures.iterm import build_fake_window
 from tests.fixtures.worktree import seed_worktree
 
 
@@ -350,108 +350,3 @@ def test_spawn_endpoint_502_on_iterm_error(
     assert r.status_code == 502
     assert "iTerm2 spawn failed" in r.json()["detail"]
     assert "simulated rpc failure" in r.json()["detail"]
-
-
-# --- POST /api/worktree/{repo}/{name}/focus-iterm ------------------------
-
-
-def test_focus_endpoint_503_when_iterm_disconnected(
-    _isolate: dict[str, Path],
-) -> None:
-    _write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
-    seed_worktree(_isolate["db_path"], "r", "wt", path=_isolate["dev_root"] / "wt")
-    seed_iterm_session(
-        _isolate["db_path"], "r", "wt", window_id="W1", session_id="S1"
-    )
-
-    with TestClient(app) as client:
-        client.app.state.iterm = SimpleNamespace(connection=None)
-        r = client.post("/api/worktree/r/wt/focus-iterm")
-    assert r.status_code == 503
-
-
-def test_focus_endpoint_404_when_no_session_tracked(
-    _isolate: dict[str, Path],
-) -> None:
-    _write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
-    seed_worktree(_isolate["db_path"], "r", "wt", path=_isolate["dev_root"] / "wt")
-    # No iterm_session row seeded.
-
-    with TestClient(app) as client:
-        client.app.state.iterm = SimpleNamespace(connection=MagicMock())
-        r = client.post("/api/worktree/r/wt/focus-iterm")
-    assert r.status_code == 404
-    assert "no tracked Claude session" in r.json()["detail"]
-
-
-def test_focus_endpoint_happy_path(
-    monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
-) -> None:
-    """Window with the tracked id exists in iTerm2; we activate it +
-    select its claude tab."""
-    _write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
-    seed_worktree(_isolate["db_path"], "r", "wt", path=_isolate["dev_root"] / "wt")
-    seed_iterm_session(
-        _isolate["db_path"], "r", "wt", window_id="W42", session_id="S42"
-    )
-
-    # Build a fake App whose windows[].tabs[].sessions[] matches the
-    # tracked window_id + session_id.
-    claude_session = MagicMock(session_id="S42")
-    claude_tab = MagicMock(sessions=[claude_session])
-    claude_tab.async_select = AsyncMock()
-    fake_window = MagicMock(window_id="W42", tabs=[claude_tab])
-    fake_window.async_activate = AsyncMock()
-    fake_app = MagicMock(windows=[fake_window])
-    fake_app.async_activate = AsyncMock()
-    import iterm2
-
-    monkeypatch.setattr(iterm2, "async_get_app", AsyncMock(return_value=fake_app))
-
-    with TestClient(app) as client:
-        client.app.state.iterm = SimpleNamespace(connection=MagicMock())
-        r = client.post("/api/worktree/r/wt/focus-iterm")
-
-    assert r.status_code == 200, r.text
-    assert r.json() == {"focused": True}
-    # Right tab + window were activated.
-    claude_tab.async_select.assert_awaited_once()
-    fake_window.async_activate.assert_awaited_once()
-
-
-def test_focus_endpoint_404_and_prunes_when_window_missing(
-    monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Path]
-) -> None:
-    """If the tracked window_id isn't in iTerm2's running windows
-    anymore (user closed it / iTerm2 restarted), the endpoint prunes
-    the stale row and returns 404."""
-    _write_minimal_config(_isolate["config_path"], _isolate["dev_root"])
-    seed_worktree(_isolate["db_path"], "r", "wt", path=_isolate["dev_root"] / "wt")
-    seed_iterm_session(
-        _isolate["db_path"], "r", "wt", window_id="W-gone", session_id="S1"
-    )
-
-    # iTerm2's app reports a different window — the tracked one is gone.
-    other_window = MagicMock(window_id="W-other", tabs=[])
-    fake_app = MagicMock(windows=[other_window])
-    import iterm2
-
-    monkeypatch.setattr(iterm2, "async_get_app", AsyncMock(return_value=fake_app))
-
-    with TestClient(app) as client:
-        client.app.state.iterm = SimpleNamespace(connection=MagicMock())
-        r = client.post("/api/worktree/r/wt/focus-iterm")
-
-    assert r.status_code == 404
-    assert "window is gone" in r.json()["detail"]
-
-    # Stale row was pruned.
-    conn = sqlite3.connect(_isolate["db_path"])
-    try:
-        n = conn.execute(
-            "SELECT COUNT(*) FROM terminal_session WHERE repo=? AND worktree_name=?",
-            ("r", "wt"),
-        ).fetchone()[0]
-    finally:
-        conn.close()
-    assert n == 0

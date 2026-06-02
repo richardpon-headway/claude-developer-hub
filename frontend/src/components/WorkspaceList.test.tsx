@@ -98,7 +98,6 @@ function wt(overrides: Partial<Worktree> = {}): Worktree {
 
 beforeEach(() => {
   vi.mocked(worktreesApi.spawnIterm).mockReset();
-  vi.mocked(worktreesApi.focusIterm).mockReset();
   vi.mocked(worktreesApi.recreateWorktree).mockReset();
 });
 
@@ -249,19 +248,22 @@ describe("WorkspaceList", () => {
     expect(screen.getByText("ci fail")).toBeInTheDocument();
   });
 
-  test("ready + claude session → Focus iTerm2 button calls focus-iterm", async () => {
-    vi.mocked(worktreesApi.focusIterm).mockResolvedValue({ focused: true });
+  test("ready + claude session → iTerm2 button still spawns a new window", async () => {
+    vi.mocked(worktreesApi.spawnIterm).mockResolvedValue({
+      window_id: "W",
+      claude_session_id: "C",
+      shell_session_id: "S",
+      claude_session_uuid: null,
+      sidecar_path: null,
+    });
     renderWorkspaces([
       wt({ name: "with-claude", status: "ready", has_claude_session: true }),
     ]);
-    const btn = screen.getByRole("button", { name: /^focus iterm2$/i });
+    const btn = screen.getByRole("button", { name: /^iterm2$/i });
     expect(btn).toBeEnabled();
     fireEvent.click(btn);
     await waitFor(() => {
-      expect(worktreesApi.focusIterm).toHaveBeenCalledWith(
-        "myapp",
-        "with-claude",
-      );
+      expect(worktreesApi.spawnIterm).toHaveBeenCalledWith("myapp", "with-claude");
     });
   });
 

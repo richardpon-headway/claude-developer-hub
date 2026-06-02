@@ -16,7 +16,6 @@ import {
   pullDownPr,
 } from "../api/inbox";
 import {
-  focusIterm,
   getPrUrl,
   recreateWorktree,
   spawnIterm,
@@ -674,10 +673,6 @@ function WorktreeActionButton({ row }: WorktreeActionButtonProps) {
     mutationFn: () => spawnIterm(row.repo, row.name),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["worktrees"] }),
   });
-  const focusMutation = useMutation({
-    mutationFn: () => focusIterm(row.repo, row.name),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["worktrees"] }),
-  });
   const recreateMutation = useMutation({
     mutationFn: () => recreateWorktree(row.repo, row.name),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["worktrees"] }),
@@ -708,19 +703,6 @@ function WorktreeActionButton({ row }: WorktreeActionButtonProps) {
     );
   }
   const itermBtn = (() => {
-    if (row.has_claude_session) {
-      const err = mutationError(focusMutation.error);
-      return (
-        <ButtonWithError
-          tooltip={err ?? `Bring this worktree's open Claude session in ${terminal.display_name} to the front.`}
-          errorDetail={err}
-          onClick={() => focusMutation.mutate()}
-          pending={focusMutation.isPending}
-          pendingLabel="Focusing…"
-          idleLabel={`Focus ${terminal.display_name}`}
-        />
-      );
-    }
     const err = mutationError(spawnMutation.error);
     return (
       <ButtonWithError
