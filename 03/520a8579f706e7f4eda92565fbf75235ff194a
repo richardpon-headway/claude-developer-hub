@@ -1,0 +1,32 @@
+frontend/src/components/WorkspaceList.test.tsx
+  s_7a2e752bde9218::t_304ec9c2ae5117 251-258,262,266
+backend/app/services/terminal/__init__.py
+  s_7a2e752bde9218::t_5b6422d98c4ddb 109-110
+backend/tests/test_terminal_ghostty.py
+  s_7a2e752bde9218::t_4381faa2e26829 235
+backend/app/routes/worktrees.py
+  s_7a2e752bde9218::t_eb1d1d50ee51ea 1041-1042
+backend/tests/test_iterm.py
+  s_7a2e752bde9218::t_5623a21024f6a1 24
+backend/app/services/iterm_spawn.py
+  s_7a2e752bde9218::t_c2f6ef15309fd4 223
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "03520a8579f706e7f4eda92565fbf75235ff194a",
+  "prompts": {},
+  "sessions": {
+    "s_7a2e752bde9218": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "68181310-f037-41c3-bc2b-b3adb29a658a",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
