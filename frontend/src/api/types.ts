@@ -301,19 +301,6 @@ export interface BookmarkListResponse {
   bookmarks: BookmarkPr[];
 }
 
-export interface GlobalSkill {
-  name: string;
-  label: string;
-  description: string | null;
-  cwd: string;
-}
-
-export interface WorkspaceSkill {
-  name: string;
-  label: string;
-  description: string | null;
-}
-
 export interface GlobalSkillResponse {
   spawned: boolean;
 }

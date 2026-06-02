@@ -3,7 +3,7 @@
 Two helpers cover every existing test's needs:
 
 - ``write_minimal_config`` — empty ``repos`` list + optional inbox/teams,
-  global/workspace skills, send-gate patterns, iTerm2 frame block.
+  iTerm2 frame block.
 - ``write_repo_config`` — one configured repo (the most common
   end-to-end test shape: create / discover / sync against a real repo
   path on disk).
@@ -28,8 +28,6 @@ def write_minimal_config(
     dev_root: Path | None = None,
     *,
     teams: list[str] | None = None,
-    global_skills: list[dict] | None = None,
-    workspace_skills: list[dict] | None = None,
     iterm2: dict[str, Any] | None | bool = False,
     repos: list[dict] | None = None,
 ) -> None:
@@ -52,10 +50,6 @@ def write_minimal_config(
         cfg["iterm2"] = dict(iterm2)
     if teams is not None:
         cfg["inbox"] = {"teams": teams}
-    if global_skills is not None:
-        cfg["global_skills"] = global_skills
-    if workspace_skills is not None:
-        cfg["workspace_skills"] = workspace_skills
     config_path.write_text(yaml.safe_dump(cfg))
 
 

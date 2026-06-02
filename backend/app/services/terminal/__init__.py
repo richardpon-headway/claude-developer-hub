@@ -1,23 +1,18 @@
 """Terminal adapter package — picks the active backend per ``config.terminal.kind``.
 
-Routes that need to spawn a terminal window, focus an existing one, or
-check availability call into this package rather than importing
-iTerm2-specific helpers directly. The module-level functions here
-dispatch to the right adapter (``iterm.py`` or ``ghostty.py``) and
-translate adapter-specific failure modes into ``HTTPException`` codes
-the route can return as-is.
+Routes that need to spawn a terminal window or check availability call
+into this package rather than importing iTerm2-specific helpers
+directly. The module-level functions here dispatch to the right adapter
+(``iterm.py`` or ``ghostty.py``) and translate adapter-specific failure
+modes into ``HTTPException`` codes the route can return as-is.
 
 Public surface:
 
 - :func:`spawn_one_tab_claude` — fresh window, single tab, Claude only,
-  with ``initial_prompt`` consumed as Claude's startup arg. Used by
-  send-text, run-skill, and the global-skill buttons.
+  with an optional ``initial_prompt`` consumed as Claude's startup arg.
+  Used by send-text and the hub's Ask Claude / Open Claude launchers.
 - :func:`spawn_two_tab_window` — fresh window, Claude + shell tabs.
   Used by the explicit "Open in <terminal>" button.
-- :func:`focus_window` — bring an existing tracked window to the front.
-  Reads ``terminal_kind`` from the persisted row so it knows which
-  adapter to ask, even if the user has since toggled
-  ``config.terminal.kind``.
 - :func:`display_name` — human-readable terminal name, used in 503
   messages and exposed to the frontend for button labels.
 """

@@ -44,6 +44,7 @@ def load_config(path: Path | None = None) -> CDHConfig:
         raw = yaml.safe_load(f) or {}
     _warn_deprecated_keys(raw)
     _shim_legacy_iterm2_block(raw)
+    _drop_removed_skill_keys(raw)
     return CDHConfig.model_validate(raw)
 
 
@@ -66,6 +67,26 @@ def _warn_deprecated_keys(raw: dict) -> None:
             "window with the prompt as Claude's startup arg. You can delete "
             "this block from your config."
         )
+
+
+def _drop_removed_skill_keys(raw: dict) -> None:
+    """Strip the removed ``global_skills`` / ``workspace_skills`` keys so
+    configs written before the skill buttons were removed still load
+    under the strict (``extra="forbid"``) schema. A one-time deprecation
+    warning fires for each key present so the user knows it's ignored.
+    """
+    for key in ("global_skills", "workspace_skills"):
+        if key in raw:
+            del raw[key]
+            if key not in _DEPRECATED_KEYS_WARNED:
+                _DEPRECATED_KEYS_WARNED.add(key)
+                log.warning(
+                    "config: `%s` is deprecated and ignored. The skill "
+                    "buttons were removed; use the hub's Ask Claude box or "
+                    "Open Claude button instead. You can delete this block "
+                    "from your config.",
+                    key,
+                )
 
 
 def _shim_legacy_iterm2_block(raw: dict) -> None:

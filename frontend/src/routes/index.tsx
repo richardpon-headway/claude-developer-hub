@@ -10,7 +10,7 @@ import { AddRepoModal } from "../components/AddRepoModal";
 import { AuthoredPrTier } from "../components/AuthoredPrTier";
 import { BookmarkList } from "../components/BookmarkList";
 import { Button } from "../components/Button";
-import { GlobalSkillsTile } from "../components/GlobalSkillsTile";
+import { AskClaudeTile } from "../components/AskClaudeTile";
 import { InboxList } from "../components/InboxList";
 import { RepoList } from "../components/RepoList";
 import { TokenUsageTile } from "../components/TokenUsageTile";
@@ -171,7 +171,7 @@ export function HubPage() {
 
         <aside className="space-y-6">
           <TokenUsageTile />
-          <GlobalSkillsTile />
+          <AskClaudeTile />
         </aside>
       </div>
 

@@ -10,7 +10,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.config.loader import load_config
-from app.config.schema import DiffConfig, GlobalSkill, JiraConfig, WorkspaceSkill
+from app.config.schema import DiffConfig, JiraConfig
 from app.services import terminal
 
 router = APIRouter(prefix="/api/config", tags=["config"])
@@ -41,20 +41,3 @@ async def get_diff_config() -> DiffConfig:
     """Diff-view rendering knobs (context lines, expand-all threshold).
     The frontend reads these to set the collapse default per file."""
     return load_config().diff
-
-
-@router.get("/skills", response_model=list[GlobalSkill])
-async def get_global_skills() -> list[GlobalSkill]:
-    """List hub-level skill buttons declared in the user's config.
-    The frontend renders one button per entry; the same list is the
-    server-side allow-list enforced by ``POST /api/skills/global``."""
-    return load_config().global_skills
-
-
-@router.get("/workspace-skills", response_model=list[WorkspaceSkill])
-async def get_workspace_skills() -> list[WorkspaceSkill]:
-    """List per-worktree skill buttons declared in the user's config.
-    The frontend renders one button per entry on the workspace detail
-    page; the same list is the server-side allow-list enforced by
-    ``POST /api/worktree/{repo}/{name}/run-skill``."""
-    return load_config().workspace_skills

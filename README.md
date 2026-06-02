@@ -90,14 +90,12 @@ yet and require editing `~/.config/cdh/config.yaml` directly:
   hitting GitHub's 5000/hr GraphQL quota)
 - `inbox.teams` — `owner/team-slug`s whose review-requested PRs should
   surface in the hub inbox
-- `global_skills` / `workspace_skills` — custom Claude slash-command
-  buttons on the hub or workspace pages
 - `jira` — Jira tool selection and JQL for the assigned-tickets panel
 - `iterm2.default_window` — frame coords for spawned iTerm2 windows
 - `iterm2.send_gate_patterns` — regex list; CDH refuses to programmatically
   send text to a Claude session when the last visible screen line matches
-  any pattern (default catches `[y/N]` confirmation prompts so a skill
-  button can't accidentally answer "y")
+  any pattern (default catches `[y/N]` confirmation prompts so a
+  programmatic send can't accidentally answer "y")
 
 See [`config.example.yaml`](config.example.yaml) for the full shape with
 every block's defaults, and

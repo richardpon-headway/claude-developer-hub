@@ -21,9 +21,6 @@ polling:
   inbox_interval_seconds: 300.0          # `gh search prs` × 3 (reviewer / assignee / mentions)
   authored_interval_seconds: 600.0       # `gh search prs --author=@me --state=open`
 
-global_skills: []                      # hub-level Claude slash-command buttons
-workspace_skills: []                   # workspace-page Claude slash-command buttons
-
 jira:
   tool: none                           # "acli" | "jira-cli" | "none"
   base_url: null

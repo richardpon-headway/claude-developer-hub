@@ -1,13 +1,8 @@
 import { useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 
 import { ApiError } from "../api/client";
-import {
-  getGlobalSkills,
-  openGlobalClaude,
-  runGlobalFreeform,
-  runGlobalSkill,
-} from "../api/config";
+import { openGlobalClaude, runGlobalFreeform } from "../api/config";
 import { useTerminalInfo } from "../api/terminal";
 import { Button } from "./Button";
 import { Tooltip } from "./Tooltip";
@@ -18,21 +13,13 @@ function errorMessage(err: unknown): string {
   return String(err);
 }
 
-// TODO(inline-output): the v1 button is one-shot — it spawns a
-// terminal window and forgets. A future iteration could tail the
+// TODO(inline-output): the v1 buttons are one-shot — they spawn a
+// terminal window and forget. A future iteration could tail the
 // Claude session jsonl (~/.claude/projects/<encoded-cwd>/<session-uuid>.jsonl)
 // and surface the assistant's reply inline. Reuses the sidecar/discovery
 // plumbing.
-export function GlobalSkillsTile() {
+export function AskClaudeTile() {
   const terminal = useTerminalInfo();
-  const skillsQuery = useQuery({
-    queryKey: ["config", "skills"],
-    queryFn: getGlobalSkills,
-  });
-
-  const mutation = useMutation({
-    mutationFn: (skill: string) => runGlobalSkill(skill),
-  });
 
   const [freeformInput, setFreeformInput] = useState("");
   const freeformMutation = useMutation({
@@ -43,8 +30,6 @@ export function GlobalSkillsTile() {
   const openMutation = useMutation({
     mutationFn: () => openGlobalClaude(),
   });
-
-  const skills = skillsQuery.data ?? [];
 
   const trimmed = freeformInput.trim();
   const freeformDisabled = trimmed.length === 0 || freeformMutation.isPending;
@@ -57,43 +42,16 @@ export function GlobalSkillsTile() {
   return (
     <section className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
       <h3 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-        Global skills
+        Ask Claude
       </h3>
-      <div className="mt-3 flex flex-col gap-2">
-        {skills.map((s) => (
-          <Tooltip key={s.name} text={s.description ?? null}>
-            <Button
-              variant="secondary"
-              onClick={() => mutation.mutate(s.name)}
-              disabled={mutation.isPending}
-              className="w-full"
-            >
-              {mutation.isPending && mutation.variables === s.name
-                ? "Opening…"
-                : s.label}
-            </Button>
-          </Tooltip>
-        ))}
-      </div>
-      {mutation.error && (
-        <p role="alert" className="mt-2 text-xs text-red-400">
-          {errorMessage(mutation.error)}
-        </p>
-      )}
-
-      {/* Free-form prompt input — same plumbing as the buttons above
-          but accepts arbitrary user-typed text instead of a named
-          skill. Opens the configured terminal at
+      {/* Free-form prompt input — opens the configured terminal at
           config.development_root with `claude '<input>'` as the
           initial message. */}
-      <div className="mt-4 border-t border-zinc-800 pt-3">
-        <label
-          htmlFor="global-freeform-prompt"
-          className="block text-[11px] uppercase tracking-wide text-zinc-500"
-        >
+      <div className="mt-3">
+        <label htmlFor="global-freeform-prompt" className="sr-only">
           Ask Claude
         </label>
-        <div className="mt-2 flex items-start gap-2">
+        <div className="flex items-start gap-2">
           <textarea
             id="global-freeform-prompt"
             value={freeformInput}
