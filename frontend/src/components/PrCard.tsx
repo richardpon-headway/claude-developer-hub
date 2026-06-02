@@ -317,6 +317,13 @@ function ChipBar({ data }: { data: PrCardData }) {
       )}
       {data.kind === "worktree" && (
         <>
+          {data.row.status === "setting_up" && (
+            <Tooltip text="Background setup in progress. Click Details for the live log.">
+              <span className="rounded border border-amber-800 bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-300">
+                setting up…
+              </span>
+            </Tooltip>
+          )}
           {data.row.status === "code_on_disk" && (
             <Tooltip text={`Worktree was created, but a setup_step errored. Code is on disk — open in ${terminal.display_name}/Cursor and re-run the failing step.`}>
               <span className="rounded border border-amber-800 bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-300">
@@ -479,8 +486,11 @@ interface PullDownProps {
   prRepo: string;
   prNumber: number;
   repoConfigured: boolean;
-  // The actual pull-down call. Differs per surface.
-  pullDownFn: () => Promise<unknown>;
+  // The actual pull-down call. Differs per surface. The response
+  // carries the worktree's `{repo, name}` so the post-success affordance
+  // can link to the workspace detail page where the live setup log
+  // streams.
+  pullDownFn: () => Promise<{ repo: string; name: string }>;
   invalidateKeys: string[][];
 }
 
@@ -496,6 +506,26 @@ function PullDownAffordance({ prRepo, prNumber, repoConfigured, pullDownFn, inva
     mutationFn: () => configureAndPullDown(prRepo, prNumber),
   });
   const isConfigureFlow = !repoConfigured;
+
+  if (!isConfigureFlow && pullDownMutation.isSuccess && pullDownMutation.data) {
+    // Worktree row now exists (status `setting_up`). Surface the
+    // affordance as a link to its detail page so the user can watch
+    // the live setup log progress to `ready`. Mirrors DetailsLink's
+    // styling for consistency.
+    const { repo, name } = pullDownMutation.data;
+    return (
+      <Tooltip text="Open the workspace to watch the live setup log.">
+        <Link
+          to="/workspace/$repo/$name"
+          params={{ repo, name }}
+          className="shrink-0 rounded border border-emerald-800 bg-emerald-950/40 px-3 py-1 text-xs text-emerald-300 hover:bg-emerald-900/40"
+        >
+          Pulled
+        </Link>
+      </Tooltip>
+    );
+  }
+
   const mutation = isConfigureFlow ? configureMutation : pullDownMutation;
   const disabled = mutation.isPending || mutation.isSuccess;
 
@@ -504,7 +534,6 @@ function PullDownAffordance({ prRepo, prNumber, repoConfigured, pullDownFn, inva
       : configureMutation.isSuccess ? "Claude opened"
       : "Configure repo + pull down"
     : pullDownMutation.isPending ? "Pulling…"
-      : pullDownMutation.isSuccess ? "Pulled"
       : "Pull down";
   const tooltip = mutation.error
     ? mutation.error instanceof ApiError ? mutation.error.detail : String(mutation.error)

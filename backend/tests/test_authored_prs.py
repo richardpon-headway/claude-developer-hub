@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services import pr_db
+from app.services import worktree as wt_svc
 from tests.fixtures.bookmark import seed_bookmark
 from tests.fixtures.config import write_minimal_config, write_repo_config
 from tests.fixtures.inbox import seed_inbox_row
@@ -311,6 +312,11 @@ def test_pull_down_authored_happy_path(
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["repo"] == "myapp"
+
+    # Drain the background setup task before reading the row (plan-67
+    # made pull-down return as soon as the setting_up row is inserted).
+    import asyncio
+    asyncio.run(wt_svc.wait_for_setup_complete())
 
     # Verify the unified pr row got @me as author_login (resolved via
     # get_user_login at the route layer; the worktree projects it via

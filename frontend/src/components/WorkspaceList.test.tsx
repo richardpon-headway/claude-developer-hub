@@ -292,6 +292,13 @@ describe("WorkspaceList", () => {
     expect(btn).toBeDisabled();
   });
 
+  test("setting_up → 'setting up…' chip renders on the card", () => {
+    renderWorkspaces([
+      wt({ name: "wip", status: "setting_up", has_claude_session: false }),
+    ]);
+    expect(screen.getByText(/setting up…/i)).toBeInTheDocument();
+  });
+
   test("failed → Setup failed renders as link to the workspace Manage page", () => {
     renderWorkspaces([
       wt({ name: "broken", status: "failed", has_claude_session: false }),

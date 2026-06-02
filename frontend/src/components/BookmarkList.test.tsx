@@ -3,6 +3,27 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+// Stub Link so PrCard's "Pulled" link renders without a router context.
+vi.mock("@tanstack/react-router", async () => {
+  const actual = await vi.importActual<object>("@tanstack/react-router");
+  return {
+    ...actual,
+    Link: ({
+      children,
+      to,
+      ...rest
+    }: {
+      children: React.ReactNode;
+      to?: string;
+      [k: string]: unknown;
+    }) => (
+      <a href={to as string} {...rest}>
+        {children}
+      </a>
+    ),
+  };
+});
+
 vi.mock("../api/bookmarks");
 
 import * as bookmarksApi from "../api/bookmarks";
@@ -46,6 +67,7 @@ beforeEach(() => {
   vi.mocked(bookmarksApi.addBookmark).mockReset();
   vi.mocked(bookmarksApi.deleteBookmark).mockReset();
   vi.mocked(bookmarksApi.updateBookmarkNotes).mockReset();
+  vi.mocked(bookmarksApi.pullDownBookmark).mockReset();
 });
 
 afterEach(() => {
@@ -118,6 +140,33 @@ describe("BookmarkList", () => {
       "href",
       "https://acme.atlassian.net/browse/PROJ-218",
     );
+  });
+
+  test("Pull-down click fires the API and surfaces a link to the workspace on success", async () => {
+    vi.mocked(bookmarksApi.pullDownBookmark).mockResolvedValue({
+      repo: "myapp",
+      name: "feat_x",
+    });
+    renderBookmarks([
+      bookmark({ pr_repo: "acme/myapp", pr_number: 42 }),
+    ]);
+    const btn = screen.getByRole("button", { name: /^pull down$/i });
+    expect(btn).toBeEnabled();
+    fireEvent.click(btn);
+
+    await waitFor(() => {
+      expect(bookmarksApi.pullDownBookmark).toHaveBeenCalledWith(
+        "acme/myapp",
+        42,
+      );
+    });
+    // Post-success the affordance flips to a link to the new
+    // workspace's detail page (plan-67). The Link stub above renders
+    // `to` literally without interpolating params.
+    await waitFor(() => {
+      const pulled = screen.getByRole("link", { name: /pulled/i });
+      expect(pulled).toHaveAttribute("href", "/workspace/$repo/$name");
+    });
   });
 
   test("Unbookmark click fires the API", async () => {

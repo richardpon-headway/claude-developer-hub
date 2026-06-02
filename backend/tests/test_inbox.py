@@ -14,6 +14,7 @@ from app.config.schema import CDHConfig, InboxConfig
 from app.main import app
 from app.models.pr import PrRow
 from app.services import inbox_poll, inbox_search, pr_db
+from app.services import worktree as wt_svc
 from app.services.inbox_search import (
     InboxPrRaw,
     _ci_status_from_rollup,
@@ -723,6 +724,11 @@ def test_pull_down_same_repo_happy_path(
     assert body["repo"] == "myapp"
     assert fetch_called["n"] == 0
 
+    # Drain the background setup task before reading the row — the
+    # HTTP response now returns as soon as the setting_up row is
+    # inserted (plan-67).
+    asyncio.run(wt_svc.wait_for_setup_complete("myapp", "feat_x"))
+
     conn = sqlite3.connect(_isolate["db_path"])
     try:
         row = conn.execute(
@@ -797,6 +803,9 @@ def test_pull_down_fork_pr_fetches_pull_ref(
     _, pr_n, local_b = fetch_args_seen[0]
     assert pr_n == 58
     assert local_b == "cdh-pr-58-feat/forked"
+    # Drain the background setup task so any subsequent test sees a
+    # clean ``_setting_up_tasks`` registry.
+    asyncio.run(wt_svc.wait_for_setup_complete())
 
 
 def test_fetch_pr_ref_force_overwrites_existing_branch(
@@ -946,6 +955,13 @@ def test_pull_down_fork_pr_retry_after_mid_flight_kill(
     assert second.status_code == 200, second.text
     assert call_count["n"] == 2
 
+    # Plan-67: pull-down returns as soon as the setting_up row is
+    # inserted; setup completes in a background task that TestClient's
+    # per-request event loop doesn't observe. The retry contract here
+    # is "the second pull-down succeeded (no 502)" + "the worktree row
+    # is visible in setting_up" — the eventual flip to ready is
+    # covered at the service level by the create_and_wait tests in
+    # test_worktrees.py.
     conn = sqlite3.connect(_isolate["db_path"])
     try:
         row = conn.execute(
@@ -953,7 +969,7 @@ def test_pull_down_fork_pr_retry_after_mid_flight_kill(
         ).fetchone()
     finally:
         conn.close()
-    assert row == ("ready",)
+    assert row == ("setting_up",)
 
 
 # --- endpoint: configure-and-pull-down ----------------------------------

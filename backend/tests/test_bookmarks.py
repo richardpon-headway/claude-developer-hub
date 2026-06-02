@@ -9,9 +9,9 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services import pr_db
+from app.services import worktree as wt_svc
 from tests.fixtures.bookmark import seed_bookmark
 from tests.fixtures.config import write_minimal_config, write_repo_config
-
 
 # --- POST /api/bookmarks (add) -----------------------------------------
 
@@ -338,6 +338,11 @@ def test_pull_down_bookmark_happy_path(
     with TestClient(app) as client:
         r = client.post("/api/bookmarks/acme/myapp/42/pull-down")
     assert r.status_code == 200, r.text
+
+    # Drain the background setup task before reading the row (plan-67
+    # made pull-down return as soon as the setting_up row is inserted).
+    import asyncio
+    asyncio.run(wt_svc.wait_for_setup_complete())
 
     # Bookmark's author_login was written to the unified pr row;
     # the worktree projects it via LEFT JOIN at read time.
