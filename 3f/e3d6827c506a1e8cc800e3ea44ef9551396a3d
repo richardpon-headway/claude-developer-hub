@@ -1,0 +1,52 @@
+backend/app/services/terminal/__init__.py
+  s_7a2e752bde9218::t_51886db19d27a9 3-7,12-13
+frontend/src/routes/index.tsx
+  s_7a2e752bde9218::t_42af8c1f44db28 13
+  s_7a2e752bde9218::t_6c2245f4fd669e 174
+backend/tests/test_config.py
+  s_7a2e752bde9218::t_d42416c2d111a3 36-43,45,47-55,57,59-68
+frontend/src/components/AskClaudeTile.test.tsx
+  s_7a2e752bde9218::t_7b8a81cc73c0e0 1-115
+backend/tests/fixtures/config.py
+  s_7a2e752bde9218::t_66513787e429e0 6
+backend/app/routes/config.py
+  s_7a2e752bde9218::t_6d4566f264dc94 13
+backend/tests/test_skills.py
+  s_7a2e752bde9218::t_51c953a56c5d77 36,42
+  s_7a2e752bde9218::t_bf8132ac992da2 1
+  s_7a2e752bde9218::t_586ee4d5357268 123,153,174,183,217
+  s_7a2e752bde9218::t_1640c389f5fabd 137
+  s_7a2e752bde9218::t_678d27642034cb 199
+README.md
+  s_7a2e752bde9218::t_d5d1bbf391cd8f 97-98
+backend/app/services/iterm_spawn.py
+  s_7a2e752bde9218::t_68736ffd8a431d 117
+frontend/src/components/AskClaudeTile.tsx
+  s_7a2e752bde9218::t_55bc3560d8e84c 1-112
+backend/app/config/loader.py
+  s_7a2e752bde9218::t_fdc36531bbce9b 47
+  s_7a2e752bde9218::t_3ccde07c58cd79 72-91
+backend/app/routes/worktrees.py
+  s_7a2e752bde9218::t_7ce5ea58aa33a5 1209
+backend/app/routes/skills.py
+  s_7a2e752bde9218::t_f95724ebc6c5e2 1,3-4,6-8,10-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3fe3d6827c506a1e8cc800e3ea44ef9551396a3d",
+  "prompts": {},
+  "sessions": {
+    "s_7a2e752bde9218": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "68181310-f037-41c3-bc2b-b3adb29a658a",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
