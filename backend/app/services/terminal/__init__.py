@@ -62,11 +62,12 @@ def active_kind() -> str:
 
 
 async def spawn_one_tab_claude(
-    request: Request, cwd: Path, initial_prompt: str
+    request: Request, cwd: Path, initial_prompt: str | None = None
 ) -> None:
-    """Open a fresh 1-tab Claude window. The window is *not* tracked
-    in ``terminal_session`` — repeat sends are allowed to proliferate
-    windows by design (PR #108).
+    """Open a fresh 1-tab Claude window. When ``initial_prompt`` is
+    ``None`` a plain ``claude`` (blank session) is launched. The window
+    is *not* tracked in ``terminal_session`` — repeat sends are allowed
+    to proliferate windows by design (PR #108).
     """
     config = load_config()
     kind = config.terminal.kind

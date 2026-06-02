@@ -26,6 +26,7 @@ beforeEach(() => {
   vi.mocked(configApi.getGlobalSkills).mockReset();
   vi.mocked(configApi.runGlobalSkill).mockReset();
   vi.mocked(configApi.runGlobalFreeform).mockReset();
+  vi.mocked(configApi.openGlobalClaude).mockReset();
 });
 
 afterEach(() => {
@@ -120,6 +121,21 @@ describe("GlobalSkillsTile", () => {
     fireEvent.keyDown(input, { key: "Enter", metaKey: true });
     await waitFor(() => {
       expect(configApi.runGlobalFreeform).toHaveBeenCalledWith("hello");
+    });
+  });
+
+  test("Open Claude button fires the blank-session api (no prompt needed)", async () => {
+    vi.mocked(configApi.getGlobalSkills).mockResolvedValue([]);
+    vi.mocked(configApi.openGlobalClaude).mockResolvedValue({ spawned: true });
+
+    renderTile();
+    const btn = await screen.findByRole("button", { name: /^open claude$/i });
+    // Enabled even with an empty freeform input — it takes no prompt.
+    expect(btn).toBeEnabled();
+    fireEvent.click(btn);
+
+    await waitFor(() => {
+      expect(configApi.openGlobalClaude).toHaveBeenCalledTimes(1);
     });
   });
 

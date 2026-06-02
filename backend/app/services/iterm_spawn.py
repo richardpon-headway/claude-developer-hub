@@ -152,13 +152,15 @@ async def spawn_global_claude_window(
     connection: iterm2.Connection,
     cwd: Path,
     frame: ITermWindow,
-    initial_prompt: str,
+    initial_prompt: str | None = None,
 ) -> GlobalSpawnResult:
     """Open a one-tab iTerm2 window at ``frame``, ``cd`` into ``cwd``,
-    and launch Claude with ``initial_prompt`` as its first message —
-    ``claude`` accepts a positional argument that becomes the user's
-    opening prompt, so a slash command passed here runs at startup
-    with no race between "shell ready" and "Claude ready".
+    and launch Claude. If ``initial_prompt`` is given it becomes
+    Claude's first message — ``claude`` accepts a positional argument
+    that becomes the user's opening prompt, so a slash command passed
+    here runs at startup with no race between "shell ready" and "Claude
+    ready". When ``initial_prompt`` is ``None`` a plain ``claude`` is
+    launched (a blank session for the user to type into).
 
     Unlike :func:`spawn_two_tab_window`, this does NOT write to the
     ``iterm_session`` table — global spawns aren't bound to a worktree.
@@ -166,9 +168,11 @@ async def spawn_global_claude_window(
     window = await _create_and_frame_window(connection, frame)
     tab = window.current_tab
     session = tab.current_session
-    await session.async_send_text(
-        f"cd {cwd}\nclaude {_quote_for_shell(initial_prompt)}\n"
+    claude_cmd = (
+        "claude" if initial_prompt is None
+        else f"claude {_quote_for_shell(initial_prompt)}"
     )
+    await session.async_send_text(f"cd {cwd}\n{claude_cmd}\n")
     await _bring_window_to_front(connection, window, tab)
 
     return GlobalSpawnResult(
