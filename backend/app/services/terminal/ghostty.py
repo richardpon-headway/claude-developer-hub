@@ -223,53 +223,6 @@ async def spawn_two_tab_window(
     )
 
 
-async def focus_window(window_id: str, session_id: str | None = None) -> bool:
-    """Bring the Ghostty window with the AppleScript ``id`` to the
-    front. Returns ``False`` if no such window exists (caller treats
-    this as a stale ``terminal_session`` row, same as iTerm2).
-
-    ``session_id`` (a tab id) is honored if supplied — we make that
-    tab the current tab before activating.
-    """
-    _require_available()
-
-    if session_id is not None:
-        script = [
-            'tell application "Ghostty"',
-            "  set found to false",
-            "  repeat with w in windows",
-            f"    if (id of w as text) is equal to {quote(window_id)} then",
-            "      repeat with t in tabs of w",
-            f"        if (id of t as text) is equal to {quote(session_id)} then",
-            "          set selected of t to true",
-            "        end if",
-            "      end repeat",
-            "      activate",
-            "      set index of w to 1",
-            "      set found to true",
-            "    end if",
-            "  end repeat",
-            "  return found as text",
-            "end tell",
-        ]
-    else:
-        script = [
-            'tell application "Ghostty"',
-            "  set found to false",
-            "  repeat with w in windows",
-            f"    if (id of w as text) is equal to {quote(window_id)} then",
-            "      activate",
-            "      set index of w to 1",
-            "      set found to true",
-            "    end if",
-            "  end repeat",
-            "  return found as text",
-            "end tell",
-        ]
-    out = await _run_osascript(script)
-    return out.strip().lower() == "true"
-
-
 # --- internals --------------------------------------------------------------
 
 

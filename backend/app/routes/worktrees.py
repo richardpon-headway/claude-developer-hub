@@ -22,8 +22,6 @@ from app.services import git_cli, terminal
 from app.services import worktree as svc
 from app.services.gh_cli import GhFailed, GhNotFound, run_gh_json
 from app.services.iterm_spawn import (
-    delete_iterm_sessions_sync,
-    get_claude_window_and_session_sync,
     set_iterm_session_uuid_sync,
     upsert_iterm_sessions_sync,
 )
@@ -1037,52 +1035,11 @@ class SpawnItermResponse(BaseModel):
     sidecar_path: str | None = None
 
 
-class FocusItermResponse(BaseModel):
-    focused: bool
-
-
-@router.post("/worktree/{repo}/{name}/focus-iterm", response_model=FocusItermResponse)
-async def focus_iterm(repo: str, name: str, request: Request) -> FocusItermResponse:
-    """Bring this worktree's already-open iTerm2 window to the front.
-
-    Differs from ``spawn-iterm``: this never creates a new window. It
-    only activates an existing one. The frontend uses this for the
-    ``claude ●`` pill so the user can return to a running session
-    without spawning a duplicate window.
-
-    Returns 503 if the active terminal isn't reachable, 404 if no
-    claude session is tracked for this worktree, and 404 (with the
-    stale row pruned) if the tracked window no longer exists.
-    """
-    row = await asyncio.to_thread(get_claude_window_and_session_sync, repo, name)
-    if row is None:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND,
-            f"no tracked Claude session for {repo}/{name}",
-        )
-
-    terminal_kind, window_id, session_id = row
-    ok = await terminal.focus_window(request, terminal_kind, window_id, session_id)
-
-    if not ok:
-        # Window is gone — the user closed it manually, or the
-        # terminal app restarted. Prune the stale row so the claude ●
-        # pill drops on the next worktrees-poll.
-        await asyncio.to_thread(delete_iterm_sessions_sync, repo, name)
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND,
-            f"tracked {terminal.display_name(terminal_kind)} window is gone; "
-            "session row pruned. Click Open to spawn a fresh window.",
-        )
-
-    return FocusItermResponse(focused=True)
-
-
 @router.post("/worktree/{repo}/{name}/spawn-iterm", response_model=SpawnItermResponse)
 async def spawn_iterm(repo: str, name: str, request: Request) -> SpawnItermResponse:
     """Open a fresh 2-tab terminal window (Claude + shell) at the
-    worktree path, and persist a ``terminal_session`` row so the
-    Focus button can later bring this window back.
+    worktree path, and persist a ``terminal_session`` row that records
+    the spawn (and seeds the ``claude ●`` pill on the hub).
 
     Selects the terminal per ``config.terminal.kind``. The URL name
     stays ``spawn-iterm`` for back-compat with already-deployed

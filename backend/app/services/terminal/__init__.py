@@ -106,8 +106,8 @@ async def spawn_one_tab_claude(
 
 async def spawn_two_tab_window(request: Request, cwd: Path) -> GenericSpawnResult:
     """Open a 2-tab window (Claude + shell) for the worktree path.
-    Returns the ids the caller persists in ``terminal_session`` so the
-    Focus button can later bring this window back.
+    Returns the ids the caller persists in ``terminal_session`` to
+    record the spawn.
     """
     config = load_config()
     kind = config.terminal.kind
@@ -146,45 +146,6 @@ async def spawn_two_tab_window(request: Request, cwd: Path) -> GenericSpawnResul
     raise HTTPException(
         status.HTTP_500_INTERNAL_SERVER_ERROR,
         f"unsupported terminal.kind: {kind!r}",
-    )
-
-
-async def focus_window(
-    request: Request,
-    terminal_kind: str,
-    window_id: str,
-    session_id: str | None = None,
-) -> bool:
-    """Focus a previously-spawned window. ``terminal_kind`` comes from
-    the persisted ``terminal_session`` row so we ask the right adapter
-    even if ``config.terminal.kind`` has since been toggled.
-    """
-    if terminal_kind == "iterm2":
-        from app.services.iterm_spawn import focus_iterm_window
-
-        iterm = _require_iterm_connection(request)
-        try:
-            return await focus_iterm_window(iterm.connection, window_id, session_id)
-        except Exception as e:
-            raise HTTPException(
-                status.HTTP_502_BAD_GATEWAY, f"iTerm2 focus failed: {e}"
-            ) from e
-
-    if terminal_kind == "ghostty":
-        from app.services.terminal import ghostty
-
-        try:
-            return await ghostty.focus_window(window_id, session_id)
-        except ghostty.GhosttyUnavailable as e:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e)) from e
-        except Exception as e:
-            raise HTTPException(
-                status.HTTP_502_BAD_GATEWAY, f"Ghostty focus failed: {e}"
-            ) from e
-
-    raise HTTPException(
-        status.HTTP_500_INTERNAL_SERVER_ERROR,
-        f"unknown terminal_kind on tracked row: {terminal_kind!r}",
     )
 
 

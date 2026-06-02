@@ -29,13 +29,6 @@ const workspacePath = (repo: string, name: string) =>
 export const spawnIterm = (repo: string, name: string) =>
   apiPost<SpawnItermResponse>(`${workspacePath(repo, name)}/spawn-iterm`, {});
 
-export interface FocusItermResponse {
-  focused: boolean;
-}
-
-export const focusIterm = (repo: string, name: string) =>
-  apiPost<FocusItermResponse>(`${workspacePath(repo, name)}/focus-iterm`, {});
-
 export const recreateWorktree = (repo: string, name: string) =>
   apiPost<Worktree>(`${workspacePath(repo, name)}/recreate`, {});
 

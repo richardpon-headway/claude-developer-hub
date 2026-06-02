@@ -29,7 +29,6 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from app.config.loader import load_config
-from app.config.schema import RepoConfig
 from app.models.pr import PrCiStatus, PrRow
 from app.models.worktree import now_iso
 from app.services import inbox_poll, pr_db, terminal
