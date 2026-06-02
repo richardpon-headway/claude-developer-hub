@@ -25,10 +25,12 @@ from app.routes import (
     workspace,
     worktrees,
 )
+from app.routes.worktrees import _post_spawn_tasks
 from app.services.authored_poll import authored_poll_loop
 from app.services.inbox_poll import inbox_poll_loop
 from app.services.iterm_supervisor import iterm_supervisor
 from app.services.pr_enrichment_poll import enrichment_poll_loop
+from app.services.worktree import _setting_up_tasks
 
 
 @asynccontextmanager
@@ -44,9 +46,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
-        for task in background_tasks:
+        # Snapshot the fire-and-forget task collections before
+        # cancelling — their done-callbacks mutate the underlying
+        # containers, so iterating live would hit "dict changed size
+        # during iteration" once tasks start completing.
+        in_flight = (
+            list(background_tasks)
+            + list(_setting_up_tasks.values())
+            + list(_post_spawn_tasks)
+        )
+        for task in in_flight:
             task.cancel()
-        for task in background_tasks:
+        for task in in_flight:
             try:
                 await task
             except asyncio.CancelledError:

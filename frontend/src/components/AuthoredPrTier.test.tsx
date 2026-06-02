@@ -3,6 +3,27 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+// Stub Link so PrCard's "Pulled" link renders without a router context.
+vi.mock("@tanstack/react-router", async () => {
+  const actual = await vi.importActual<object>("@tanstack/react-router");
+  return {
+    ...actual,
+    Link: ({
+      children,
+      to,
+      ...rest
+    }: {
+      children: React.ReactNode;
+      to?: string;
+      [k: string]: unknown;
+    }) => (
+      <a href={to as string} {...rest}>
+        {children}
+      </a>
+    ),
+  };
+});
+
 vi.mock("../api/authored");
 vi.mock("../api/inbox");
 
@@ -102,10 +123,12 @@ describe("AuthoredPrTier", () => {
         42,
       );
     });
+    // Post-success the affordance flips to a link to the new
+    // workspace's detail page (plan-67). The Link stub above renders
+    // `to` literally without interpolating params.
     await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: /pulled/i }),
-      ).toBeDisabled();
+      const pulled = screen.getByRole("link", { name: /pulled/i });
+      expect(pulled).toHaveAttribute("href", "/workspace/$repo/$name");
     });
   });
 

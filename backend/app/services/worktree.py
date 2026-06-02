@@ -39,6 +39,23 @@ LOG_BUFFER_MAX_LINES = 1000
 _logs: dict[tuple[str, str], collections.deque[str]] = {}
 _logs_lock = asyncio.Lock()
 
+# Strong-ref dict of in-flight background setup tasks, keyed by
+# (repo, name). Two responsibilities: keep the asyncio.Task alive (it
+# would otherwise be GC'd because asyncio holds only a weak ref) and
+# expose the lookup so a second concurrent ``create_worktree`` call
+# for the same key can return the existing setting_up row instead of
+# racing a duplicate ``git worktree add``. Cleared by the lifespan
+# shutdown handler in app.main and by the per-test isolation fixture.
+_setting_up_tasks: dict[tuple[str, str], asyncio.Task] = {}
+
+# Serializes the check-existing → insert → spawn sequence in
+# ``create_worktree`` so two concurrent callers can't both insert and
+# trip the worktree (repo, name) UNIQUE constraint. The dict guard
+# ``key in _setting_up_tasks`` only works once the first call has
+# spawned its task — without this lock, two calls can both see
+# ``existing=None`` and race the INSERT.
+_create_lock = asyncio.Lock()
+
 
 # --- log buffer -----------------------------------------------------------
 
@@ -496,41 +513,131 @@ async def _create_worktree_async(
     )
 
 
+async def _run_setup_with_recovery(
+    repo: RepoConfig,
+    branch: str,
+    short_name: str,
+    target: Path,
+    db_path: Path | None = None,
+) -> None:
+    """Wrap ``_create_worktree_async`` so an uncaught exception inside
+    setup flips the row to a terminal status instead of leaking a
+    stuck ``setting_up`` row for the lifetime of the process.
+
+    Routes the recovery status using the same path-existence check the
+    lifespan reconciler uses (``app.db._reconcile_orphaned_setting_up``):
+    target exists on disk → ``code_on_disk``; missing → ``failed``.
+
+    ``CancelledError`` is allowed to propagate so the lifespan shutdown
+    handler can drain in-flight tasks cleanly; the next backend boot's
+    reconciler picks up any rows left in ``setting_up`` by a cancel.
+    """
+    try:
+        await _create_worktree_async(repo, branch, short_name, target, db_path)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        recovery_status = "code_on_disk" if target.is_dir() else "failed"
+        log.exception(
+            "background setup raised; routing row to recovery status",
+            extra={
+                "repo_name": repo.name,
+                "worktree_name": short_name,
+                "recovery_status": recovery_status,
+            },
+        )
+        await asyncio.to_thread(
+            update_worktree_status_sync,
+            repo.name, short_name, recovery_status, db_path,
+        )
+
+
+def _spawn_setup_task(
+    repo: RepoConfig,
+    branch: str,
+    short_name: str,
+    target: Path,
+    db_path: Path | None = None,
+) -> asyncio.Task:
+    """Schedule the background setup task, register it in
+    ``_setting_up_tasks`` so it survives GC, and arrange auto-removal
+    on completion. Mirrors the strong-ref pattern in
+    ``app.routes.worktrees._post_spawn_tasks``.
+    """
+    key = (repo.name, short_name)
+    task = asyncio.create_task(
+        _run_setup_with_recovery(repo, branch, short_name, target, db_path),
+        name=f"create_worktree:{repo.name}/{short_name}",
+    )
+    _setting_up_tasks[key] = task
+    task.add_done_callback(lambda _t: _setting_up_tasks.pop(key, None))
+    return task
+
+
 async def create_worktree(
     repo_name: str, branch: str, db_path: Path | None = None
 ) -> WorktreeRow:
-    """Create a worktree end-to-end, idempotently.
+    """Create a worktree end-to-end, idempotently. Returns AS SOON AS
+    the row is inserted (status ``setting_up``); the rest of setup —
+    ``git fetch``, ``git worktree add``, ``setup_steps`` — runs as a
+    background task tracked in ``_setting_up_tasks``.
 
-    Validates the repo, then resolves the target row for ``(repo, name)``:
+    Resolves the target row for ``(repo, name)``:
 
-    - **No existing row** — insert one in ``setting_up`` and run the
-      full git + setup_steps flow.
-    - **Existing row, same branch, status=ready** — return it
-      immediately as a no-op. The first attempt already completed.
+    - **No existing row** — insert one in ``setting_up`` and spawn the
+      background setup task. Return the inserted row immediately.
+    - **Existing row, same branch, status=ready** — return it as a
+      no-op. The first attempt already completed.
+    - **Existing row, same branch, in-flight task** — return the
+      existing setting_up row without spawning a duplicate task.
+      Guards against a concurrent double-click on the same
+      ``(repo, name)`` from racing two ``git worktree add`` calls on
+      the same path.
     - **Existing row, same branch, status in {setting_up, failed,
-      code_on_disk}** — treat as a resume point. Re-run the git +
-      setup_steps flow; each step detects what's already in place
-      and skips or recovers.
+      code_on_disk} with no in-flight task** — treat as a resume
+      point. Flip status to ``setting_up`` and spawn a new background
+      task. Each git step detects what's already in place and skips
+      or recovers (see ``_create_worktree_async``).
     - **Existing row, different branch** — raise
       ``WorktreeCreationError``. A genuinely different branch chose
       the same short name; the user picks a different name or
       deletes the existing.
 
-    Blocks the request for the duration of setup (potentially tens of
-    seconds for large repos). TestClient + asyncio.create_task interact
-    badly enough that background-task scheduling isn't worth the
-    debugging cost yet.
+    The returned row always reflects the row's state at the moment of
+    spawn. Callers that need terminal status (tests, manual
+    verification scripts) must await ``wait_for_setup_complete`` and
+    re-fetch the row, or use the ``create_and_wait`` test helper.
 
     Raises ``WorktreeCreationError`` for the unknown-repo and
-    branch-mismatch preconditions BEFORE any DB write, so callers get a
-    clean 4xx and no orphan rows.
+    branch-mismatch preconditions BEFORE any DB write, so callers get
+    a clean 4xx and no orphan rows.
     """
     repo = _resolve_repo(repo_name)
     short_name = derive_worktree_name(branch, repo.branch_prefix, repo.ticket_pattern)
     target = _resolve_target_path(repo, short_name)
+    key = (repo.name, short_name)
 
+    async with _create_lock:
+        return await _check_or_insert_then_spawn(
+            repo, branch, short_name, target, key, db_path
+        )
+
+
+async def _check_or_insert_then_spawn(
+    repo: RepoConfig,
+    branch: str,
+    short_name: str,
+    target: Path,
+    key: tuple[str, str],
+    db_path: Path | None,
+) -> WorktreeRow:
+    """Inner body of ``create_worktree``, held under ``_create_lock``.
+
+    Separated so the lock scope is obvious from the call site and the
+    early-return short-circuits stay readable.
+    """
     existing = await asyncio.to_thread(
-        get_worktree_sync, repo_name, short_name, db_path
+        get_worktree_sync, repo.name, short_name, db_path
     )
     if existing is not None:
         if existing.branch != branch:
@@ -541,11 +648,22 @@ async def create_worktree(
             )
         if existing.status == "ready":
             return existing
+        if key in _setting_up_tasks:
+            # Concurrent click on the same (repo, name) while a setup
+            # task is already running. Return the existing setting_up
+            # row without spawning a second task — plan-66's
+            # idempotency covered sequential retries; this covers the
+            # concurrent case.
+            log.info(
+                "setup already in flight; returning existing row",
+                extra={"repo_name": repo.name, "worktree_name": short_name},
+            )
+            return existing
         log.info(
             "resuming existing worktree row mid-create",
             extra={
-                "repo": repo.name,
-                "name": short_name,
+                "repo_name": repo.name,
+                "worktree_name": short_name,
                 "existing_status": existing.status,
             },
         )
@@ -554,6 +672,7 @@ async def create_worktree(
         await asyncio.to_thread(
             update_worktree_status_sync, repo.name, short_name, "setting_up", db_path
         )
+        row = existing.model_copy(update={"status": "setting_up"})
     else:
         row = WorktreeRow(
             repo=repo.name,
@@ -568,10 +687,48 @@ async def create_worktree(
         )
         await asyncio.to_thread(insert_worktree_sync, row, db_path)
 
-    await _create_worktree_async(repo, branch, short_name, target, db_path)
+    _spawn_setup_task(repo, branch, short_name, target, db_path)
+    return row
 
+
+# --- test helpers ---------------------------------------------------------
+
+
+async def wait_for_setup_complete(
+    repo: str | None = None, name: str | None = None
+) -> None:
+    """Await in-flight background setup tasks.
+
+    With both args ``None``, drains every task in ``_setting_up_tasks``.
+    With ``(repo, name)`` set, awaits only that specific task if it's
+    in flight. Used by tests to assert terminal status after calling
+    ``create_worktree`` — production code doesn't need this because the
+    Hub UI watches the row's status via the existing 5s poll.
+    """
+    if repo is not None and name is not None:
+        task = _setting_up_tasks.get((repo, name))
+        tasks: list[asyncio.Task] = [task] if task is not None else []
+    else:
+        tasks = list(_setting_up_tasks.values())
+    if not tasks:
+        return
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def create_and_wait(
+    repo_name: str, branch: str, db_path: Path | None = None
+) -> WorktreeRow:
+    """Spawn ``create_worktree`` and wait for setup to finish, then
+    return the terminal-status row. Test-only convenience that mirrors
+    the pre-plan-67 synchronous return contract of ``create_worktree``.
+    """
+    row = await create_worktree(repo_name, branch, db_path)
+    await wait_for_setup_complete(row.repo, row.name)
     final = await asyncio.to_thread(
-        get_worktree_sync, repo.name, short_name, db_path
+        get_worktree_sync, row.repo, row.name, db_path
     )
-    assert final is not None  # we just inserted or resumed it
+    if final is None:
+        raise WorktreeCreationError(
+            f"worktree row for {row.repo}/{row.name} disappeared during setup"
+        )
     return final

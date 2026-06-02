@@ -35,7 +35,11 @@ def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]
     monkeypatch.setenv("CDH_DB_PATH", str(db_path))
     monkeypatch.setenv("CDH_CONFIG_PATH", str(config_path))
     db.apply_migrations_sync(db_path)
-    # The in-memory log buffer in the worktree service can leak across
-    # tests when the same (repo, name) key is reused; clear it.
+    # The in-memory log buffer + in-flight setup-task registry in the
+    # worktree service can leak across tests when the same (repo, name)
+    # key is reused; clear both. (Tasks should already be drained by
+    # each test's explicit ``create_and_wait`` / ``wait_for_setup_complete``,
+    # but the dict clear is cheap insurance against forgotten awaits.)
     wsvc._logs.clear()
+    wsvc._setting_up_tasks.clear()
     return {"db_path": db_path, "config_path": config_path, "dev_root": dev_root}
