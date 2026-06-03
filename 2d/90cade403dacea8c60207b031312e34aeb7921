@@ -1,0 +1,29 @@
+frontend/src/components/WorkspaceBuckets.test.tsx
+  s_94262f7ce50755::t_c2a0707ca27323 1-141,147-150
+  s_94262f7ce50755::t_a859eee19b251f 142-146
+frontend/src/components/WorkspaceBuckets.tsx
+  s_94262f7ce50755::t_ddef523b5871fa 1-144
+frontend/src/components/WorkspaceCard.tsx
+  s_94262f7ce50755::t_9251a1d543b7a2 1-624
+frontend/src/lib/tiers.ts
+  s_94262f7ce50755::t_bdf8e97aa570e2 1-62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2d90cade403dacea8c60207b031312e34aeb7921",
+  "prompts": {},
+  "sessions": {
+    "s_94262f7ce50755": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "413944e2-a824-4da0-b943-972553c5cb34",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
