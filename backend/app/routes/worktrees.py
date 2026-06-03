@@ -125,6 +125,18 @@ async def delete_worktree(repo: str, name: str) -> DeleteWorktreeResponse:
             await prune.wait()
 
     await asyncio.to_thread(svc.delete_worktree_sync, repo, name)
+
+    # The worktree→pr FK is ON DELETE SET NULL, so dropping the worktree
+    # row leaves the linked pr row behind. GC it if nothing else holds it
+    # (maybe_gc_sync self-guards on is_bookmarked / notes / worktree). This
+    # is what makes "pull a PR down, delete the worktree → it's gone" true
+    # for a teammate's PR, which no background poll would otherwise reap.
+    if row.pr_repo is not None and row.pr_number is not None:
+        from app.services import pr_db
+
+        await asyncio.to_thread(
+            pr_db.maybe_gc_sync, row.pr_repo, row.pr_number
+        )
     return DeleteWorktreeResponse()
 
 

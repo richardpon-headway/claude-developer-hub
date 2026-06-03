@@ -2,7 +2,7 @@
 
 Create-flow tests exercise ``wt_svc.create_worktree`` directly via
 ``asyncio.run(...)``. The bare ``POST /api/worktree`` endpoint was
-removed once pull-down funnelled through ``inbox._perform_pull_down``
+removed once pull-down funnelled through ``pull_down.perform_pull_down``
 and ``recreate`` covered the retry path; the route exposed no
 production behavior that needed HTTP framing.
 """
@@ -607,6 +607,54 @@ def test_delete_happy_path_removes_row_and_directory(
 
     # On-disk path is gone.
     assert not wt_path.exists()
+
+
+def test_delete_gcs_orphaned_pr_row(_isolate: dict[str, Path]) -> None:
+    """Deleting a worktree whose linked PR isn't bookmarked or noted
+    GC's the now-unheld pr row — the worktree was the only thing holding
+    it (the FK is ON DELETE SET NULL, so the row would otherwise leak)."""
+    from app.services import pr_db
+
+    write_repo_config(
+        _isolate["config_path"], _isolate["dev_root"], _isolate["dev_root"]
+    )
+    seed_worktree(
+        _isolate["db_path"], "myapp", "feature",
+        branch="feature", pr_repo="acme/myapp", pr_number=7,
+    )
+    assert (
+        pr_db.get_pr_sync("acme/myapp", 7, db_path=_isolate["db_path"])
+        is not None
+    )
+    with TestClient(app) as client:
+        r = client.delete("/api/worktree/myapp/feature")
+    assert r.status_code == 200, r.text
+    assert (
+        pr_db.get_pr_sync("acme/myapp", 7, db_path=_isolate["db_path"]) is None
+    )
+
+
+def test_delete_preserves_bookmarked_pr_row(_isolate: dict[str, Path]) -> None:
+    """A bookmarked PR survives worktree deletion — the bookmark holds
+    the row (it re-renders as a non-local card)."""
+    from app.services import pr_db
+
+    write_repo_config(
+        _isolate["config_path"], _isolate["dev_root"], _isolate["dev_root"]
+    )
+    seed_worktree(
+        _isolate["db_path"], "myapp", "feature",
+        branch="feature", pr_repo="acme/myapp", pr_number=8,
+    )
+    pr_db.set_bookmark_flag_sync(
+        "acme/myapp", 8, True,
+        bookmarked_at="2026-01-01T00:00:00Z", db_path=_isolate["db_path"],
+    )
+    with TestClient(app) as client:
+        r = client.delete("/api/worktree/myapp/feature")
+    assert r.status_code == 200, r.text
+    pr = pr_db.get_pr_sync("acme/myapp", 8, db_path=_isolate["db_path"])
+    assert pr is not None and pr.is_bookmarked is True
 
 
 def test_delete_409_when_status_is_setting_up(
