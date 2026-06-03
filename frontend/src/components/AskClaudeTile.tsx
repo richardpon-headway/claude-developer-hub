@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 
 import { ApiError } from "../api/client";
-import { openGlobalClaude, runGlobalFreeform } from "../api/config";
+import { runGlobalFreeform } from "../api/config";
 import { useTerminalInfo } from "../api/terminal";
 import { Button } from "./Button";
 import { Tooltip } from "./Tooltip";
@@ -25,10 +25,6 @@ export function AskClaudeTile() {
   const freeformMutation = useMutation({
     mutationFn: (prompt: string) => runGlobalFreeform(prompt),
     onSuccess: () => setFreeformInput(""),
-  });
-
-  const openMutation = useMutation({
-    mutationFn: () => openGlobalClaude(),
   });
 
   const trimmed = freeformInput.trim();
@@ -84,25 +80,6 @@ export function AskClaudeTile() {
         {freeformMutation.error && (
           <p role="alert" className="mt-2 text-xs text-red-400">
             {errorMessage(freeformMutation.error)}
-          </p>
-        )}
-        {/* Blank session — open Claude in development_root with no
-            prompt at all. For when you just want a fresh session to
-            type into, with no repo/worktree context. */}
-        <div className="mt-3 flex justify-end">
-          <Tooltip text={`Opens ${terminal.display_name} in your development_root with a fresh \`claude\` session (no prompt, no repo context).`}>
-            <Button
-              variant="secondary"
-              onClick={() => openMutation.mutate()}
-              disabled={openMutation.isPending}
-            >
-              {openMutation.isPending ? "Opening…" : "Open Claude"}
-            </Button>
-          </Tooltip>
-        </div>
-        {openMutation.error && (
-          <p role="alert" className="mt-2 text-right text-xs text-red-400">
-            {errorMessage(openMutation.error)}
           </p>
         )}
       </div>
