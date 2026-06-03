@@ -1,8 +1,5 @@
-import { apiDelete, apiGet, apiPost, apiPut } from "./client";
-import type { BookmarkListResponse, BookmarkPr } from "./types";
-
-export const listBookmarks = () =>
-  apiGet<BookmarkListResponse>("/api/bookmarks");
+import { apiDelete, apiPost, apiPut } from "./client";
+import type { BookmarkPr } from "./types";
 
 export const addBookmark = (url: string) =>
   apiPost<BookmarkPr>("/api/bookmarks", { url });

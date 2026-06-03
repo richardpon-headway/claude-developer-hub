@@ -228,47 +228,6 @@ def test_add_bookmark_layers_onto_existing_unbookmarked_row(
     assert r.json()["notes"] == "carry me over"
 
 
-# --- GET /api/bookmarks (list) -----------------------------------------
-
-
-def test_list_bookmarks_empty(_isolate: dict[str, Path]) -> None:
-    write_minimal_config(_isolate["config_path"])
-    with TestClient(app) as client:
-        r = client.get("/api/bookmarks")
-    assert r.status_code == 200
-    assert r.json() == {"bookmarks": []}
-
-
-def test_list_bookmarks_returns_persisted_rows(
-    _isolate: dict[str, Path],
-) -> None:
-    write_minimal_config(_isolate["config_path"])
-    seed_bookmark(
-        _isolate["db_path"], pr_repo="acme/myapp", pr_number=1, title="one",
-    )
-    with TestClient(app) as client:
-        r = client.get("/api/bookmarks")
-    body = r.json()
-    assert len(body["bookmarks"]) == 1
-    assert body["bookmarks"][0]["title"] == "one"
-
-
-def test_list_bookmarks_orders_newest_first(_isolate: dict[str, Path]) -> None:
-    write_minimal_config(_isolate["config_path"])
-    seed_bookmark(
-        _isolate["db_path"], pr_repo="o/r", pr_number=1,
-        bookmarked_at="2026-05-01T00:00:00Z",
-    )
-    seed_bookmark(
-        _isolate["db_path"], pr_repo="o/r", pr_number=2,
-        bookmarked_at="2026-05-20T00:00:00Z",
-    )
-    with TestClient(app) as client:
-        r = client.get("/api/bookmarks")
-    nums = [b["pr_number"] for b in r.json()["bookmarks"]]
-    assert nums == [2, 1]
-
-
 # --- DELETE /api/bookmarks ---------------------------------------------
 
 

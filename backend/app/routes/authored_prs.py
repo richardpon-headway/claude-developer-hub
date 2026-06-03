@@ -1,12 +1,8 @@
 """Authored-PR HTTP endpoints.
 
-The "My PRs (no worktree)" tier on the hub: PRs the user authored
-that are still open and don't already have a local worktree or
-bookmark. Read from the unified ``pr`` table with
-``author_login=@me``; discovery is :mod:`app.services.authored_poll`'s
-job.
+The authored PRs themselves surface through the unified
+``GET /api/workspaces`` list; this module keeps the per-PR actions:
 
-- ``GET /api/authored-prs`` — list rows (with attached notes).
 - ``POST /api/authored-prs/{pr_repo}/{pr_number}/pull-down`` —
   delegates to the shared ``perform_pull_down`` engine with the
   resolved ``@me`` login set as the worktree's author. No 404 guard
@@ -20,98 +16,20 @@ job.
 from __future__ import annotations
 
 import asyncio
-import logging
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.config.loader import load_config
-from app.models.pr import PrCiStatus
 from app.models.worktree import now_iso
 from app.services import pr_db
 from app.services.gh_identity import get_user_login
-from app.services.pr_search import extract_ticket
 from app.services.pull_down import PullDownResponse, perform_pull_down
-from app.services.repos_index import (
-    configured_repos_index,
-    is_repo_configured,
-)
-
-log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["authored_prs"])
 
 
 # Soft cap matching the other notes endpoints (bookmark + worktree).
 _NOTES_MAX_LENGTH = 10_000
-
-
-class AuthoredPr(BaseModel):
-    pr_repo: str
-    pr_number: int
-    title: str
-    url: str
-    is_draft: bool
-    ci_status: PrCiStatus
-    ticket: str | None = None
-    pr_updated_at: str
-    repo_configured: bool
-    notes: str | None = None
-
-
-class AuthoredPrListResponse(BaseModel):
-    authored_prs: list[AuthoredPr]
-
-
-@router.get("/authored-prs", response_model=AuthoredPrListResponse)
-async def list_authored_prs() -> AuthoredPrListResponse:
-    """Return the user's open authored PRs from the unified pr table.
-
-    Falls back to an empty list when ``gh`` is unauthed (no local
-    login resolved) — same fail-open contract as the legacy path.
-    """
-    try:
-        rows = await _list_authored()
-    except Exception as e:  # pragma: no cover — defensive
-        log.warning("authored-prs read failed: %s; returning empty", e)
-        return AuthoredPrListResponse(authored_prs=[])
-    return AuthoredPrListResponse(authored_prs=rows)
-
-
-async def _list_authored() -> list[AuthoredPr]:
-    local_login = await get_user_login()
-    if local_login is None:
-        return []
-
-    config = load_config()
-    repos_index = configured_repos_index(config.repos)
-
-    rows = await asyncio.to_thread(
-        pr_db.list_pr_sync,
-        author_login=local_login,
-        state="open",
-        is_bookmarked=False,
-        has_worktree=False,
-        order_by="pr.pr_updated_at DESC",
-    )
-
-    out: list[AuthoredPr] = []
-    for r in rows:
-        out.append(
-            AuthoredPr(
-                pr_repo=r.pr_repo,
-                pr_number=r.pr_number,
-                title=r.title or "",
-                url=r.url or "",
-                is_draft=r.is_draft,
-                ci_status=r.ci_status or "none",
-                ticket=r.ticket or extract_ticket(r.title or "", config.repos),
-                pr_updated_at=r.pr_updated_at or "",
-                repo_configured=is_repo_configured(r.pr_repo, repos_index),
-                notes=r.notes,
-            )
-        )
-    return out
 
 
 @router.post(
