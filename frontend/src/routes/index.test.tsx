@@ -18,10 +18,12 @@ vi.mock("@tanstack/react-router", async () => {
 
 vi.mock("../api/repos");
 vi.mock("../api/worktrees");
+vi.mock("../api/workspaces");
 vi.mock("../api/config");
 
 import * as configApi from "../api/config";
 import * as reposApi from "../api/repos";
+import * as workspacesApi from "../api/workspaces";
 import * as worktreesApi from "../api/worktrees";
 
 import { HubPage } from "./index";
@@ -41,8 +43,12 @@ function renderHub() {
 
 beforeEach(() => {
   vi.mocked(reposApi.listRepos).mockReset();
-  vi.mocked(worktreesApi.listWorktrees).mockReset();
   vi.mocked(worktreesApi.syncWorktrees).mockReset();
+  vi.mocked(workspacesApi.getWorkspaces).mockReset();
+  vi.mocked(workspacesApi.getWorkspaces).mockResolvedValue({
+    user_login: null,
+    workspaces: [],
+  });
   vi.mocked(worktreesApi.getTokenUsage).mockReset();
   vi.mocked(worktreesApi.getTokenUsage).mockResolvedValue({
     offline: true,
@@ -66,10 +72,6 @@ afterEach(() => {
 describe("Hub — Sync button", () => {
   test("hidden when no repos configured", async () => {
     vi.mocked(reposApi.listRepos).mockResolvedValue([]);
-    vi.mocked(worktreesApi.listWorktrees).mockResolvedValue({
-      worktrees: [],
-      user_login: null,
-    });
     renderHub();
     await waitFor(() => {
       expect(screen.getByText(/No repos configured yet/i)).toBeInTheDocument();
@@ -91,10 +93,6 @@ describe("Hub — Sync button", () => {
         ticket_pattern: null,
       },
     ]);
-    vi.mocked(worktreesApi.listWorktrees).mockResolvedValue({
-      worktrees: [],
-      user_login: null,
-    });
     vi.mocked(worktreesApi.syncWorktrees).mockResolvedValue({
       imported: [
         {
