@@ -89,23 +89,22 @@ export function AskClaudeTile() {
         {/* Blank session — open Claude in development_root with no
             prompt at all. For when you just want a fresh session to
             type into, with no repo/worktree context. */}
-        <div className="mt-3">
+        <div className="mt-3 flex justify-end">
           <Tooltip text={`Opens ${terminal.display_name} in your development_root with a fresh \`claude\` session (no prompt, no repo context).`}>
             <Button
               variant="secondary"
               onClick={() => openMutation.mutate()}
               disabled={openMutation.isPending}
-              className="w-full"
             >
               {openMutation.isPending ? "Opening…" : "Open Claude"}
             </Button>
           </Tooltip>
-          {openMutation.error && (
-            <p role="alert" className="mt-2 text-xs text-red-400">
-              {errorMessage(openMutation.error)}
-            </p>
-          )}
         </div>
+        {openMutation.error && (
+          <p role="alert" className="mt-2 text-right text-xs text-red-400">
+            {errorMessage(openMutation.error)}
+          </p>
+        )}
       </div>
     </section>
   );
