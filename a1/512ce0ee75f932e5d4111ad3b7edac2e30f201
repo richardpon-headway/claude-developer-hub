@@ -1,0 +1,27 @@
+backend/app/main.py
+  s_94262f7ce50755::t_3e521040b55699 25
+  s_94262f7ce50755::t_7e4ce1ca43e5b5 70
+backend/tests/test_workspaces.py
+  s_94262f7ce50755::t_79c19ac57af823 1-151
+backend/app/routes/workspaces.py
+  s_94262f7ce50755::t_55550f8abaa207 1-181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a1512ce0ee75f932e5d4111ad3b7edac2e30f201",
+  "prompts": {},
+  "sessions": {
+    "s_94262f7ce50755": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "413944e2-a824-4da0-b943-972553c5cb34",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
