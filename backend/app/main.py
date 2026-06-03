@@ -22,6 +22,7 @@ from app.routes import (
     skills,
     token_usage,
     workspace,
+    workspaces,
     worktrees,
 )
 from app.routes.worktrees import _post_spawn_tasks
@@ -66,6 +67,7 @@ app = FastAPI(title="Claude Developer Hub", lifespan=lifespan)
 app.include_router(repos.router)
 app.include_router(worktrees.router)
 app.include_router(workspace.router)
+app.include_router(workspaces.router)
 app.include_router(token_usage.router)
 app.include_router(config.router)
 app.include_router(skills.router)
