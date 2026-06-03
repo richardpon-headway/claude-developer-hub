@@ -390,3 +390,11 @@ def test_pull_down_bookmark_happy_path(
     finally:
         conn.close()
     assert row == ("alice",)
+
+    # Pulling down consumes the bookmark: the worktree now holds the row,
+    # so a later worktree delete GC's it entirely (see the worktree-delete
+    # tests). The bookmarked_at audit trail is preserved.
+    pr = pr_db.get_pr_sync("acme/myapp", 42, db_path=_isolate["db_path"])
+    assert pr is not None
+    assert pr.is_bookmarked is False
+    assert pr.bookmarked_at is not None

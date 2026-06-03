@@ -186,4 +186,14 @@ async def perform_pull_down(
             ),
         )
 
+    # Pulling a PR down consumes its bookmark: from here the worktree is
+    # what holds the row on the hub, so deleting the worktree later
+    # removes the PR entirely rather than resurrecting it as a bookmark.
+    # Done as the LAST pr write so the author upsert's
+    # MAX(is_bookmarked) merge above can't re-raise the flag. No-op when
+    # the row wasn't bookmarked (e.g. the authored-PR route).
+    await asyncio.to_thread(
+        pr_db.set_bookmark_flag_sync, pr_repo, pr_number, False
+    )
+
     return PullDownResponse(repo=repo.name, name=worktree.name)
