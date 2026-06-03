@@ -78,10 +78,8 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
   const deleteMutation = useMutation({
     mutationFn: () => deleteWorktree(repo, name),
     onSuccess: () => {
-      // Drop the worktrees list and the authored cache, which may
-      // cross-reference this workspace's PR.
-      queryClient.invalidateQueries({ queryKey: ["worktrees"] });
-      queryClient.invalidateQueries({ queryKey: ["authored-prs"] });
+      // Drop the unified hub list, which includes this workspace.
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
       setConfirmDelete(false);
       setDeleteConfirmText("");
       navigate({ to: "/" });

@@ -4,17 +4,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { getJiraConfig } from "../api/config";
 import { listRepos } from "../api/repos";
-import { listWorktrees, syncWorktrees } from "../api/worktrees";
+import { syncWorktrees } from "../api/worktrees";
 import { AddRepoModal } from "../components/AddRepoModal";
-import { AuthoredPrTier } from "../components/AuthoredPrTier";
-import { BookmarkList } from "../components/BookmarkList";
 import { Button } from "../components/Button";
 import { AskClaudeTile } from "../components/AskClaudeTile";
 import { OpenClaudeTile } from "../components/OpenClaudeTile";
 import { RepoList } from "../components/RepoList";
 import { TokenUsageTile } from "../components/TokenUsageTile";
 import { Tooltip } from "../components/Tooltip";
-import { WorkspaceList } from "../components/WorkspaceList";
+import { WorkspaceBuckets } from "../components/WorkspaceBuckets";
 
 export const Route = createFileRoute("/")({
   component: HubPage,
@@ -29,20 +27,12 @@ export function HubPage() {
     queryFn: listRepos,
   });
 
-  const worktreesQuery = useQuery({
-    queryKey: ["worktrees"],
-    queryFn: listWorktrees,
-    refetchInterval: 5_000,
-  });
-
   const jiraQuery = useQuery({
     queryKey: ["config", "jira"],
     queryFn: getJiraConfig,
   });
 
   const repos = reposQuery.data ?? [];
-  const worktrees = worktreesQuery.data?.worktrees ?? [];
-  const userLogin = worktreesQuery.data?.user_login ?? null;
   const jira = jiraQuery.data ?? null;
 
   const sync = useMutation({
@@ -50,7 +40,7 @@ export function HubPage() {
     // new ones, drop removed ones).
     mutationFn: syncWorktrees,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["worktrees"] });
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
     },
   });
 
@@ -80,57 +70,27 @@ export function HubPage() {
               </Tooltip>
             </div>
           )}
-          <BookmarkList jira={jira} />
-          <section>
-            <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
-              Workspaces
-            </h2>
-            {sync.isSuccess && sync.data && (
-              <p className="mt-2 text-xs text-zinc-500">
-                Imported {sync.data.imported.length} · removed{" "}
-                {sync.data.removed.length} · skipped{" "}
-                {sync.data.skipped.length}
-                {sync.data.skipped.length > 0 && (
-                  <>
-                    {" "}
-                    <span className="text-zinc-600">
-                      ({Array.from(new Set(sync.data.skipped.map((s) => s.reason))).join(", ")})
-                    </span>
-                  </>
-                )}
-              </p>
-            )}
-            {sync.isError && (
-              <p className="mt-2 text-xs text-red-400">
-                sync failed: {String(sync.error)}
-              </p>
-            )}
-            <div className="mt-3 space-y-4">
-              <AuthoredPrTier jira={jira} />
-              {worktreesQuery.isLoading && (
-                <p className="text-sm text-zinc-500">Loading…</p>
+          {sync.isSuccess && sync.data && (
+            <p className="text-xs text-zinc-500">
+              Imported {sync.data.imported.length} · removed{" "}
+              {sync.data.removed.length} · skipped{" "}
+              {sync.data.skipped.length}
+              {sync.data.skipped.length > 0 && (
+                <>
+                  {" "}
+                  <span className="text-zinc-600">
+                    ({Array.from(new Set(sync.data.skipped.map((s) => s.reason))).join(", ")})
+                  </span>
+                </>
               )}
-              {worktreesQuery.isError && (
-                <p className="text-sm text-red-400">Failed to load worktrees.</p>
-              )}
-              {worktreesQuery.isSuccess && worktrees.length === 0 && (
-                <div className="rounded-lg border border-dashed border-zinc-700 p-6 text-center">
-                  <p className="text-sm text-zinc-400">
-                    {repos.length === 0
-                      ? "Add a repo first, then create a worktree from a branch."
-                      : "No worktrees yet. Pull down a bookmarked or authored PR to create one."}
-                  </p>
-                </div>
-              )}
-              {worktreesQuery.isSuccess && worktrees.length > 0 && (
-                <WorkspaceList
-                  worktrees={worktrees}
-                  jira={jira}
-                  userLogin={userLogin}
-                />
-              )}
-            </div>
-          </section>
+            </p>
+          )}
+          {sync.isError && (
+            <p className="text-xs text-red-400">
+              sync failed: {String(sync.error)}
+            </p>
+          )}
+          <WorkspaceBuckets jira={jira} />
 
           <section>
             <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
