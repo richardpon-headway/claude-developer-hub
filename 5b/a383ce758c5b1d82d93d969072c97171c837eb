@@ -1,0 +1,127 @@
+backend/app/routes/authored_prs.py
+  s_94262f7ce50755::t_c03d974b110a32 128
+  s_94262f7ce50755::t_81827ea60d300d 4-5,11
+  s_94262f7ce50755::t_7cac8cdb36482b 45
+  s_94262f7ce50755::t_f6f4caf6bc7a16 33-35
+backend/tests/fixtures/pr.py
+  s_94262f7ce50755::t_a695fe6a932885 37
+backend/app/services/pr_search.py
+  s_94262f7ce50755::t_9f58152b3dd0eb 1-207
+backend/app/services/repos_index.py
+  s_94262f7ce50755::t_00769a2d8bc831 1-65
+frontend/src/components/PrCard.tsx
+  s_94262f7ce50755::t_6e7deabf06635d 745-746
+  s_94262f7ce50755::t_7f99144d18b814 23
+  s_94262f7ce50755::t_4bfd758a3cfcfe 105-106
+  s_94262f7ce50755::t_72955fea6fa881 53
+  s_94262f7ce50755::t_a41685a375ece8 434,436,443,448,464,471,474
+  s_94262f7ce50755::t_d9e6bd77786638 504
+backend/app/services/worktree.py
+  s_94262f7ce50755::t_258a9565165bab 257
+backend/tests/test_pr.py
+  s_94262f7ce50755::t_6b58486e232404 5
+  s_94262f7ce50755::t_09c2f03acdcf7a 49-52,66-67,75,79-80,85,95,104
+  s_94262f7ce50755::t_df32fd1d2b1793 171,177-178,183
+  s_94262f7ce50755::t_84600cc4ff34fc 219,224
+backend/tests/test_db.py
+  s_94262f7ce50755::t_ef0f20f938019d 768-769,771,775-777,779-796
+  s_94262f7ce50755::t_b571d7c638c7d3 623,627-629,631-636,639-640
+README.md
+  s_94262f7ce50755::t_29f61557b49700 89-90
+backend/tests/fixtures/config.py
+  s_94262f7ce50755::t_3b69388b68f8c2 66
+  s_94262f7ce50755::t_2e3a7d5a1ca0e8 5-6,12
+backend/tests/test_authored_prs.py
+  s_94262f7ce50755::t_ea4497d39b7783 279,284
+frontend/src/routes/index.test.tsx
+  s_94262f7ce50755::t_545c4bf6c40268 129
+  s_94262f7ce50755::t_f6d3699491a9bc 82
+backend/app/services/worktree_import.py
+  s_94262f7ce50755::t_57a88970a4210d 252
+backend/app/models/pr.py
+  s_94262f7ce50755::t_d4856de7729c86 3-6,12
+backend/app/services/pr_db.py
+  s_94262f7ce50755::t_ee083fb75a6d2e 335,338-341,350
+  s_94262f7ce50755::t_8ce5726aa3f75f 3-4,19-20
+  s_94262f7ce50755::t_888f08a881c176 37
+  s_94262f7ce50755::t_b5d3905759a9c9 81-85,96,99,117
+backend/tests/test_api_compat.py
+  s_94262f7ce50755::t_c22be8aa5f36cf 1,3
+frontend/src/components/BookmarkList.tsx
+  s_94262f7ce50755::t_64ba62e834737c 43-44
+backend/tests/test_bookmarks.py
+  s_94262f7ce50755::t_a30729c8dbafd4 363,368
+  s_94262f7ce50755::t_e58ecea9515220 151
+  s_94262f7ce50755::t_cb3b49cab0750f 125
+  s_94262f7ce50755::t_8335a16b638d15 176
+  s_94262f7ce50755::t_3c5ffaf52460e0 62
+  s_94262f7ce50755::t_6374d036fabfbf 204
+  s_94262f7ce50755::t_04d0c3bd7da333 16-32,44-56
+backend/app/services/gh_cli.py
+  s_94262f7ce50755::t_5926a57e097201 10
+backend/app/routes/repos.py
+  s_94262f7ce50755::t_cf53137d38be6e 49
+  s_94262f7ce50755::t_64ed616e6dd4e9 103
+backend/app/migrations/014_drop_inbox.sql
+  s_94262f7ce50755::t_6942e4fba92833 1-97
+frontend/src/components/AuthoredPrTier.test.tsx
+  s_94262f7ce50755::t_c3bace9e18bb38 145-148,152-157
+backend/app/services/authored_poll.py
+  s_94262f7ce50755::t_5bb2d41cff3c23 35
+  s_94262f7ce50755::t_b0db93deaca555 118,134
+  s_94262f7ce50755::t_e9f88b22c4b738 6
+backend/app/routes/bookmarks.py
+  s_94262f7ce50755::t_a56f7c36c6409a 5-13,17-20
+  s_94262f7ce50755::t_868296e7d5c4fe 172-173,176-185
+  s_94262f7ce50755::t_b35ea3f825ebaa 39-44
+  s_94262f7ce50755::t_ee093299b4020a 51
+  s_94262f7ce50755::t_9d4211efdc5e80 312
+  s_94262f7ce50755::t_4d72cf5fbbe6c3 286
+backend/app/services/pull_down.py
+  s_94262f7ce50755::t_b773f5cd216e64 1-189
+frontend/src/components/NotesEditor.tsx
+  s_94262f7ce50755::t_42fdac37cd7d47 10
+frontend/src/api/types.ts
+  s_94262f7ce50755::t_024b2f9eafcb63 132
+  s_94262f7ce50755::t_945063261dcaf3 228,236
+backend/tests/test_authored_poll.py
+  s_94262f7ce50755::t_319a824072952b 10
+  s_94262f7ce50755::t_28f89623912a76 35-36,59,88,118,153,181,208
+backend/app/main.py
+  s_94262f7ce50755::t_2df68aabfd976b 41
+backend/app/config/schema.py
+  s_94262f7ce50755::t_53a4af643fa585 15
+  s_94262f7ce50755::t_f187e2e2d1666a 55-59
+config.example.yaml
+  s_94262f7ce50755::t_caa98b4dd95402 5-6
+frontend/src/routes/index.tsx
+  s_94262f7ce50755::t_c6a06f1e8f6901 49-51
+  s_94262f7ce50755::t_2925763ffe7e50 72
+  s_94262f7ce50755::t_79bb7de59a7ae8 121
+frontend/src/routes/workspace.$repo.$name.index.tsx
+  s_94262f7ce50755::t_f925d8b17a2cfd 81-82
+frontend/src/api/bookmarks.ts
+  s_94262f7ce50755::t_4cd76b4743f076 28-29
+backend/app/services/pr_enrichment_poll.py
+  s_94262f7ce50755::t_691edc78a1b27b 100
+  s_94262f7ce50755::t_29673f0d85c021 7-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5ba383ce758c5b1d82d93d969072c97171c837eb",
+  "prompts": {},
+  "sessions": {
+    "s_94262f7ce50755": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "413944e2-a824-4da0-b943-972553c5cb34",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
