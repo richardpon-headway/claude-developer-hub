@@ -4,8 +4,8 @@ scalar metadata.
 
 Unifies the previous "pr_state poll walks worktrees" + "bookmark poll
 refreshes bookmarks" + the lazy worktree.pr_author_login backfill into
-one loop. Every card on the hub — bookmark, inbox, authored, worktree
-— gets the same rich classifier output regardless of origin.
+one loop. Every card on the hub — bookmark, authored, worktree —
+gets the same rich classifier output regardless of origin.
 
 Initial tick fires on startup (no leading sleep) so the hub has PR
 state within seconds of `make run`, not at the first interval mark.
@@ -97,7 +97,7 @@ async def _fetch_one(
                 )
             # Write classifier output to both pr_state (the rich
             # payload, FK'd to pr) and pr's scalar columns. The latter
-            # feeds the bookmark / inbox / authored surfaces that read
+            # feeds the bookmark / authored surfaces that read
             # straight from pr; the former feeds the worktree row's
             # pr_state badge.
             #

@@ -3,7 +3,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { getJiraConfig } from "../api/config";
-import { refreshInbox } from "../api/inbox";
 import { listRepos } from "../api/repos";
 import { listWorktrees, syncWorktrees } from "../api/worktrees";
 import { AddRepoModal } from "../components/AddRepoModal";
@@ -12,7 +11,6 @@ import { BookmarkList } from "../components/BookmarkList";
 import { Button } from "../components/Button";
 import { AskClaudeTile } from "../components/AskClaudeTile";
 import { OpenClaudeTile } from "../components/OpenClaudeTile";
-import { InboxList } from "../components/InboxList";
 import { RepoList } from "../components/RepoList";
 import { TokenUsageTile } from "../components/TokenUsageTile";
 import { Tooltip } from "../components/Tooltip";
@@ -48,20 +46,11 @@ export function HubPage() {
   const jira = jiraQuery.data ?? null;
 
   const sync = useMutation({
-    // Fire both reconcile passes in parallel: local worktrees against
-    // git, and the inbox against `gh search prs`. The background inbox
-    // poll keeps running independently every 60s — this just forces an
-    // immediate tick so the user doesn't wait.
-    mutationFn: async () => {
-      const [worktreesResult] = await Promise.all([
-        syncWorktrees(),
-        refreshInbox(),
-      ]);
-      return worktreesResult;
-    },
+    // Reconcile local worktrees against `git worktree list` (import
+    // new ones, drop removed ones).
+    mutationFn: syncWorktrees,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["worktrees"] });
-      queryClient.invalidateQueries({ queryKey: ["inbox"] });
     },
   });
 
@@ -80,7 +69,7 @@ export function HubPage() {
         <div className="space-y-8">
           {repos.length > 0 && (
             <div className="flex justify-end">
-              <Tooltip text="Reconcile workspaces with `git worktree list` (import new ones, drop removed ones) AND force an inbox refresh against GitHub. The background inbox poll continues every 60s.">
+              <Tooltip text="Reconcile workspaces with `git worktree list` — import new ones, drop removed ones.">
                 <Button
                   variant="secondary"
                   onClick={() => sync.mutate()}
@@ -92,7 +81,6 @@ export function HubPage() {
             </div>
           )}
           <BookmarkList jira={jira} />
-          <InboxList jira={jira} />
           <section>
             <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
               Workspaces
@@ -130,7 +118,7 @@ export function HubPage() {
                   <p className="text-sm text-zinc-400">
                     {repos.length === 0
                       ? "Add a repo first, then create a worktree from a branch."
-                      : "No worktrees yet. Pull down a bookmarked, inbox, or authored PR to create one."}
+                      : "No worktrees yet. Pull down a bookmarked or authored PR to create one."}
                   </p>
                 </div>
               )}

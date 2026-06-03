@@ -254,7 +254,7 @@ def update_worktree_pr_sync(
 
     Inserts an empty pr row first (if one doesn't already exist) so
     the worktree's FK to `pr` resolves. The pr_state poll and the
-    bookmark/inbox surfaces fill in the metadata fields later via
+    bookmark/authored surfaces fill in the metadata fields later via
     upsert; this just guarantees the linkage doesn't dangle.
     """
     if db_path is None:

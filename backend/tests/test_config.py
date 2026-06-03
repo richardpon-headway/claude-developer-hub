@@ -141,7 +141,6 @@ def test_save_leaves_no_tempfile(_isolate_config: Path) -> None:
 def test_polling_config_defaults() -> None:
     cfg = CDHConfig()
     assert cfg.polling.pr_enrichment_interval_seconds == 600.0
-    assert cfg.polling.inbox_interval_seconds == 300.0
     assert cfg.polling.authored_interval_seconds == 600.0
 
 
@@ -149,12 +148,10 @@ def test_polling_config_accepts_custom_values() -> None:
     cfg = CDHConfig(
         polling={  # type: ignore[arg-type]
             "pr_enrichment_interval_seconds": 1800,
-            "inbox_interval_seconds": 900,
             "authored_interval_seconds": 1200,
         }
     )
     assert cfg.polling.pr_enrichment_interval_seconds == 1800.0
-    assert cfg.polling.inbox_interval_seconds == 900.0
     assert cfg.polling.authored_interval_seconds == 1200.0
 
 
@@ -162,7 +159,6 @@ def test_polling_config_accepts_custom_values() -> None:
     "field",
     [
         "pr_enrichment_interval_seconds",
-        "inbox_interval_seconds",
         "authored_interval_seconds",
     ],
 )

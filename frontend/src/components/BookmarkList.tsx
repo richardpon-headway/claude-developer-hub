@@ -40,8 +40,8 @@ export function BookmarkList({ jira, bookmarksOverride }: Props) {
         <div className="mt-3 rounded-lg border border-dashed border-zinc-700 p-6 text-center">
           <p className="text-sm text-zinc-400">No bookmarks yet.</p>
           <p className="mt-1 text-xs text-zinc-500">
-            Paste a GitHub PR URL above to track a PR that isn't already
-            in your inbox.
+            Paste a GitHub PR URL above to track a PR. Its repo must be
+            configured first via "Add a repo".
           </p>
         </div>
       ) : (

@@ -2,17 +2,22 @@
 
 Bookmarks are manually-added PR watches: paste a GitHub PR URL into
 the hub, the backend fetches the PR's metadata via ``gh pr view`` and
-flips ``pr.is_bookmarked=1`` on the unified pr row. Bookmarks render
-in their own section alongside the inbox; the lifecycle is symmetric
-(explicit add, explicit remove). Close / merge never auto-removes a
-bookmark — the row keeps rendering with a ``closed`` / ``merged``
-chip until the user unbookmarks it.
+flips ``pr.is_bookmarked=1`` on the unified pr row. The lifecycle is
+symmetric (explicit add, explicit remove). Close / merge never
+auto-removes a bookmark — the row keeps rendering with a ``closed`` /
+``merged`` chip until the user unbookmarks it.
+
+A PR can only be bookmarked if its repo is already configured (in the
+REPOS list). Bookmarking a PR from an unconfigured repo is refused
+with 400 pointing the user at "Add a repo" — there's no point tracking
+a PR you can't pull down.
 
 - ``GET /api/bookmarks`` — list rows, newest-bookmarked first.
 - ``POST /api/bookmarks`` — body ``{ url: string }``. Parses the URL,
-  fetches via ``gh pr view``, upserts. Idempotent-by-error: a second
-  POST for the same PR returns 409 (so the user knows their existing
-  bookmark wasn't overwritten).
+  fetches via ``gh pr view``, upserts. Refuses 400 when the repo isn't
+  configured. Idempotent-by-error: a second POST for the same PR
+  returns 409 (so the user knows their existing bookmark wasn't
+  overwritten).
 - ``DELETE /api/bookmarks/{pr_repo}/{pr_number}`` — unbookmark.
 - ``PUT /api/bookmarks/{pr_repo}/{pr_number}/notes`` — overwrite notes.
 """
@@ -31,14 +36,19 @@ from app.models.pr import PrRow, PrState
 from app.models.worktree import now_iso
 from app.services import pr_db
 from app.services.gh_cli import GhFailed, GhNotFound, run_gh_json
-from app.services.inbox_search import extract_ticket
+from app.services.pr_search import extract_ticket
+from app.services.pull_down import PullDownResponse, perform_pull_down
+from app.services.repos_index import (
+    configured_repos_index,
+    is_repo_configured,
+)
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["bookmarks"])
 
 
-# Soft cap on bookmark notes. Mirrors the inbox + worktree limits.
+# Soft cap on bookmark notes. Mirrors the worktree notes limit.
 _NOTES_MAX_LENGTH = 10_000
 
 
@@ -159,9 +169,20 @@ async def add_bookmark(req: AddBookmarkRequest) -> BookmarkPr:
     """Parse the URL, fetch the PR's metadata via ``gh pr view``,
     flip ``is_bookmarked`` on the unified pr row.
 
-    Refuses with 400 (bad URL), 404 (PR doesn't exist), 409 (already
-    bookmarked), 502 (gh failure)."""
+    Refuses with 400 (bad URL or repo not configured), 404 (PR doesn't
+    exist), 409 (already bookmarked), 502 (gh failure)."""
     pr_repo, pr_number = _parse_pr_url(req.url)
+
+    # A PR is only worth bookmarking if we can act on it — i.e. its
+    # repo is configured so it can be pulled down. Reject early and
+    # point the user at the onboarding flow.
+    config = load_config()
+    if not is_repo_configured(pr_repo, configured_repos_index(config.repos)):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Repo '{pr_repo}' isn't configured — add it first via "
+            "'Add a repo'.",
+        )
 
     # Pre-check for the 409 contract. The unified upsert is MAX/COALESCE,
     # so it would silently absorb a duplicate-bookmark POST without
@@ -230,7 +251,6 @@ async def add_bookmark(req: AddBookmarkRequest) -> BookmarkPr:
     url = data.get("url") or req.url
     pr_state_value = _normalize_state(data.get("state"))
 
-    config = load_config()
     ticket = extract_ticket(title, config.repos)
 
     now = now_iso()
@@ -263,12 +283,8 @@ async def add_bookmark(req: AddBookmarkRequest) -> BookmarkPr:
 
 
 # ---------------------------------------------------------------------
-# Pull-down (mirrors the authored-PR route — no inbox-row guard)
+# Pull-down (mirrors the authored-PR route)
 # ---------------------------------------------------------------------
-
-
-# Lazy import to avoid a circular dep on routes/inbox at module load.
-from app.routes.inbox import PullDownResponse, _perform_pull_down  # noqa: E402
 
 
 @router.post(
@@ -293,7 +309,7 @@ async def pull_down_bookmark(pr_repo: str, pr_number: int) -> PullDownResponse:
             status.HTTP_404_NOT_FOUND,
             f"PR {pr_repo}#{pr_number} is not bookmarked",
         )
-    return await _perform_pull_down(
+    return await perform_pull_down(
         pr_repo, pr_number, author_login=row.author_login
     )
 

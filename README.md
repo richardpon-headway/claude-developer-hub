@@ -86,10 +86,8 @@ without code changes.
 **Hand-editing the YAML.** Several knobs aren't exposed through the UI
 yet and require editing `~/.config/cdh/config.yaml` directly:
 
-- `polling` — pr_state / inbox poll intervals (raise these if you're
-  hitting GitHub's 5000/hr GraphQL quota)
-- `inbox.teams` — `owner/team-slug`s whose review-requested PRs should
-  surface in the hub inbox
+- `polling` — pr-state / authored-PR poll intervals (raise these if
+  you're hitting GitHub's 5000/hr GraphQL quota)
 - `jira` — Jira tool selection and JQL for the assigned-tickets panel
 - `iterm2.default_window` — frame coords for spawned iTerm2 windows
 - `iterm2.send_gate_patterns` — regex list; CDH refuses to programmatically

@@ -11,11 +11,6 @@ import {
   pullDownBookmark,
 } from "../api/bookmarks";
 import {
-  archiveInboxPr,
-  configureAndPullDown,
-  pullDownPr,
-} from "../api/inbox";
-import {
   getPrUrl,
   recreateWorktree,
   spawnIterm,
@@ -25,8 +20,7 @@ import type {
   AuthoredPr,
   BookmarkPr,
   BookmarkState,
-  InboxCiStatus,
-  InboxPr,
+  CiStatus,
   JiraConfig,
   PrHeadline,
   Worktree,
@@ -34,14 +28,12 @@ import type {
 } from "../api/types";
 import { AuthoredPrNotes } from "./AuthoredPrNotes";
 import { BookmarkNotes } from "./BookmarkNotes";
-import { InboxNotes } from "./InboxNotes";
 import { Tooltip } from "./Tooltip";
 import { WorkspaceNotes } from "./WorkspaceNotes";
 
 // --- discriminated-union input ------------------------------------------
 
 type PrCardData =
-  | { kind: "inbox"; row: InboxPr }
   | { kind: "bookmark"; row: BookmarkPr }
   | { kind: "authored"; row: AuthoredPr }
   | { kind: "worktree"; row: Worktree; userLogin: string | null };
@@ -58,7 +50,7 @@ interface Props {
 
 // --- chip styling -------------------------------------------------------
 
-const CI_STYLE: Record<InboxCiStatus, { label: string; cls: string }> = {
+const CI_STYLE: Record<CiStatus, { label: string; cls: string }> = {
   pass: { label: "ci ✓", cls: "border-emerald-800 bg-emerald-900/40 text-emerald-300" },
   fail: { label: "ci ✗", cls: "border-red-800 bg-red-900/40 text-red-300" },
   pending: { label: "ci ⋯", cls: "border-amber-800 bg-amber-900/40 text-amber-300" },
@@ -104,28 +96,14 @@ const LABEL_CHIP_STYLE: Record<
     tooltip: "No PR exists for this branch. Push and open one." },
 };
 
-function sourceChipLabel(source: string): string {
-  if (source === "reviewer") return "reviewer";
-  if (source === "assignee") return "assignee";
-  if (source === "mentions") return "mention";
-  return source;
-}
-
-function sourceChipTooltip(source: string): string {
-  if (source === "reviewer") return "You were directly added as a reviewer.";
-  if (source === "assignee") return "You're an assignee on this PR.";
-  if (source === "mentions") return "The PR body or comments mention `@you` directly.";
-  return source;
-}
-
 // --- projection helpers -------------------------------------------------
 
 interface Common {
   prRepo: string;            // GitHub owner/name
   prNumber: number;
   title: string;
-  // Where the title link points. Inbox / bookmark / authored / worktree
-  // all point at the GitHub PR for uniform behavior (per plan-50).
+  // Where the title link points. Bookmark / authored / worktree all
+  // point at the GitHub PR for uniform behavior (per plan-50).
   // Worktree rows previously linked to the detail page; the "Details"
   // button retains that affordance separately.
   url: string;
@@ -137,17 +115,6 @@ interface Common {
 
 function project(data: PrCardData): Common {
   switch (data.kind) {
-    case "inbox":
-      return {
-        prRepo: data.row.pr_repo,
-        prNumber: data.row.pr_number,
-        title: data.row.title,
-        url: data.row.url,
-        authorLogin: data.row.author_login,
-        ticket: data.row.ticket,
-        notes: data.row.notes,
-        repoLine: data.row.pr_repo,
-      };
     case "bookmark":
       return {
         prRepo: data.row.pr_repo,
@@ -278,20 +245,6 @@ function ChipBar({ data }: { data: PrCardData }) {
   const terminal = useTerminalInfo();
   return (
     <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
-      {data.kind === "inbox" && (
-        <>
-          <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] ${CI_STYLE[data.row.ci_status].cls}`}>
-            {CI_STYLE[data.row.ci_status].label}
-          </span>
-          {data.row.sources.map((s) => (
-            <Tooltip key={s} text={sourceChipTooltip(s)}>
-              <span className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">
-                {sourceChipLabel(s)}
-              </span>
-            </Tooltip>
-          ))}
-        </>
-      )}
       {data.kind === "bookmark" && (
         <>
           <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] ${BOOKMARK_STATE_STYLE[data.row.state].cls}`}>
@@ -377,8 +330,6 @@ function Body({ data, common, jira }: ChildProps & { jira: JiraConfig | null }) 
 
 function NotesSlot({ data, common }: ChildProps) {
   switch (data.kind) {
-    case "inbox":
-      return <div className="mt-3"><InboxNotes prRepo={common.prRepo} prNumber={common.prNumber} notes={common.notes} /></div>;
     case "bookmark":
       return <div className="mt-3"><BookmarkNotes prRepo={common.prRepo} prNumber={common.prNumber} notes={common.notes} /></div>;
     case "authored":
@@ -397,15 +348,6 @@ interface ActionProps {
 
 function ActionBar({ data, isBookmarked }: ActionProps) {
   switch (data.kind) {
-    case "inbox":
-      return (
-        <>
-          <OpenPrButton url={data.row.url} />
-          {!isBookmarked && <BookmarkThisButton prRepo={data.row.pr_repo} prNumber={data.row.pr_number} />}
-          <InboxPullDownButton pr={data.row} />
-          <InboxArchiveButton pr={data.row} />
-        </>
-      );
     case "bookmark":
       return (
         <>
@@ -460,7 +402,6 @@ function BookmarkThisButton({ prRepo, prNumber }: { prRepo: string; prNumber: nu
     mutationFn: () => bookmarkPr(prRepo, prNumber),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["bookmarks"] });
-      queryClient.invalidateQueries({ queryKey: ["inbox"] });
       queryClient.invalidateQueries({ queryKey: ["authored-prs"] });
     },
   });
@@ -482,9 +423,6 @@ function BookmarkThisButton({ prRepo, prNumber }: { prRepo: string; prNumber: nu
 }
 
 interface PullDownProps {
-  prRepo: string;
-  prNumber: number;
-  repoConfigured: boolean;
   // The actual pull-down call. Differs per surface. The response
   // carries the worktree's `{repo, name}` so the post-success affordance
   // can link to the workspace detail page where the live setup log
@@ -493,25 +431,21 @@ interface PullDownProps {
   invalidateKeys: string[][];
 }
 
-function PullDownAffordance({ prRepo, prNumber, repoConfigured, pullDownFn, invalidateKeys }: PullDownProps) {
+function PullDownAffordance({ pullDownFn, invalidateKeys }: PullDownProps) {
   const queryClient = useQueryClient();
-  const pullDownMutation = useMutation({
+  const mutation = useMutation({
     mutationFn: pullDownFn,
     onSuccess: () => {
       for (const key of invalidateKeys) queryClient.invalidateQueries({ queryKey: key });
     },
   });
-  const configureMutation = useMutation({
-    mutationFn: () => configureAndPullDown(prRepo, prNumber),
-  });
-  const isConfigureFlow = !repoConfigured;
 
-  if (!isConfigureFlow && pullDownMutation.isSuccess && pullDownMutation.data) {
+  if (mutation.isSuccess && mutation.data) {
     // Worktree row now exists (status `setting_up`). Surface the
     // affordance as a link to its detail page so the user can watch
     // the live setup log progress to `ready`. Mirrors DetailsLink's
     // styling for consistency.
-    const { repo, name } = pullDownMutation.data;
+    const { repo, name } = mutation.data;
     return (
       <Tooltip text="Open the workspace to watch the live setup log.">
         <Link
@@ -525,53 +459,27 @@ function PullDownAffordance({ prRepo, prNumber, repoConfigured, pullDownFn, inva
     );
   }
 
-  const mutation = isConfigureFlow ? configureMutation : pullDownMutation;
-  const disabled = mutation.isPending || mutation.isSuccess;
-
-  const label = isConfigureFlow
-    ? configureMutation.isPending ? "Spawning…"
-      : configureMutation.isSuccess ? "Claude opened"
-      : "Configure repo + pull down"
-    : pullDownMutation.isPending ? "Pulling…"
-      : "Pull down";
   const tooltip = mutation.error
     ? mutation.error instanceof ApiError ? mutation.error.detail : String(mutation.error)
-    : isConfigureFlow
-      ? `Opens Claude in your development_root to onboard ${prRepo}, then automatically pulls this PR into a worktree once onboarding completes.`
-      : "Fetch this PR's branch and create a local worktree.";
+    : "Fetch this PR's branch and create a local worktree.";
 
   return (
     <Tooltip text={tooltip}>
       <button
         type="button"
         onClick={() => mutation.mutate()}
-        disabled={disabled}
+        disabled={mutation.isPending || mutation.isSuccess}
         className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {label}
+        {mutation.isPending ? "Pulling…" : "Pull down"}
       </button>
     </Tooltip>
-  );
-}
-
-function InboxPullDownButton({ pr }: { pr: InboxPr }) {
-  return (
-    <PullDownAffordance
-      prRepo={pr.pr_repo}
-      prNumber={pr.pr_number}
-      repoConfigured={pr.repo_configured}
-      pullDownFn={() => pullDownPr(pr.pr_repo, pr.pr_number)}
-      invalidateKeys={[["worktrees"], ["inbox"]]}
-    />
   );
 }
 
 function AuthoredPullDownButton({ pr }: { pr: AuthoredPr }) {
   return (
     <PullDownAffordance
-      prRepo={pr.pr_repo}
-      prNumber={pr.pr_number}
-      repoConfigured={pr.repo_configured}
       pullDownFn={() => pullDownAuthoredPr(pr.pr_repo, pr.pr_number)}
       invalidateKeys={[["worktrees"], ["authored-prs"]]}
     />
@@ -579,42 +487,11 @@ function AuthoredPullDownButton({ pr }: { pr: AuthoredPr }) {
 }
 
 function BookmarkPullDownButton({ row }: { row: BookmarkPr }) {
-  // Bookmark rows don't carry a `repo_configured` flag from the
-  // backend; assume true and let the API surface 400 if not. Cost
-  // is one extra round-trip on a misclick — acceptable given the
-  // alternative is plumbing config checks into every bookmark
-  // payload. Future enhancement: include the flag on bookmark rows.
   return (
     <PullDownAffordance
-      prRepo={row.pr_repo}
-      prNumber={row.pr_number}
-      repoConfigured={true}
       pullDownFn={() => pullDownBookmark(row.pr_repo, row.pr_number)}
       invalidateKeys={[["worktrees"], ["bookmarks"]]}
     />
-  );
-}
-
-function InboxArchiveButton({ pr }: { pr: InboxPr }) {
-  const queryClient = useQueryClient();
-  const mutation = useMutation({
-    mutationFn: () => archiveInboxPr(pr.pr_repo, pr.pr_number),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["inbox"] }),
-  });
-  const tooltip = mutation.error
-    ? mutation.error instanceof ApiError ? mutation.error.detail : String(mutation.error)
-    : "Remove this PR from the inbox. Sticky — won't reappear from gh search.";
-  return (
-    <Tooltip text={tooltip}>
-      <button
-        type="button"
-        onClick={() => mutation.mutate()}
-        disabled={mutation.isPending}
-        className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {mutation.isPending ? "Removing…" : "Remove"}
-      </button>
-    </Tooltip>
   );
 }
 
@@ -624,8 +501,7 @@ function UnbookmarkButton({ row }: { row: BookmarkPr }) {
     mutationFn: () => deleteBookmark(row.pr_repo, row.pr_number),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["bookmarks"] });
-      // Unbookmarking re-exposes the PR to inbox/authored auto-watch.
-      queryClient.invalidateQueries({ queryKey: ["inbox"] });
+      // Unbookmarking re-exposes the PR to authored auto-watch.
       queryClient.invalidateQueries({ queryKey: ["authored-prs"] });
     },
   });
@@ -866,8 +742,8 @@ function TicketValue({ ticket, jira }: { ticket: string; jira: JiraConfig | null
 /**
  * Hook for parent components: returns the set of `${pr_repo}#${pr_number}`
  * keys for currently-bookmarked PRs. Used to hide the "Bookmark this"
- * button on inbox/authored/worktree rows that are already in the
- * bookmark surface.
+ * button on authored/worktree rows that are already in the bookmark
+ * surface.
  *
  * Uses the shared ``["bookmarks"]`` query key — multiple callers
  * dedup through react-query's cache, so this never causes extra

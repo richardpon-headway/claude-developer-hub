@@ -249,7 +249,7 @@ def sync_worktrees_for_repo_sync(
         )
         insert_worktree_sync(row, db_path)
         # Immediately populate PR fields so the workspace lands in the
-        # right inbox tier and the inbox dedup join (which gates on
+        # right tier and the worktree-dedup join (which gates on
         # ``pr_number IS NOT NULL``) catches the row right away. Failures
         # (no PR yet, gh missing, auth/network) are silent — the
         # pr_state poller retries on its next tick.

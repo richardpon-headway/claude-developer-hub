@@ -3,7 +3,7 @@
 Each tick:
 
 1. Shell ``gh search prs --author=@me --state=open`` via
-   :func:`inbox_search.fetch_authored_prs_raw` (single network round
+   :func:`pr_search.fetch_authored_prs_raw` (single network round
    trip).
 2. For each result, upsert into the unified ``pr`` table with the
    local user's gh login as ``author_login`` and ``last_seen_at`` set
@@ -32,7 +32,7 @@ from app.models.pr import PrRow
 from app.models.worktree import now_iso
 from app.services import gh_identity, pr_db
 from app.services.gh_cli import GhNotFound
-from app.services.inbox_search import (
+from app.services.pr_search import (
     extract_ticket,
     fetch_authored_prs_raw,
 )
@@ -115,7 +115,7 @@ def _list_stale_authored_sync(
     local_login: str, cutoff: str
 ) -> list[tuple[str, int]]:
     """Pr rows whose ``author_login == local_login`` AND
-    ``last_seen_at < cutoff`` AND no origin flag holds the row.
+    ``last_seen_at < cutoff`` AND no bookmark holds the row.
 
     The ``maybe_gc_sync`` call after returning these candidates is
     the actual delete — this helper just bounds which rows are
@@ -131,9 +131,7 @@ def _list_stale_authored_sync(
             "WHERE author_login = ? "
             "  AND last_seen_at IS NOT NULL "
             "  AND last_seen_at < ? "
-            "  AND is_bookmarked = 0 "
-            "  AND is_inbox = 0 "
-            "  AND is_archived = 0",
+            "  AND is_bookmarked = 0",
             (local_login, cutoff),
         )
         return [(r[0], r[1]) for r in cur.fetchall()]

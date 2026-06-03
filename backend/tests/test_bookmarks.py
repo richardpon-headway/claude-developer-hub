@@ -13,6 +13,23 @@ from app.services import worktree as wt_svc
 from tests.fixtures.bookmark import seed_bookmark
 from tests.fixtures.config import write_minimal_config, write_repo_config
 
+
+def _config_with_acme_myapp(config_path: Path) -> None:
+    """Write a config with ``acme/myapp`` configured so the bookmark
+    repo-configured guard passes. The guard is a pure config lookup —
+    the path needn't exist on disk for tests that mock ``gh``."""
+    write_minimal_config(
+        config_path,
+        repos=[
+            {
+                "name": "myapp",
+                "path": "/tmp/cdh-myapp-cfg",
+                "github_repo": "acme/myapp",
+            }
+        ],
+    )
+
+
 # --- POST /api/bookmarks (add) -----------------------------------------
 
 
@@ -24,10 +41,25 @@ def test_add_bookmark_400_on_bad_url(_isolate: dict[str, Path]) -> None:
     assert "github.com" in r.json()["detail"].lower()
 
 
+def test_add_bookmark_400_when_repo_not_configured(
+    _isolate: dict[str, Path],
+) -> None:
+    """A PR from a repo that isn't in the REPOS list can't be
+    bookmarked — the user must add the repo first."""
+    write_minimal_config(_isolate["config_path"])
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/bookmarks",
+            json={"url": "https://github.com/acme/myapp/pull/42"},
+        )
+    assert r.status_code == 400
+    assert "add a repo" in r.json()["detail"].lower()
+
+
 def test_add_bookmark_happy_path(
     _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    write_minimal_config(_isolate["config_path"])
+    _config_with_acme_myapp(_isolate["config_path"])
 
     from app.routes import bookmarks as bookmarks_route
 
@@ -90,7 +122,7 @@ def test_add_bookmark_extracts_ticket_via_configured_pattern(
 def test_add_bookmark_409_when_already_exists(
     _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    write_minimal_config(_isolate["config_path"])
+    _config_with_acme_myapp(_isolate["config_path"])
     seed_bookmark(_isolate["db_path"], pr_repo="acme/myapp", pr_number=42)
 
     from app.routes import bookmarks as bookmarks_route
@@ -116,7 +148,7 @@ def test_add_bookmark_409_when_already_exists(
 def test_add_bookmark_404_when_pr_missing(
     _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    write_minimal_config(_isolate["config_path"])
+    _config_with_acme_myapp(_isolate["config_path"])
 
     from app.routes import bookmarks as bookmarks_route
     from app.services.gh_cli import GhFailed
@@ -141,7 +173,7 @@ def test_add_bookmark_accepts_url_with_trailing_path(
     _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """URLs copied from /files, /commits, etc. should still parse."""
-    write_minimal_config(_isolate["config_path"])
+    _config_with_acme_myapp(_isolate["config_path"])
 
     from app.routes import bookmarks as bookmarks_route
 
@@ -169,7 +201,7 @@ def test_add_bookmark_layers_onto_existing_unbookmarked_row(
     """A pr row that exists via another surface (e.g. authored-tier
     notes) can still be bookmarked — only the duplicate ``is_bookmarked``
     case triggers 409. Existing notes survive via COALESCE."""
-    write_minimal_config(_isolate["config_path"])
+    _config_with_acme_myapp(_isolate["config_path"])
     pr_db.upsert_notes_sync(
         "acme/myapp", 42, "carry me over", "2026-05-22T00:00:00Z",
         db_path=_isolate["db_path"],
@@ -328,12 +360,12 @@ def test_pull_down_bookmark_happy_path(
         author_login="alice",
     )
 
-    from app.routes import inbox as inbox_route
+    from app.services import pull_down
 
     async def fake_run_gh_json(args: list, **kwargs: Any) -> dict:
         return {"headRefName": "feat/x", "isCrossRepository": False}
 
-    monkeypatch.setattr(inbox_route, "run_gh_json", fake_run_gh_json)
+    monkeypatch.setattr(pull_down, "run_gh_json", fake_run_gh_json)
 
     with TestClient(app) as client:
         r = client.post("/api/bookmarks/acme/myapp/42/pull-down")

@@ -17,12 +17,7 @@ def seed_pr(
     pr_repo: str,
     pr_number: int,
     is_bookmarked: bool = False,
-    is_inbox: bool = False,
-    is_archived: bool = False,
     bookmarked_at: str | None = None,
-    inbox_added_at: str | None = None,
-    archived_at: str | None = None,
-    inbox_sources: list[str] | None = None,
     title: str | None = None,
     author_login: str | None = None,
     url: str | None = None,
@@ -39,19 +34,13 @@ def seed_pr(
 
     Defaults to a minimal stub row (no origin flag, no metadata) —
     pass kwargs for the fields a specific test cares about. Round-
-    trips through :func:`pr_db.upsert_pr_sync` so the JSON encoding
-    of ``inbox_sources`` stays consistent with production writes.
+    trips through :func:`pr_db.upsert_pr_sync`.
     """
     row = PrRow(
         pr_repo=pr_repo,
         pr_number=pr_number,
         is_bookmarked=is_bookmarked,
-        is_inbox=is_inbox,
-        is_archived=is_archived,
         bookmarked_at=bookmarked_at,
-        inbox_added_at=inbox_added_at,
-        archived_at=archived_at,
-        inbox_sources=list(inbox_sources) if inbox_sources is not None else [],
         title=title,
         author_login=author_login,
         url=url,

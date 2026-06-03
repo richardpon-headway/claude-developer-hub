@@ -17,7 +17,6 @@ from app.routes import (
     authored_prs,
     bookmarks,
     config,
-    inbox,
     refresh,
     repos,
     skills,
@@ -27,7 +26,6 @@ from app.routes import (
 )
 from app.routes.worktrees import _post_spawn_tasks
 from app.services.authored_poll import authored_poll_loop
-from app.services.inbox_poll import inbox_poll_loop
 from app.services.iterm_supervisor import iterm_supervisor
 from app.services.pr_enrichment_poll import enrichment_poll_loop
 from app.services.worktree import _setting_up_tasks
@@ -38,10 +36,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await apply_migrations()
     supervisor_task = asyncio.create_task(iterm_supervisor(app.state))
     enrichment_task = asyncio.create_task(enrichment_poll_loop(app.state))
-    inbox_task = asyncio.create_task(inbox_poll_loop(app.state))
     authored_task = asyncio.create_task(authored_poll_loop(app.state))
     background_tasks = (
-        supervisor_task, enrichment_task, inbox_task, authored_task,
+        supervisor_task, enrichment_task, authored_task,
     )
     try:
         yield
@@ -72,7 +69,6 @@ app.include_router(workspace.router)
 app.include_router(token_usage.router)
 app.include_router(config.router)
 app.include_router(skills.router)
-app.include_router(inbox.router)
 app.include_router(bookmarks.router)
 app.include_router(authored_prs.router)
 app.include_router(refresh.router)

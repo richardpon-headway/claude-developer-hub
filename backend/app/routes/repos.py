@@ -37,11 +37,6 @@ from app.services import terminal
 
 log = logging.getLogger(__name__)
 
-# Strong references to in-flight follow-up tasks fired from
-# onboard_complete. asyncio.create_task only holds a weak ref to the
-# task — without this set, a follow-up could be GC'd before it runs.
-_follow_up_tasks: set[asyncio.Task] = set()
-
 router = APIRouter(prefix="/api/repos", tags=["repos"])
 
 _ONBOARD_TTL_SECONDS = 5 * 60
@@ -51,13 +46,7 @@ _sessions: dict[str, _OnboardSession] = {}
 
 
 class _OnboardSession:
-    """Tracks a one-shot Claude-driven onboarding handoff.
-
-    ``follow_up`` is an optional dict the configure-and-pull-down flow
-    attaches so the post-save handler knows to auto-fire a downstream
-    action. Shape: ``{"kind": "pull_down", "pr_repo": "...", "pr_number": N}``.
-    Plain "Add a repo" onboards leave it ``None``.
-    """
+    """Tracks a one-shot Claude-driven onboarding handoff."""
 
     __slots__ = (
         "session_id",
@@ -67,7 +56,6 @@ class _OnboardSession:
         "state",
         "proposed_entry",
         "error",
-        "follow_up",
     )
 
     def __init__(
@@ -75,7 +63,6 @@ class _OnboardSession:
         session_id: str,
         path: Path,
         prompt: str,
-        follow_up: dict | None = None,
     ) -> None:
         self.session_id = session_id
         self.path = path
@@ -84,7 +71,6 @@ class _OnboardSession:
         self.state: Literal["pending", "saved", "error"] = "pending"
         self.proposed_entry: RepoConfig | None = None
         self.error: str | None = None
-        self.follow_up: dict | None = follow_up
 
     def is_expired(self) -> bool:
         return (time.monotonic() - self.created_at) > _ONBOARD_TTL_SECONDS
@@ -94,34 +80,6 @@ def _evict_expired() -> None:
     expired = [sid for sid, s in _sessions.items() if s.is_expired()]
     for sid in expired:
         _sessions.pop(sid, None)
-
-
-async def mint_onboard_session(
-    path: Path, follow_up: dict | None = None
-) -> tuple[str, str]:
-    """Public entry-point used by other routes (currently the inbox's
-    configure-and-pull-down endpoint) to create an onboard session
-    without going through ``POST /api/repos/onboard``.
-
-    Returns ``(session_id, prompt)``. The caller is responsible for
-    surfacing the prompt to Claude — typically by spawning an iTerm2
-    window with ``claude '<prompt>'`` as the initial command.
-    """
-    config = load_config()
-    callback_url = (
-        f"http://{config.server.host}:{config.server.port}/api/repos/onboard/complete"
-    )
-    async with _lock:
-        _evict_expired()
-        session_id = secrets.token_urlsafe(16)
-        prompt = _build_inspection_prompt(path, session_id, callback_url)
-        _sessions[session_id] = _OnboardSession(
-            session_id=session_id,
-            path=path,
-            prompt=prompt,
-            follow_up=follow_up,
-        )
-    return session_id, prompt
 
 
 def _build_inspection_prompt(path: Path, session_id: str, callback_url: str) -> str:
@@ -142,7 +100,7 @@ def _build_inspection_prompt(path: Path, session_id: str, callback_url: str) -> 
         "  - `github_repo`: `gh repo view --json nameWithOwner -q .nameWithOwner` "
         "in the repo path. Returns `owner/name` (e.g. `acme/acme`). "
         "Default `null` if the repo isn't on GitHub or `gh` isn't available. "
-        "Used by the inbox to match a remote PR to this local checkout.\n\n"
+        "Used to match a remote PR to this local checkout.\n\n"
         "When done, POST your proposal as JSON to:\n"
         f"  {callback_url}\n\n"
         "Body shape:\n"
@@ -346,7 +304,6 @@ async def onboard_status(session_id: str) -> OnboardStatus:
 async def onboard_complete(
     req: OnboardCompleteRequest, request: Request
 ) -> OnboardCompleteResponse:
-    follow_up: dict | None = None
     async with _lock:
         _evict_expired()
         session = _sessions.get(req.session_id)
@@ -377,53 +334,8 @@ async def onboard_complete(
         save_config(config)
         session.state = "saved"
         session.proposed_entry = req.proposed_entry
-        follow_up = session.follow_up
-
-    # Fire the follow-up (if any) AFTER releasing the lock + AFTER
-    # save_config. The HTTP response doesn't wait — the user is already
-    # watching the spawned Claude window; the pull-down's worktree
-    # appears on the hub's next worktrees-poll tick (~5s).
-    if follow_up and follow_up.get("kind") == "pull_down":
-        _schedule_pull_down_follow_up(
-            pr_repo=follow_up["pr_repo"],
-            pr_number=follow_up["pr_number"],
-        )
 
     return OnboardCompleteResponse(state="saved", saved_entry=req.proposed_entry)
-
-
-def _schedule_pull_down_follow_up(
-    *, pr_repo: str, pr_number: int
-) -> None:
-    """Spawn a background task that runs the inbox pull-down for the
-    PR that triggered configure-and-pull-down. Failures only log —
-    onboarding already saved, so the user sees the new repo in config
-    even if the worktree creation hits a snag (they can retry the
-    Pull-down button manually on the next inbox poll)."""
-
-    async def _run() -> None:
-        # Delayed imports to avoid a circular dependency between
-        # routes/repos.py and routes/inbox.py.
-        from app.routes.inbox import _perform_pull_down
-        from app.services import pr_db
-
-        row = await asyncio.to_thread(
-            pr_db.get_pr_sync, pr_repo, pr_number
-        )
-        author_login = row.author_login if row else None
-        try:
-            await _perform_pull_down(
-                pr_repo, pr_number, author_login=author_login
-            )
-        except Exception as e:
-            log.warning(
-                "post-onboard pull-down failed for %s#%s: %s",
-                pr_repo, pr_number, e,
-            )
-
-    task = asyncio.create_task(_run())
-    _follow_up_tasks.add(task)
-    task.add_done_callback(_follow_up_tasks.discard)
 
 
 class SpawnRepoItermResponse(BaseModel):

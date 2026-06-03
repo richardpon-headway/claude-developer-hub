@@ -19,10 +19,8 @@ vi.mock("@tanstack/react-router", async () => {
 vi.mock("../api/repos");
 vi.mock("../api/worktrees");
 vi.mock("../api/config");
-vi.mock("../api/inbox");
 
 import * as configApi from "../api/config";
-import * as inboxApi from "../api/inbox";
 import * as reposApi from "../api/repos";
 import * as worktreesApi from "../api/worktrees";
 
@@ -59,14 +57,6 @@ beforeEach(() => {
     base_url: null,
     list_jql: null,
   });
-  vi.mocked(inboxApi.getInbox).mockReset();
-  vi.mocked(inboxApi.getInbox).mockResolvedValue({
-    prs: [],
-  });
-  vi.mocked(inboxApi.refreshInbox).mockReset();
-  vi.mocked(inboxApi.refreshInbox).mockResolvedValue({
-    prs: [],
-  });
 });
 
 afterEach(() => {
@@ -89,7 +79,7 @@ describe("Hub — Sync button", () => {
     ).not.toBeInTheDocument();
   });
 
-  test("shown when repos exist; clicking fires BOTH syncWorktrees and refreshInbox in parallel", async () => {
+  test("shown when repos exist; clicking fires syncWorktrees", async () => {
     vi.mocked(reposApi.listRepos).mockResolvedValue([
       {
         name: "myrepo",
@@ -135,11 +125,8 @@ describe("Hub — Sync button", () => {
     await waitFor(() => {
       expect(worktreesApi.syncWorktrees).toHaveBeenCalled();
     });
-    // Both endpoints fire on a single click.
-    expect(inboxApi.refreshInbox).toHaveBeenCalled();
 
-    // The summary still reflects the worktrees-sync result (the inbox
-    // refresh updates the inbox list via its own query invalidation).
+    // The summary reflects the worktrees-sync result.
     await waitFor(() => {
       expect(
         screen.getByText(/imported 1.*removed 1.*skipped 1/i),
