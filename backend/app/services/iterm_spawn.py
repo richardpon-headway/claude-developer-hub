@@ -114,8 +114,7 @@ async def spawn_two_tab_window(
     If ``initial_prompt`` is set, Claude is launched as
     ``claude '<prompt>'`` so the prompt runs at startup (no race
     between "shell ready" and "Claude ready" that would exist with a
-    follow-up keystroke send). Used by ``run_skill`` to fire a slash
-    command when no Claude session exists yet.
+    follow-up keystroke send).
 
     Raises any underlying ``iterm2.RPCException`` so the caller turns it
     into an HTTP 5xx with a useful detail.

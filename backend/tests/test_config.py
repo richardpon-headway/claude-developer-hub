@@ -19,8 +19,6 @@ def _isolate_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def test_default_config_is_generic() -> None:
     c = CDHConfig()
     assert c.repos == []
-    assert c.global_skills == []
-    assert c.workspace_skills == []
     assert c.server.port == 47823
     assert c.server.host == "127.0.0.1"
     assert c.terminal.kind == "iterm2"
@@ -35,43 +33,39 @@ def test_default_config_is_generic() -> None:
     assert c.terminal.iterm2.send_gate_patterns == []
 
 
-def test_global_skill_validates() -> None:
-    from app.config.schema import GlobalSkill
+def test_legacy_skill_keys_load_without_error(
+    _isolate_config: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Configs written before the skill buttons were removed still have
+    ``global_skills`` / ``workspace_skills`` blocks. The loader must
+    strip them (the strict schema would otherwise reject the extras) and
+    emit a one-time deprecation log so the user knows they're ignored."""
+    import yaml
 
-    # Happy path
-    s = GlobalSkill(name="pr-check-action-required", label="Check action required")
-    assert s.cwd == "home"
-    assert s.description is None
-    # Uppercase / spaces in name → rejected
-    with pytest.raises(Exception):
-        GlobalSkill(name="UPPERCASE", label="x")
-    with pytest.raises(Exception):
-        GlobalSkill(name="has spaces", label="x")
-    # Empty label → rejected
-    with pytest.raises(Exception):
-        GlobalSkill(name="ok", label="")
-    # Extra keys → rejected (extra="forbid")
-    with pytest.raises(Exception):
-        GlobalSkill(name="ok", label="x", surprise=True)  # type: ignore[call-arg]
+    from app.config import loader as loader_module
 
+    _isolate_config.write_text(
+        yaml.safe_dump(
+            {
+                "repos": [],
+                "global_skills": [{"name": "pr-review", "label": "Review"}],
+                "workspace_skills": [{"name": "pr-review", "label": "Review"}],
+            }
+        )
+    )
 
-def test_workspace_skill_validates() -> None:
-    from app.config.schema import WorkspaceSkill
+    loader_module._DEPRECATED_KEYS_WARNED.clear()
 
-    # Happy path — no cwd field, that's the distinction from GlobalSkill.
-    s = WorkspaceSkill(name="pr-finalize-for-review", label="/pr-finalize-for-review")
-    assert s.description is None
-    # Same name regex as GlobalSkill
-    with pytest.raises(Exception):
-        WorkspaceSkill(name="UPPERCASE", label="x")
-    with pytest.raises(Exception):
-        WorkspaceSkill(name="has spaces", label="x")
-    with pytest.raises(Exception):
-        WorkspaceSkill(name="ok", label="")
-    # cwd is NOT a WorkspaceSkill field — extra="forbid" should catch attempts
-    # to set one (would mean the caller has the wrong model).
-    with pytest.raises(Exception):
-        WorkspaceSkill(name="ok", label="x", cwd="home")  # type: ignore[call-arg]
+    with caplog.at_level("WARNING", logger="app.config.loader"):
+        c = load_config()
+
+    # Loads cleanly — the removed keys are gone, not a validation error.
+    assert c.repos == []
+    assert not hasattr(c, "global_skills")
+    assert any("global_skills` is deprecated" in r.message for r in caplog.records)
+    assert any(
+        "workspace_skills` is deprecated" in r.message for r in caplog.records
+    )
 
 
 def test_name_must_be_slug() -> None:

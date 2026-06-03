@@ -27,7 +27,6 @@ vi.mock("../api/worktrees");
 vi.mock("../api/config");
 
 // Import after the mocks so the page picks them up.
-import * as configApi from "../api/config";
 import { WorkspacePage } from "./workspace.$repo.$name.index";
 
 function renderPage(repo = "myrepo", name = "feature") {
@@ -72,23 +71,9 @@ function makeDetail(
 beforeEach(() => {
   vi.mocked(worktreesApi.getWorktree).mockReset();
   vi.mocked(worktreesApi.spawnIterm).mockReset();
-  vi.mocked(worktreesApi.runSkill).mockReset();
   vi.mocked(worktreesApi.sendText).mockReset();
   vi.mocked(worktreesApi.deleteWorktree).mockReset();
   navigateSpy.mockReset();
-  vi.mocked(configApi.getWorkspaceSkills).mockReset();
-  vi.mocked(configApi.getWorkspaceSkills).mockResolvedValue([
-    {
-      name: "pr-finalize-for-review",
-      label: "/pr-finalize-for-review",
-      description: null,
-    },
-    {
-      name: "pr-review",
-      label: "/pr-review",
-      description: null,
-    },
-  ]);
 });
 
 afterEach(() => {
@@ -96,43 +81,6 @@ afterEach(() => {
 });
 
 describe("WorkspacePage", () => {
-  test("skill buttons stay enabled without a session (auto-spawn)", async () => {
-    // When no Claude session exists, the skill button still fires —
-    // the backend spawns iTerm2 with `claude '/<skill>'` as the
-    // initial prompt. The "open this workspace in iTerm2 first" gate
-    // only applied before the spawn-on-miss path landed.
-    vi.mocked(worktreesApi.getWorktree).mockResolvedValue(
-      makeDetail({ has_claude_session: false, status: "ready" }),
-    );
-    renderPage();
-    const finalizeBtn = await screen.findByRole("button", {
-      name: "/pr-finalize-for-review",
-    });
-    expect(finalizeBtn).toBeEnabled();
-  });
-
-  test("skill buttons disabled when worktree is not ready", async () => {
-    vi.mocked(worktreesApi.getWorktree).mockResolvedValue(
-      makeDetail({ has_claude_session: false, status: "failed" }),
-    );
-    renderPage();
-    const finalizeBtn = await screen.findByRole("button", {
-      name: "/pr-finalize-for-review",
-    });
-    expect(finalizeBtn).toBeDisabled();
-  });
-
-  test("skill buttons enabled when claude session is open", async () => {
-    vi.mocked(worktreesApi.getWorktree).mockResolvedValue(
-      makeDetail({ has_claude_session: true }),
-    );
-    renderPage();
-    const finalizeBtn = await screen.findByRole("button", {
-      name: "/pr-finalize-for-review",
-    });
-    expect(finalizeBtn).toBeEnabled();
-  });
-
   test("clicking 'Open in iTerm2' calls spawn", async () => {
     vi.mocked(worktreesApi.getWorktree).mockResolvedValue(
       makeDetail({ has_claude_session: false, status: "ready" }),
@@ -149,25 +97,6 @@ describe("WorkspacePage", () => {
     fireEvent.click(openBtn);
     await waitFor(() => {
       expect(worktreesApi.spawnIterm).toHaveBeenCalledWith("myrepo", "feature");
-    });
-  });
-
-  test("running a skill calls run-skill with correct slash name", async () => {
-    vi.mocked(worktreesApi.getWorktree).mockResolvedValue(
-      makeDetail({ has_claude_session: true }),
-    );
-    vi.mocked(worktreesApi.runSkill).mockResolvedValue({ sent: true });
-    renderPage();
-    const btn = await screen.findByRole("button", {
-      name: "/pr-finalize-for-review",
-    });
-    fireEvent.click(btn);
-    await waitFor(() => {
-      expect(worktreesApi.runSkill).toHaveBeenCalledWith(
-        "myrepo",
-        "feature",
-        "pr-finalize-for-review",
-      );
     });
   });
 

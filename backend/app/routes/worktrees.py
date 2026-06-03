@@ -1206,17 +1206,11 @@ async def _post_spawn_discovery(
         log.warning("post-spawn UUID DB update failed for %s/%s: %s", repo, name, e)
 
 
-# --- send-text / run-skill -----------------------------------------------
+# --- send-text -------------------------------------------------------------
 
 
 class SendTextRequest(BaseModel):
     text: str = Field(..., min_length=1)
-
-
-class RunSkillRequest(BaseModel):
-    # Slash-command names are kebab-case lowercase per Claude Code's
-    # convention. Reject anything that wouldn't be a valid skill name.
-    skill_name: str = Field(..., min_length=1, pattern=r"^[a-z0-9][a-z0-9-]*$")
 
 
 class SendResponse(BaseModel):
@@ -1267,28 +1261,3 @@ async def send_text(
     repo: str, name: str, req: SendTextRequest, request: Request
 ) -> SendResponse:
     return await _send_to_worktree_claude(request, repo, name, req.text)
-
-
-@router.post("/worktree/{repo}/{name}/run-skill", response_model=SendResponse)
-async def run_skill(
-    repo: str, name: str, req: RunSkillRequest, request: Request
-) -> SendResponse:
-    """Run a slash command for this worktree.
-
-    ``req.skill_name`` must appear in ``config.workspace_skills`` —
-    that list is the server-side allow-list (symmetric with how
-    ``/api/skills/global`` enforces ``config.global_skills``).
-
-    Spawns a fresh one-tab iTerm2 window at the worktree path running
-    ``claude '/<skill>'``. Any existing Claude window for the worktree
-    is left untouched.
-    """
-    config = load_config()
-    if not any(s.name == req.skill_name for s in config.workspace_skills):
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND,
-            f"unknown workspace skill: {req.skill_name!r}. Add it to "
-            "`workspace_skills` in ~/.config/cdh/config.yaml.",
-        )
-
-    return await _send_to_worktree_claude(request, repo, name, f"/{req.skill_name}")

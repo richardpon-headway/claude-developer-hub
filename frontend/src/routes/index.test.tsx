@@ -59,8 +59,6 @@ beforeEach(() => {
     base_url: null,
     list_jql: null,
   });
-  vi.mocked(configApi.getGlobalSkills).mockReset();
-  vi.mocked(configApi.getGlobalSkills).mockResolvedValue([]);
   vi.mocked(inboxApi.getInbox).mockReset();
   vi.mocked(inboxApi.getInbox).mockResolvedValue({
     prs: [],

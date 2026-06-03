@@ -3,14 +3,12 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError } from "../api/client";
-import { getWorkspaceSkills } from "../api/config";
 import { useTerminalInfo } from "../api/terminal";
 import {
   deleteWorktree,
   getPrFiles,
   getWorktree,
   openInCursor,
-  runSkill,
   sendText,
   spawnIterm,
 } from "../api/worktrees";
@@ -67,16 +65,6 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
   const spawnMutation = useMutation({
     mutationFn: () => spawnIterm(repo, name),
     onSuccess: invalidate,
-  });
-
-  const skillsQuery = useQuery({
-    queryKey: ["config", "workspace-skills"],
-    queryFn: getWorkspaceSkills,
-  });
-  const skills = skillsQuery.data ?? [];
-
-  const skillMutation = useMutation({
-    mutationFn: (skill: string) => runSkill(repo, name, skill),
   });
 
   const sendMutation = useMutation({
@@ -212,28 +200,6 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
                     ? "Open in Cursor ✗"
                     : "Open in Cursor"}
               </Button>
-              {skills.map((skill) => (
-                <Tooltip
-                  key={skill.name}
-                  text={
-                    !usable
-                      ? `worktree status is ${row.status}; nothing to run into`
-                      : !hasClaude
-                        ? skill.description
-                          ? `${skill.description} — spawns ${terminal.display_name} first`
-                          : `Spawns ${terminal.display_name} and runs the skill`
-                        : skill.description
-                  }
-                >
-                  <Button
-                    variant="secondary"
-                    onClick={() => skillMutation.mutate(skill.name)}
-                    disabled={!usable || skillMutation.isPending}
-                  >
-                    {skill.label}
-                  </Button>
-                </Tooltip>
-              ))}
             </div>
 
             <SendTextForm
@@ -244,11 +210,6 @@ export function WorkspacePage({ repo, name }: WorkspacePageProps) {
             {spawnMutation.error && (
               <p role="alert" className="text-sm text-red-400">
                 spawn failed: {errorMessage(spawnMutation.error)}
-              </p>
-            )}
-            {skillMutation.error && (
-              <p role="alert" className="text-sm text-red-400">
-                skill failed: {errorMessage(skillMutation.error)}
               </p>
             )}
             {sendMutation.error && (

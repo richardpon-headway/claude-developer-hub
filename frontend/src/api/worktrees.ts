@@ -115,11 +115,6 @@ export const getFileView = (
 export const sendText = (repo: string, name: string, text: string) =>
   apiPost<SendResponse>(`${workspacePath(repo, name)}/send-text`, { text });
 
-export const runSkill = (repo: string, name: string, skillName: string) =>
-  apiPost<SendResponse>(`${workspacePath(repo, name)}/run-skill`, {
-    skill_name: skillName,
-  });
-
 export const getPrUrl = (repo: string, name: string) =>
   apiGet<PrUrlResponse>(`${workspacePath(repo, name)}/pr-url`);
 
