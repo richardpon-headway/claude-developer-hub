@@ -129,7 +129,7 @@ export interface Worktree {
   pr_number: number | null;
   pr_repo: string | null;
   // GitHub login of the PR's author when known. Captured at pull-down
-  // time from the inbox row and lazy-filled by the pr_state poll for
+  // time from the originating surface row and lazy-filled by the pr_state poll for
   // worktrees that pre-date the column. Compared against
   // `ListWorktreesResponse.user_login` to decide whether the row sorts
   // into the REVIEWING tier. Null → "not yet known" → treat as owner.
@@ -225,42 +225,7 @@ export interface PrUrlResponse {
   url: string;
 }
 
-export type InboxCiStatus = "pass" | "fail" | "pending" | "none";
-
-export interface InboxPr {
-  pr_repo: string;
-  pr_number: number;
-  title: string;
-  author_login: string;
-  url: string;
-  is_draft: boolean;
-  ci_status: InboxCiStatus;
-  // Every reason the PR is in this user's inbox, priority-ordered.
-  // First entry is the primary signal. Values after the persistent-
-  // inbox redesign: "reviewer" | "assignee" | "mentions".
-  sources: string[];
-  // Free-form per-row notes. Same UX as Worktree.notes. Null/"" means
-  // the row has no notes; the editor renders the empty state.
-  notes: string | null;
-  // Extracted ticket id (e.g. "PROJ-123") when one of the configured
-  // repos' ticket_pattern matched the PR title. Drives the Jira link.
-  ticket: string | null;
-  // PR's updatedAt from gh; used to sort the inbox newest-first.
-  pr_updated_at: string;
-  // First time the inbox poller saw this PR. Never updated.
-  added_at: string;
-  // Most recent tick where gh search returned this PR. The auto-
-  // removal sweep uses this to bound how many `gh pr view` probes
-  // fire per tick.
-  last_seen_at: string;
-  // True when the inbox row's `pr_repo` maps to a locally-configured
-  // RepoConfig. Drives "Pull down" vs "Configure repo + pull down".
-  repo_configured: boolean;
-}
-
-export interface InboxResponse {
-  prs: InboxPr[];
-}
+export type CiStatus = "pass" | "fail" | "pending" | "none";
 
 export interface AuthoredPr {
   pr_repo: string;
@@ -268,7 +233,7 @@ export interface AuthoredPr {
   title: string;
   url: string;
   is_draft: boolean;
-  ci_status: InboxCiStatus;
+  ci_status: CiStatus;
   ticket: string | null;
   pr_updated_at: string;
   repo_configured: boolean;

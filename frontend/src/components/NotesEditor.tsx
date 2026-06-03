@@ -7,7 +7,7 @@ interface Props {
   notes: string | null;
   // Mutation function. Resolves on success, throws on failure (ApiError
   // when the backend responded with an error body). Wrappers parameterize
-  // which endpoint is hit — see WorkspaceNotes / InboxNotes.
+  // which endpoint is hit — see WorkspaceNotes / BookmarkNotes.
   saveFn: (text: string) => Promise<unknown>;
   // Fires after a successful save — wrappers use it to invalidate
   // react-query caches so the row re-renders with the new notes.

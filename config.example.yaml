@@ -2,8 +2,8 @@
 #
 # The hub onboarding flow ("Add a repo") writes to ~/.config/cdh/config.yaml.
 # Most users never touch this file directly. Hand-edit it when you need a
-# knob the UI doesn't expose (polling cadence, inbox teams, custom skills,
-# Jira, iTerm2 window frame).
+# knob the UI doesn't expose (polling cadence, custom skills, Jira,
+# iTerm2 window frame).
 #
 # Authoritative schema: backend/app/config/schema.py. Unknown keys are
 # rejected; defaults below match what the schema applies when a key is
@@ -13,12 +13,8 @@
 development_root: ~/development        # where worktrees + repo discovery live
 repos: []                              # auto-populated by "Add a repo" in the UI
 
-inbox:
-  teams: []                            # ["owner/team-slug"] — team-review-requested PRs to surface
-
 polling:
   pr_enrichment_interval_seconds: 600.0  # `gh pr view --json …` per pr row (every surface)
-  inbox_interval_seconds: 300.0          # `gh search prs` × 3 (reviewer / assignee / mentions)
   authored_interval_seconds: 600.0       # `gh search prs --author=@me --state=open`
 
 jira:

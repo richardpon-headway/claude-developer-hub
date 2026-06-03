@@ -9,11 +9,10 @@ so a user (or Claude) can write ``~/development`` in YAML without surprise.
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 
 def _expand_home(v: Any) -> Any:
@@ -53,11 +52,11 @@ class RepoConfig(BaseModel):
     worktree_path_template: str = "{development_root}/{repo}_worktree_{short}"
     setup_steps: list[SetupStep] = Field(default_factory=list)
     ticket_pattern: str | None = None
-    # GitHub ``owner/name`` for this repo, used by the inbox to match a
-    # remote PR to a local checkout. Optional: when None, the inbox
-    # falls back to matching the basename portion of ``pr_repo`` against
-    # ``RepoConfig.name``. Onboarding (slice 3) will detect and populate
-    # this via ``gh repo view --json nameWithOwner``.
+    # GitHub ``owner/name`` for this repo, used to match a remote PR to
+    # a local checkout (bookmark guard, authored-PR list). Optional:
+    # when None, matching falls back to the basename portion of
+    # ``pr_repo`` against ``RepoConfig.name``. Onboarding detects and
+    # populates this via ``gh repo view --json nameWithOwner``.
     github_repo: str | None = Field(
         default=None,
         pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
@@ -157,16 +156,6 @@ class PollingConfig(BaseModel):
             "`gh pr view --json …` per pr row."
         ),
     )
-    inbox_interval_seconds: float = Field(
-        300.0,
-        gt=0,
-        description=(
-            "How often the inbox discovery loop runs. Each tick runs "
-            "3 `gh search prs` queries (reviewer / assignee / "
-            "mentions). Pruning of closed PRs is a DB sweep against "
-            "`pr.state` (filled by the enrichment loop)."
-        ),
-    )
     authored_interval_seconds: float = Field(
         600.0,
         gt=0,
@@ -205,34 +194,6 @@ class DiffConfig(BaseModel):
     )
 
 
-class InboxConfig(BaseModel):
-    """GitHub teams whose review-requested PRs should surface in the
-    hub's Inbox section alongside the user's authored + directly-
-    review-requested PRs. ``team-review-requested:<owner>/<slug>`` is
-    the GitHub search qualifier we drive."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    teams: list[str] = Field(
-        default_factory=list,
-        description="GitHub team slugs in 'owner/team' form.",
-    )
-
-    @field_validator("teams")
-    @classmethod
-    def _validate_team_slugs(cls, v: list[str]) -> list[str]:
-        # Each entry must be ``owner/team-slug``. GitHub allows
-        # alphanumerics, underscore, dot, hyphen in both halves.
-        pattern = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-        for slug in v:
-            if not pattern.match(slug):
-                raise ValueError(
-                    f"inbox.teams entry must be 'owner/team' "
-                    f"(alphanumerics + _.- only); got {slug!r}"
-                )
-        return v
-
-
 class CDHConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -244,6 +205,5 @@ class CDHConfig(BaseModel):
     terminal: TerminalConfig = Field(default_factory=TerminalConfig)
     token_monitor: TokenMonitorConfig = Field(default_factory=TokenMonitorConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
-    inbox: InboxConfig = Field(default_factory=InboxConfig)
     polling: PollingConfig = Field(default_factory=PollingConfig)
     diff: DiffConfig = Field(default_factory=DiffConfig)

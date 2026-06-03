@@ -1,8 +1,7 @@
 """SQLite helpers for the unified ``pr`` table.
 
-Owns every read and write of the ``pr`` table created by migration
-013. Sync (sqlite3 is sync-only); async callers wrap with
-``asyncio.to_thread``.
+Owns every read and write of the ``pr`` table. Sync (sqlite3 is
+sync-only); async callers wrap with ``asyncio.to_thread``.
 """
 from __future__ import annotations
 
@@ -17,9 +16,8 @@ from app.models.worktree import PrStateSummary
 # Used by both _LIST_SELECT and _row_to_model so the unpacking stays
 # aligned.
 _BASE_COLS = (
-    "pr.pr_repo, pr.pr_number, pr.is_bookmarked, pr.is_inbox, "
-    "pr.is_archived, pr.bookmarked_at, pr.inbox_added_at, pr.archived_at, "
-    "pr.inbox_sources, pr.title, pr.author_login, pr.url, pr.ticket, "
+    "pr.pr_repo, pr.pr_number, pr.is_bookmarked, pr.bookmarked_at, "
+    "pr.title, pr.author_login, pr.url, pr.ticket, "
     "pr.state, pr.is_draft, pr.ci_status, pr.pr_updated_at, pr.notes, "
     "pr.last_seen_at, pr.last_refreshed_at"
 )
@@ -36,21 +34,11 @@ _LIST_SELECT = (
 
 def _row_to_model(row: tuple) -> PrRow:
     (
-        pr_repo, pr_number, is_bookmarked, is_inbox, is_archived,
-        bookmarked_at, inbox_added_at, archived_at, inbox_sources,
+        pr_repo, pr_number, is_bookmarked, bookmarked_at,
         title, author_login, url, ticket, state, is_draft, ci_status,
         pr_updated_at, notes, last_seen_at, last_refreshed_at,
         payload_json, checked_at,
     ) = row
-
-    sources: list[str] = []
-    if inbox_sources:
-        try:
-            parsed = json.loads(inbox_sources)
-            if isinstance(parsed, list):
-                sources = [str(s) for s in parsed]
-        except (TypeError, ValueError):
-            sources = []
 
     pr_state: PrStateSummary | None = None
     if payload_json is not None and checked_at is not None:
@@ -71,12 +59,7 @@ def _row_to_model(row: tuple) -> PrRow:
         pr_repo=pr_repo,
         pr_number=pr_number,
         is_bookmarked=bool(is_bookmarked),
-        is_inbox=bool(is_inbox),
-        is_archived=bool(is_archived),
         bookmarked_at=bookmarked_at,
-        inbox_added_at=inbox_added_at,
-        archived_at=archived_at,
-        inbox_sources=sources,
         title=title,
         author_login=author_login,
         url=url,
@@ -95,35 +78,28 @@ def _row_to_model(row: tuple) -> PrRow:
 def upsert_pr_sync(row: PrRow, db_path: Path | None = None) -> None:
     """Insert or update a pr row.
 
-    Origin booleans use ``MAX(pr.flag, excluded.flag)`` so a discovery
-    poller setting ``is_inbox=True`` doesn't wipe an earlier
-    ``is_bookmarked=True``. Scalar fields use COALESCE-on-excluded so
-    a write that doesn't carry a value (e.g., bookmark upsert without
-    is_draft info) doesn't blank out what a prior source set.
+    The ``is_bookmarked`` origin flag uses ``MAX(pr.flag, excluded.flag)``
+    so a discovery poller doesn't wipe an earlier bookmark. Scalar
+    fields use COALESCE-on-excluded so a write that doesn't carry a
+    value (e.g., an authored-poll upsert without is_draft info) doesn't
+    blank out what a prior source set.
 
     ``is_draft`` is the exception — it's a latest-reading-wins boolean
     rather than a sticky flag, so we always take ``excluded.is_draft``.
     """
     if db_path is None:
         db_path = get_db_path()
-    sources_json = json.dumps(list(row.inbox_sources)) if row.inbox_sources else None
     conn = open_db(db_path)
     try:
         conn.execute(
             "INSERT INTO pr ("
-            "  pr_repo, pr_number, is_bookmarked, is_inbox, is_archived, "
-            "  bookmarked_at, inbox_added_at, archived_at, inbox_sources, "
+            "  pr_repo, pr_number, is_bookmarked, bookmarked_at, "
             "  title, author_login, url, ticket, state, is_draft, ci_status, "
             "  pr_updated_at, notes, last_seen_at, last_refreshed_at"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(pr_repo, pr_number) DO UPDATE SET "
             "  is_bookmarked     = MAX(pr.is_bookmarked, excluded.is_bookmarked), "
-            "  is_inbox          = MAX(pr.is_inbox, excluded.is_inbox), "
-            "  is_archived       = MAX(pr.is_archived, excluded.is_archived), "
             "  bookmarked_at     = COALESCE(excluded.bookmarked_at, pr.bookmarked_at), "
-            "  inbox_added_at    = COALESCE(excluded.inbox_added_at, pr.inbox_added_at), "
-            "  archived_at       = COALESCE(excluded.archived_at, pr.archived_at), "
-            "  inbox_sources     = COALESCE(excluded.inbox_sources, pr.inbox_sources), "
             "  title             = COALESCE(excluded.title, pr.title), "
             "  author_login      = COALESCE(excluded.author_login, pr.author_login), "
             "  url               = COALESCE(excluded.url, pr.url), "
@@ -138,10 +114,7 @@ def upsert_pr_sync(row: PrRow, db_path: Path | None = None) -> None:
             (
                 row.pr_repo, row.pr_number,
                 1 if row.is_bookmarked else 0,
-                1 if row.is_inbox else 0,
-                1 if row.is_archived else 0,
-                row.bookmarked_at, row.inbox_added_at, row.archived_at,
-                sources_json,
+                row.bookmarked_at,
                 row.title, row.author_login, row.url, row.ticket,
                 row.state,
                 1 if row.is_draft else 0,
@@ -157,8 +130,6 @@ def upsert_pr_sync(row: PrRow, db_path: Path | None = None) -> None:
 def list_pr_sync(
     *,
     is_bookmarked: bool | None = None,
-    is_inbox: bool | None = None,
-    is_archived: bool | None = None,
     has_worktree: bool | None = None,
     author_login: str | None = None,
     state: str | None = None,
@@ -178,12 +149,6 @@ def list_pr_sync(
     if is_bookmarked is not None:
         clauses.append("pr.is_bookmarked = ?")
         params.append(1 if is_bookmarked else 0)
-    if is_inbox is not None:
-        clauses.append("pr.is_inbox = ?")
-        params.append(1 if is_inbox else 0)
-    if is_archived is not None:
-        clauses.append("pr.is_archived = ?")
-        params.append(1 if is_archived else 0)
     if has_worktree is not None:
         op = "EXISTS" if has_worktree else "NOT EXISTS"
         clauses.append(
@@ -340,60 +305,6 @@ def set_bookmark_flag_sync(
         conn.close()
 
 
-def set_inbox_flag_sync(
-    pr_repo: str,
-    pr_number: int,
-    value: bool,
-    db_path: Path | None = None,
-) -> int:
-    if db_path is None:
-        db_path = get_db_path()
-    conn = open_db(db_path)
-    try:
-        cur = conn.execute(
-            "UPDATE pr SET is_inbox = ? WHERE pr_repo = ? AND pr_number = ?",
-            (1 if value else 0, pr_repo, pr_number),
-        )
-        conn.commit()
-        return cur.rowcount
-    finally:
-        conn.close()
-
-
-def set_archived_flag_sync(
-    pr_repo: str,
-    pr_number: int,
-    value: bool,
-    *,
-    archived_at: str | None = None,
-    db_path: Path | None = None,
-) -> int:
-    """Toggle the ``is_archived`` flag. When setting, ``archived_at``
-    only writes if the column is currently NULL — matches the legacy
-    ``INSERT OR IGNORE INTO inbox_archived`` idempotency contract."""
-    if db_path is None:
-        db_path = get_db_path()
-    conn = open_db(db_path)
-    try:
-        if value:
-            cur = conn.execute(
-                "UPDATE pr SET is_archived = 1, "
-                "  archived_at = COALESCE(archived_at, ?) "
-                "WHERE pr_repo = ? AND pr_number = ?",
-                (archived_at, pr_repo, pr_number),
-            )
-        else:
-            cur = conn.execute(
-                "UPDATE pr SET is_archived = 0 "
-                "WHERE pr_repo = ? AND pr_number = ?",
-                (pr_repo, pr_number),
-            )
-        conn.commit()
-        return cur.rowcount
-    finally:
-        conn.close()
-
-
 def touch_last_seen_sync(
     pk_pairs: list[tuple[str, int]],
     last_seen_at: str,
@@ -421,13 +332,13 @@ def touch_last_seen_sync(
 def maybe_gc_sync(
     pr_repo: str, pr_number: int, db_path: Path | None = None
 ) -> int:
-    """Delete the pr row IF no origin flag is set AND notes is NULL
+    """Delete the pr row IF it isn't bookmarked AND notes is NULL
     AND no worktree row references it. Returns 1 if deleted.
 
-    Called after a shim clears the flag(s) it owns — the row evaporates
-    once nothing holds it. Worktree-attached rows survive because the
-    worktree's ``ON DELETE SET NULL`` would otherwise silently null the
-    worktree's PR linkage on a transient empty-flag state.
+    Called after a shim clears the bookmark flag it owns — the row
+    evaporates once nothing holds it. Worktree-attached rows survive
+    because the worktree's ``ON DELETE SET NULL`` would otherwise
+    silently null the worktree's PR linkage on a transient unheld state.
     """
     if db_path is None:
         db_path = get_db_path()
@@ -436,7 +347,7 @@ def maybe_gc_sync(
         cur = conn.execute(
             "DELETE FROM pr "
             "WHERE pr_repo = ? AND pr_number = ? "
-            "  AND is_bookmarked = 0 AND is_inbox = 0 AND is_archived = 0 "
+            "  AND is_bookmarked = 0 "
             "  AND notes IS NULL "
             "  AND NOT EXISTS ("
             "    SELECT 1 FROM worktree w "
@@ -465,34 +376,6 @@ def bookmarked_keys_sync(
         conn.close()
 
 
-def inbox_keys_sync(db_path: Path | None = None) -> set[tuple[str, int]]:
-    """All ``(pr_repo, pr_number)`` flagged ``is_inbox=1`` (archived or
-    not). Used by the worktree-dedup logic."""
-    if db_path is None:
-        db_path = get_db_path()
-    conn = open_db(db_path)
-    try:
-        cur = conn.execute(
-            "SELECT pr_repo, pr_number FROM pr WHERE is_inbox = 1"
-        )
-        return {(r[0], r[1]) for r in cur.fetchall()}
-    finally:
-        conn.close()
-
-
-def archived_keys_sync(db_path: Path | None = None) -> set[tuple[str, int]]:
-    if db_path is None:
-        db_path = get_db_path()
-    conn = open_db(db_path)
-    try:
-        cur = conn.execute(
-            "SELECT pr_repo, pr_number FROM pr WHERE is_archived = 1"
-        )
-        return {(r[0], r[1]) for r in cur.fetchall()}
-    finally:
-        conn.close()
-
-
 def worktree_attached_keys_sync(
     db_path: Path | None = None,
 ) -> set[tuple[str, int]]:
@@ -511,28 +394,5 @@ def worktree_attached_keys_sync(
             "WHERE pr_repo IS NOT NULL AND pr_number IS NOT NULL"
         )
         return {(r[0], r[1]) for r in cur.fetchall()}
-    finally:
-        conn.close()
-
-
-def list_stale_inbox_sync(
-    cutoff: str,
-    limit: int,
-    db_path: Path | None = None,
-) -> list[tuple[str, int]]:
-    """Inbox-flagged rows whose ``last_seen_at`` is strictly older than
-    ``cutoff``, oldest first, up to ``limit``."""
-    if db_path is None:
-        db_path = get_db_path()
-    conn = open_db(db_path)
-    try:
-        cur = conn.execute(
-            "SELECT pr_repo, pr_number FROM pr "
-            "WHERE is_inbox = 1 AND last_seen_at < ? "
-            "ORDER BY last_seen_at ASC "
-            "LIMIT ?",
-            (cutoff, limit),
-        )
-        return [(r[0], r[1]) for r in cur.fetchall()]
     finally:
         conn.close()

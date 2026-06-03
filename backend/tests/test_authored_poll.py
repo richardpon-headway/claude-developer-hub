@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from app.services import authored_poll, gh_identity, pr_db
-from app.services.inbox_search import InboxPrRaw
+from app.services.pr_search import PrSearchRaw
 from tests.fixtures.bookmark import seed_bookmark
 from tests.fixtures.config import write_minimal_config
 from tests.fixtures.pr import seed_pr
@@ -32,8 +32,8 @@ def _make_raw(
     title: str = "my pr",
     author: str = "me",
     updated: str = "2026-05-20T00:00:00Z",
-) -> InboxPrRaw:
-    return InboxPrRaw(
+) -> PrSearchRaw:
+    return PrSearchRaw(
         pr_repo=pr_repo,
         pr_number=pr_number,
         title=title,
@@ -56,7 +56,7 @@ def test_tick_upserts_new_authored_row(
     origin flag)."""
     write_minimal_config(_isolate["config_path"])
 
-    async def fake_fetch() -> list[InboxPrRaw]:
+    async def fake_fetch() -> list[PrSearchRaw]:
         return [_make_raw(pr_number=42, title="my new pr")]
 
     monkeypatch.setattr(authored_poll, "fetch_authored_prs_raw", fake_fetch)
@@ -68,7 +68,6 @@ def test_tick_upserts_new_authored_row(
     assert pr.author_login == "me"
     assert pr.title == "my new pr"
     assert pr.is_bookmarked is False
-    assert pr.is_inbox is False
     assert pr.last_seen_at is not None
 
 
@@ -86,7 +85,7 @@ def test_tick_does_not_clobber_origin_flags(
         author_login="me",
     )
 
-    async def fake_fetch() -> list[InboxPrRaw]:
+    async def fake_fetch() -> list[PrSearchRaw]:
         return [_make_raw(pr_number=42, title="updated title")]
 
     monkeypatch.setattr(authored_poll, "fetch_authored_prs_raw", fake_fetch)
@@ -116,7 +115,7 @@ def test_tick_gcs_rows_dropped_from_search(
         last_seen_at="2026-01-01T00:00:00Z",
     )
 
-    async def fake_fetch() -> list[InboxPrRaw]:
+    async def fake_fetch() -> list[PrSearchRaw]:
         return []  # search no longer returns #99
 
     monkeypatch.setattr(authored_poll, "fetch_authored_prs_raw", fake_fetch)
@@ -151,7 +150,7 @@ def test_tick_does_not_gc_rows_held_by_another_surface(
         db_path=_isolate["db_path"],
     )
 
-    async def fake_fetch() -> list[InboxPrRaw]:
+    async def fake_fetch() -> list[PrSearchRaw]:
         return []
 
     monkeypatch.setattr(authored_poll, "fetch_authored_prs_raw", fake_fetch)
@@ -179,7 +178,7 @@ def test_tick_fails_open_on_missing_gh(
 
     from app.services.gh_cli import GhNotFound
 
-    async def fake_fetch() -> list[InboxPrRaw]:
+    async def fake_fetch() -> list[PrSearchRaw]:
         raise GhNotFound("gh not on PATH")
 
     monkeypatch.setattr(authored_poll, "fetch_authored_prs_raw", fake_fetch)
@@ -206,7 +205,7 @@ def test_tick_skips_when_no_local_login(
 
     fetch_called = False
 
-    async def fake_fetch() -> list[InboxPrRaw]:
+    async def fake_fetch() -> list[PrSearchRaw]:
         nonlocal fetch_called
         fetch_called = True
         return []

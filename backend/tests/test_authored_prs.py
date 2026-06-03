@@ -12,7 +12,6 @@ from app.services import pr_db
 from app.services import worktree as wt_svc
 from tests.fixtures.bookmark import seed_bookmark
 from tests.fixtures.config import write_minimal_config, write_repo_config
-from tests.fixtures.inbox import seed_inbox_row
 from tests.fixtures.pr import seed_pr
 from tests.fixtures.worktree import seed_worktree
 
@@ -89,28 +88,6 @@ def test_list_excludes_worktreed(_isolate: dict[str, Path]) -> None:
         author_login="me",
         state="open",
         pr_updated_at="2026-05-20T00:00:00Z",
-    )
-    seed_pr(
-        _isolate["db_path"],
-        pr_repo="acme/myapp",
-        pr_number=43,
-        author_login="me",
-        state="open",
-        pr_updated_at="2026-05-21T00:00:00Z",
-    )
-    with TestClient(app) as client:
-        rows = _list_authored(client)
-    assert [r["pr_number"] for r in rows] == [43]
-
-
-def test_list_excludes_inboxed(_isolate: dict[str, Path]) -> None:
-    """If a PR somehow ended up in the inbox (the user was both
-    author and review-requested), don't double-render it on the
-    authored surface."""
-    write_minimal_config(_isolate["config_path"])
-    seed_inbox_row(
-        _isolate["db_path"], pr_repo="acme/myapp", pr_number=42,
-        author_login="me",
     )
     seed_pr(
         _isolate["db_path"],
@@ -299,12 +276,12 @@ def test_pull_down_authored_happy_path(
         github_repo="acme/myapp",
     )
 
-    from app.routes import inbox as inbox_route
+    from app.services import pull_down
 
     async def fake_run_gh_json(args: list, **kwargs: Any) -> dict:
         return {"headRefName": "feat/x", "isCrossRepository": False}
 
-    monkeypatch.setattr(inbox_route, "run_gh_json", fake_run_gh_json)
+    monkeypatch.setattr(pull_down, "run_gh_json", fake_run_gh_json)
 
     with TestClient(app) as client:
         r = client.post("/api/authored-prs/acme/myapp/42/pull-down")

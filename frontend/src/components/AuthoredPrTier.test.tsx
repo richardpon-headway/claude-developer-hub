@@ -25,10 +25,8 @@ vi.mock("@tanstack/react-router", async () => {
 });
 
 vi.mock("../api/authored");
-vi.mock("../api/inbox");
 
 import * as authoredApi from "../api/authored";
-import * as inboxApi from "../api/inbox";
 
 import { AuthoredPrTier } from "./AuthoredPrTier";
 import type { AuthoredPr, JiraConfig } from "../api/types";
@@ -67,7 +65,6 @@ function pr(overrides: Partial<AuthoredPr> = {}): AuthoredPr {
 
 beforeEach(() => {
   vi.mocked(authoredApi.pullDownAuthoredPr).mockReset();
-  vi.mocked(inboxApi.configureAndPullDown).mockReset();
 });
 
 afterEach(() => {
@@ -145,23 +142,18 @@ describe("AuthoredPrTier", () => {
     expect(prLink).toHaveAttribute("target", "_blank");
   });
 
-  test("unconfigured repo falls back to Configure + pull down", async () => {
-    vi.mocked(inboxApi.configureAndPullDown).mockResolvedValue({
-      session_id: "sess",
-    });
+  test("unconfigured repo still shows a plain Pull down button", () => {
+    // The "Configure repo + pull down" onboarding flow was removed with
+    // the inbox; repo_configured no longer changes the affordance. The
+    // backend 400s on click if the repo isn't configured.
     renderTier([
       pr({ pr_repo: "other/elsewhere", pr_number: 9, repo_configured: false }),
     ]);
-    const btn = screen.getByRole("button", {
-      name: /configure repo \+ pull down/i,
-    });
-    fireEvent.click(btn);
-
-    await waitFor(() => {
-      expect(inboxApi.configureAndPullDown).toHaveBeenCalledWith(
-        "other/elsewhere",
-        9,
-      );
-    });
+    expect(
+      screen.getByRole("button", { name: /^pull down$/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /configure repo/i }),
+    ).not.toBeInTheDocument();
   });
 });

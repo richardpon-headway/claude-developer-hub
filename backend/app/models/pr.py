@@ -1,15 +1,15 @@
 """Pydantic shape for a unified PR row.
 
-Mirrors the ``pr`` table created by migration 013. Keys on GitHub
-identity ``(pr_repo, pr_number)`` and tracks which surfaces the row
-belongs to via the origin booleans (``is_bookmarked``, ``is_inbox``,
-``is_archived``).
+Mirrors the ``pr`` table. Keys on GitHub identity
+``(pr_repo, pr_number)``. The ``is_bookmarked`` origin flag marks
+rows the user manually bookmarked; authored rows are identified by
+``author_login`` rather than a flag.
 """
 from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from app.models.worktree import PrStateSummary
 
@@ -24,14 +24,7 @@ class PrRow(BaseModel):
     pr_number: int
 
     is_bookmarked: bool = False
-    is_inbox: bool = False
-    is_archived: bool = False
-
     bookmarked_at: str | None = None
-    inbox_added_at: str | None = None
-    archived_at: str | None = None
-
-    inbox_sources: list[str] = Field(default_factory=list)
 
     title: str | None = None
     author_login: str | None = None

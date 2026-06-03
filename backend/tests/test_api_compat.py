@@ -1,6 +1,6 @@
-"""Wire-shape snapshot tests for the four PR-surface list endpoints.
+"""Wire-shape snapshot tests for the PR-surface list endpoints.
 
-Seeds one pr row per surface (bookmark / inbox / authored / worktreed)
+Seeds one pr row per surface (bookmark / authored / worktreed)
 and asserts each list endpoint's JSON response matches a checked-in
 expected dict verbatim. The FE type definitions in
 ``frontend/src/api/types.ts`` are hand-maintained; this test catches
@@ -20,7 +20,6 @@ from fastapi.testclient import TestClient
 from app.main import app
 from tests.fixtures.bookmark import seed_bookmark
 from tests.fixtures.config import write_minimal_config
-from tests.fixtures.inbox import seed_inbox_row
 from tests.fixtures.pr import seed_pr
 from tests.fixtures.worktree import seed_worktree
 
@@ -73,49 +72,6 @@ def test_bookmarks_list_response_shape(_isolate: dict[str, Path]) -> None:
                 "ticket": "PROJ-1",
                 "bookmarked_at": "2026-05-21T00:00:00Z",
                 "last_refreshed_at": "2026-05-22T00:00:00Z",
-            },
-        ],
-    }
-
-
-def test_inbox_list_response_shape(_isolate: dict[str, Path]) -> None:
-    write_minimal_config(_isolate["config_path"])
-    seed_inbox_row(
-        _isolate["db_path"],
-        pr_repo="acme/myapp",
-        pr_number=22,
-        title="review me",
-        author_login="bob",
-        url="https://github.com/acme/myapp/pull/22",
-        is_draft=False,
-        ci_status="pass",
-        sources=["reviewer"],
-        notes="inbox notes",
-        ticket="PROJ-2",
-        pr_updated_at="2026-05-14T00:00:00Z",
-        added_at="2026-05-14T00:00:00Z",
-        last_seen_at="2026-05-14T00:00:00Z",
-    )
-    with TestClient(app) as client:
-        r = client.get("/api/inbox")
-    assert r.status_code == 200
-    assert r.json() == {
-        "prs": [
-            {
-                "pr_repo": "acme/myapp",
-                "pr_number": 22,
-                "title": "review me",
-                "author_login": "bob",
-                "url": "https://github.com/acme/myapp/pull/22",
-                "is_draft": False,
-                "ci_status": "pass",
-                "sources": ["reviewer"],
-                "notes": "inbox notes",
-                "ticket": "PROJ-2",
-                "pr_updated_at": "2026-05-14T00:00:00Z",
-                "added_at": "2026-05-14T00:00:00Z",
-                "last_seen_at": "2026-05-14T00:00:00Z",
-                "repo_configured": False,
             },
         ],
     }

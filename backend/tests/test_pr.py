@@ -2,7 +2,7 @@
 
 Exercises the upsert / flag-toggle / GC / list-filter surface on
 ``pr_db`` directly. Route-level roundtrips live in ``test_bookmarks.py``
-/ ``test_inbox.py`` / ``test_authored_prs.py``.
+/ ``test_authored_prs.py``.
 """
 from __future__ import annotations
 
@@ -46,10 +46,10 @@ def test_upsert_inserts_new_row(db_path: Path) -> None:
     assert pr.state == "open"
 
 
-def test_upsert_origin_flags_use_max(db_path: Path) -> None:
-    """A second upsert that sets is_inbox=True doesn't wipe an earlier
-    is_bookmarked=True. Flags accumulate; only the explicit setters
-    clear them."""
+def test_upsert_bookmark_flag_uses_max(db_path: Path) -> None:
+    """A later metadata-only upsert (is_bookmarked defaults to 0)
+    doesn't wipe an earlier is_bookmarked=True. The flag accumulates;
+    only the explicit setter clears it."""
     pr_db.upsert_pr_sync(
         PrRow(
             pr_repo="o/r",
@@ -63,29 +63,26 @@ def test_upsert_origin_flags_use_max(db_path: Path) -> None:
         PrRow(
             pr_repo="o/r",
             pr_number=1,
-            is_inbox=True,
-            inbox_added_at="2026-01-02T00:00:00Z",
-            inbox_sources=["reviewer"],
+            title="enriched",
+            author_login="alice",
         ),
         db_path=db_path,
     )
     pr = pr_db.get_pr_sync("o/r", 1, db_path=db_path)
     assert pr is not None
     assert pr.is_bookmarked is True
-    assert pr.is_inbox is True
     assert pr.bookmarked_at == "2026-01-01T00:00:00Z"
-    assert pr.inbox_added_at == "2026-01-02T00:00:00Z"
-    assert pr.inbox_sources == ["reviewer"]
+    assert pr.title == "enriched"
 
 
 def test_upsert_scalar_coalesce_keeps_existing_on_null(db_path: Path) -> None:
-    """An upsert that doesn't carry a value (e.g., a flag-only flip)
-    doesn't blank out fields a prior source set."""
+    """An upsert that doesn't carry a value doesn't blank out fields a
+    prior source set."""
     pr_db.upsert_pr_sync(
         PrRow(
             pr_repo="o/r",
             pr_number=1,
-            is_inbox=True,
+            is_bookmarked=True,
             title="first",
             author_login="alice",
         ),
@@ -95,8 +92,7 @@ def test_upsert_scalar_coalesce_keeps_existing_on_null(db_path: Path) -> None:
         PrRow(
             pr_repo="o/r",
             pr_number=1,
-            is_archived=True,
-            archived_at="2026-02-01T00:00:00Z",
+            state="open",
             # No title or author_login on this upsert — must not wipe.
         ),
         db_path=db_path,
@@ -105,7 +101,7 @@ def test_upsert_scalar_coalesce_keeps_existing_on_null(db_path: Path) -> None:
     assert pr is not None
     assert pr.title == "first"
     assert pr.author_login == "alice"
-    assert pr.is_archived is True
+    assert pr.state == "open"
 
 
 def test_set_bookmark_flag_toggle(db_path: Path) -> None:
@@ -126,27 +122,6 @@ def test_set_bookmark_flag_toggle(db_path: Path) -> None:
     assert pr.is_bookmarked is False
     # bookmarked_at audit trail preserved when clearing.
     assert pr.bookmarked_at == "2026-01-01T00:00:00Z"
-
-
-def test_set_archived_flag_is_idempotent_on_archived_at(db_path: Path) -> None:
-    """Setting archived twice keeps the first ``archived_at`` —
-    matches the legacy ``INSERT OR IGNORE INTO inbox_archived``
-    contract that route handlers rely on for idempotent dismissals."""
-    pr_db.upsert_pr_sync(
-        PrRow(pr_repo="o/r", pr_number=1, is_inbox=True),
-        db_path=db_path,
-    )
-    pr_db.set_archived_flag_sync(
-        "o/r", 1, True, archived_at="2026-01-01T00:00:00Z",
-        db_path=db_path,
-    )
-    pr_db.set_archived_flag_sync(
-        "o/r", 1, True, archived_at="2026-02-01T00:00:00Z",
-        db_path=db_path,
-    )
-    pr = pr_db.get_pr_sync("o/r", 1, db_path=db_path)
-    assert pr is not None
-    assert pr.archived_at == "2026-01-01T00:00:00Z"
 
 
 def test_maybe_gc_deletes_when_no_flag_no_notes_no_worktree(
@@ -193,36 +168,19 @@ def test_list_pr_filters_by_origin_flag(db_path: Path) -> None:
         db_path=db_path,
     )
     pr_db.upsert_pr_sync(
-        PrRow(pr_repo="o/r", pr_number=2, is_inbox=True,
-              inbox_added_at="2026-01-02T00:00:00Z"),
+        PrRow(pr_repo="o/r", pr_number=2, author_login="alice"),
         db_path=db_path,
     )
     bookmarked = pr_db.list_pr_sync(is_bookmarked=True, db_path=db_path)
     assert [r.pr_number for r in bookmarked] == [1]
 
-    inboxed = pr_db.list_pr_sync(is_inbox=True, db_path=db_path)
-    assert [r.pr_number for r in inboxed] == [2]
-
-
-def test_list_pr_excludes_archived_when_requested(db_path: Path) -> None:
-    pr_db.upsert_pr_sync(
-        PrRow(pr_repo="o/r", pr_number=1, is_inbox=True),
-        db_path=db_path,
-    )
-    pr_db.upsert_pr_sync(
-        PrRow(pr_repo="o/r", pr_number=2, is_inbox=True, is_archived=True,
-              archived_at="2026-01-02T00:00:00Z"),
-        db_path=db_path,
-    )
-    active = pr_db.list_pr_sync(
-        is_inbox=True, is_archived=False, db_path=db_path
-    )
-    assert [r.pr_number for r in active] == [1]
+    unbookmarked = pr_db.list_pr_sync(is_bookmarked=False, db_path=db_path)
+    assert [r.pr_number for r in unbookmarked] == [2]
 
 
 def test_list_pr_has_worktree_filter(db_path: Path, tmp_path: Path) -> None:
     pr_db.upsert_pr_sync(
-        PrRow(pr_repo="o/r", pr_number=1, is_inbox=True),
+        PrRow(pr_repo="o/r", pr_number=1, is_bookmarked=True),
         db_path=db_path,
     )
     seed_worktree(
@@ -244,14 +202,6 @@ def test_keys_helpers_partition_by_flag(db_path: Path, tmp_path: Path) -> None:
         PrRow(pr_repo="o/r", pr_number=1, is_bookmarked=True),
         db_path=db_path,
     )
-    pr_db.upsert_pr_sync(
-        PrRow(pr_repo="o/r", pr_number=2, is_inbox=True),
-        db_path=db_path,
-    )
-    pr_db.upsert_pr_sync(
-        PrRow(pr_repo="o/r", pr_number=3, is_archived=True),
-        db_path=db_path,
-    )
     seed_worktree(
         db_path,
         "myrepo",
@@ -261,19 +211,17 @@ def test_keys_helpers_partition_by_flag(db_path: Path, tmp_path: Path) -> None:
         pr_number=4,
     )
     assert pr_db.bookmarked_keys_sync(db_path=db_path) == {("o/r", 1)}
-    assert pr_db.inbox_keys_sync(db_path=db_path) == {("o/r", 2)}
-    assert pr_db.archived_keys_sync(db_path=db_path) == {("o/r", 3)}
     assert pr_db.worktree_attached_keys_sync(db_path=db_path) == {("o/r", 4)}
 
 
 def test_touch_last_seen_bulk(db_path: Path) -> None:
     pr_db.upsert_pr_sync(
-        PrRow(pr_repo="o/r", pr_number=1, is_inbox=True,
+        PrRow(pr_repo="o/r", pr_number=1, author_login="alice",
               last_seen_at="2026-01-01T00:00:00Z"),
         db_path=db_path,
     )
     pr_db.upsert_pr_sync(
-        PrRow(pr_repo="o/r", pr_number=2, is_inbox=True,
+        PrRow(pr_repo="o/r", pr_number=2, author_login="alice",
               last_seen_at="2026-01-01T00:00:00Z"),
         db_path=db_path,
     )
@@ -286,28 +234,6 @@ def test_touch_last_seen_bulk(db_path: Path) -> None:
     p2 = pr_db.get_pr_sync("o/r", 2, db_path=db_path)
     assert p1 is not None and p1.last_seen_at == "2026-02-01T00:00:00Z"
     assert p2 is not None and p2.last_seen_at == "2026-02-01T00:00:00Z"
-
-
-def test_list_stale_inbox_filters_and_orders(db_path: Path) -> None:
-    pr_db.upsert_pr_sync(
-        PrRow(pr_repo="o/r", pr_number=1, is_inbox=True,
-              last_seen_at="2026-01-01T00:00:00Z"),
-        db_path=db_path,
-    )
-    pr_db.upsert_pr_sync(
-        PrRow(pr_repo="o/r", pr_number=2, is_inbox=True,
-              last_seen_at="2026-01-02T00:00:00Z"),
-        db_path=db_path,
-    )
-    pr_db.upsert_pr_sync(
-        PrRow(pr_repo="o/r", pr_number=3, is_inbox=True,
-              last_seen_at="2026-02-01T00:00:00Z"),
-        db_path=db_path,
-    )
-    stale = pr_db.list_stale_inbox_sync(
-        cutoff="2026-01-15T00:00:00Z", limit=10, db_path=db_path
-    )
-    assert stale == [("o/r", 1), ("o/r", 2)]
 
 
 def test_upsert_notes_inserts_stub_when_no_row(db_path: Path) -> None:

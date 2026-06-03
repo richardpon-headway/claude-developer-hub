@@ -620,23 +620,24 @@ def _apply_through_012(
     return conn
 
 
-def test_migration_013_folds_every_legacy_table_into_pr(
+def test_migrations_fold_legacy_tables_then_drop_inbox(
     db_path: Path, tmp_path: Path
 ) -> None:
     """Seed rows across all four legacy PR-keyed tables plus a worktree-
-    only PR, run 013, assert each ``(pr_repo, pr_number)`` appears
-    exactly once in ``pr`` with the correct origin flags. Six cases:
+    only PR, then run the full migration chain (013 folds them into
+    ``pr``; 014 removes the inbox and drops the inbox-only rows). Six
+    seeded cases:
 
-    1. bookmark-only with notes
-    2. inbox-only
-    3. inbox_archived shadowing an inbox row
-    4. bookmark + inbox overlap (both flags set on one row)
-    5. worktree + bookmark overlap (worktree FK gets a parent)
-    6. authored_pr_notes-only
+    1. bookmark-only with notes              → survives
+    2. inbox-only                            → dropped by 014
+    3. inbox_archived shadowing an inbox row → dropped by 014
+    4. bookmark + (former inbox) overlap     → survives (bookmarked)
+    5. worktree + bookmark overlap           → survives
+    6. authored_pr_notes-only                → survives (has notes)
 
     Also asserts the rebuilt schema: pr_author_login column gone from
-    worktree, four legacy tables absent from sqlite_master, pr_state
-    rekeyed.
+    worktree, four legacy tables absent from sqlite_master, the
+    inbox/archive columns gone from pr, and pr_state rekeyed.
     """
     conn = _apply_through_012(db_path)
     try:
@@ -764,28 +765,35 @@ def test_migration_013_folds_every_legacy_table_into_pr(
 
     conn = db.open_db(db_path)
     try:
-        # Every (pr_repo, pr_number) appears exactly once in pr.
+        # The surviving rows appear exactly once in pr; the inbox-only
+        # PRs (2, 3) were dropped by 014.
         rows = list(conn.execute(
-            "SELECT pr_repo, pr_number, is_bookmarked, is_inbox, "
-            "       is_archived, notes, author_login "
+            "SELECT pr_repo, pr_number, is_bookmarked, notes, author_login "
             "FROM pr ORDER BY pr_number"
         ))
         # PR 1 — bookmark-only
-        assert rows[0] == ("o/r", 1, 1, 0, 0, "bookmark-notes", "alice")
-        # PR 2 — inbox-only
-        assert rows[1] == ("o/r", 2, 0, 1, 0, None, "bob")
-        # PR 3 — inbox + archived
-        assert rows[2] == ("o/r", 3, 0, 1, 1, None, "bob")
-        # PR 4 — bookmark + inbox; bookmark notes win
-        assert rows[3] == ("o/r", 4, 1, 1, 0, "bookmark-notes-win", "carol")
+        assert rows[0] == ("o/r", 1, 1, "bookmark-notes", "alice")
+        # PR 4 — bookmark + (former inbox); bookmark notes win
+        assert rows[1] == ("o/r", 4, 1, "bookmark-notes-win", "carol")
         # PR 5 — bookmark + worktree-attached
-        assert rows[4] == ("o/r", 5, 1, 0, 0, None, "dan")
-        # PR 6 — authored-only (no origin flag, notes only)
-        assert rows[5] == ("o/r", 6, 0, 0, 0, "authored-only", None)
-        # PR 7 — worktree-only (no origin flag, no notes)
-        assert rows[6] == ("o/r", 7, 0, 0, 0, None, "eve")
+        assert rows[2] == ("o/r", 5, 1, None, "dan")
+        # PR 6 — authored-only (notes only)
+        assert rows[3] == ("o/r", 6, 0, "authored-only", None)
+        # PR 7 — worktree-only
+        assert rows[4] == ("o/r", 7, 0, None, "eve")
+        # PR 2 / PR 3 were inbox-only (no bookmark / notes / worktree).
+        present = {(r[0], r[1]) for r in rows}
+        assert ("o/r", 2) not in present
+        assert ("o/r", 3) not in present
 
-        # pr_state rekeyed to (pr_repo, pr_number).
+        # The inbox/archive columns are gone from pr.
+        pr_cols = {r[1] for r in conn.execute("PRAGMA table_info(pr)")}
+        assert "is_inbox" not in pr_cols
+        assert "is_archived" not in pr_cols
+        assert "inbox_sources" not in pr_cols
+
+        # pr_state rekeyed to (pr_repo, pr_number). PR 5 survived 014,
+        # so its rekeyed state row survives too.
         ps = conn.execute(
             "SELECT pr_repo, pr_number, headline FROM pr_state"
         ).fetchall()

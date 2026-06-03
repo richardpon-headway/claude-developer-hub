@@ -2,14 +2,14 @@
 
 Two helpers cover every existing test's needs:
 
-- ``write_minimal_config`` — empty ``repos`` list + optional inbox/teams,
-  iTerm2 frame block.
+- ``write_minimal_config`` — empty ``repos`` list + optional iTerm2
+  frame block.
 - ``write_repo_config`` — one configured repo (the most common
   end-to-end test shape: create / discover / sync against a real repo
   path on disk).
 
 Callers pass ``dev_root=None`` to skip writing the ``development_root``
-key. Test files that don't need a dev_root (pure-unit inbox tests) do.
+key.
 """
 from __future__ import annotations
 
@@ -27,7 +27,6 @@ def write_minimal_config(
     config_path: Path,
     dev_root: Path | None = None,
     *,
-    teams: list[str] | None = None,
     iterm2: dict[str, Any] | None | bool = False,
     repos: list[dict] | None = None,
 ) -> None:
@@ -48,8 +47,6 @@ def write_minimal_config(
         cfg["iterm2"] = dict(_DEFAULT_ITERM2_BLOCK)
     elif isinstance(iterm2, dict):
         cfg["iterm2"] = dict(iterm2)
-    if teams is not None:
-        cfg["inbox"] = {"teams": teams}
     config_path.write_text(yaml.safe_dump(cfg))
 
 
@@ -66,9 +63,7 @@ def write_repo_config(
     github_repo: str | None = None,
 ) -> None:
     """Write a config YAML with one configured repo entry. Pass
-    ``dev_root=None`` to omit the ``development_root`` key entirely
-    (matches tests that exercise inbox endpoints without a configured
-    dev_root)."""
+    ``dev_root=None`` to omit the ``development_root`` key entirely."""
     entry: dict[str, Any] = {
         "name": name,
         "path": str(repo_path),

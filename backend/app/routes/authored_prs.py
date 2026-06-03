@@ -1,14 +1,14 @@
 """Authored-PR HTTP endpoints.
 
 The "My PRs (no worktree)" tier on the hub: PRs the user authored
-that are still open and don't already have a local worktree / inbox
-row / bookmark. Read from the unified ``pr`` table with
+that are still open and don't already have a local worktree or
+bookmark. Read from the unified ``pr`` table with
 ``author_login=@me``; discovery is :mod:`app.services.authored_poll`'s
 job.
 
 - ``GET /api/authored-prs`` — list rows (with attached notes).
 - ``POST /api/authored-prs/{pr_repo}/{pr_number}/pull-down`` —
-  delegates to the inbox route's ``_perform_pull_down`` with the
+  delegates to the shared ``perform_pull_down`` engine with the
   resolved ``@me`` login set as the worktree's author. No 404 guard
   against URL guessing — localhost-only and the configured-repo
   check still gates which repos can be pulled down.
@@ -30,9 +30,10 @@ from app.models.pr import PrCiStatus
 from app.models.worktree import now_iso
 from app.services import pr_db
 from app.services.gh_identity import get_user_login
-from app.services.inbox_search import (
+from app.services.pr_search import extract_ticket
+from app.services.pull_down import PullDownResponse, perform_pull_down
+from app.services.repos_index import (
     configured_repos_index,
-    extract_ticket,
     is_repo_configured,
 )
 
@@ -41,7 +42,7 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["authored_prs"])
 
 
-# Soft cap matching the other notes endpoints (inbox + bookmark + worktree).
+# Soft cap matching the other notes endpoints (bookmark + worktree).
 _NOTES_MAX_LENGTH = 10_000
 
 
@@ -90,7 +91,6 @@ async def _list_authored() -> list[AuthoredPr]:
         author_login=local_login,
         state="open",
         is_bookmarked=False,
-        is_inbox=False,
         has_worktree=False,
         order_by="pr.pr_updated_at DESC",
     )
@@ -114,11 +114,6 @@ async def _list_authored() -> list[AuthoredPr]:
     return out
 
 
-# Pull-down for authored-PR rows. Imported lazily to avoid pulling in
-# the inbox route's transitive deps at module load.
-from app.routes.inbox import PullDownResponse, _perform_pull_down  # noqa: E402
-
-
 @router.post(
     "/authored-prs/{pr_repo:path}/{pr_number}/pull-down",
     response_model=PullDownResponse,
@@ -130,7 +125,7 @@ async def pull_down_authored(pr_repo: str, pr_number: int) -> PullDownResponse:
     None when ``gh`` is unauthed; the pr_state poll backfills the
     column later in that case."""
     user_login = await get_user_login()
-    return await _perform_pull_down(
+    return await perform_pull_down(
         pr_repo, pr_number, author_login=user_login
     )
 
