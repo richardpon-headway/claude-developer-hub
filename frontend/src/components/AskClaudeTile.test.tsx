@@ -24,7 +24,6 @@ function renderTile() {
 
 beforeEach(() => {
   vi.mocked(configApi.runGlobalFreeform).mockReset();
-  vi.mocked(configApi.openGlobalClaude).mockReset();
 });
 
 afterEach(() => {
@@ -96,20 +95,6 @@ describe("AskClaudeTile", () => {
 
     await waitFor(() => {
       expect(configApi.runGlobalFreeform).toHaveBeenCalledWith("hi");
-    });
-  });
-
-  test("Open Claude button fires the blank-session api (no prompt needed)", async () => {
-    vi.mocked(configApi.openGlobalClaude).mockResolvedValue({ spawned: true });
-
-    renderTile();
-    const btn = screen.getByRole("button", { name: /^open claude$/i });
-    // Enabled even with an empty freeform input — it takes no prompt.
-    expect(btn).toBeEnabled();
-    fireEvent.click(btn);
-
-    await waitFor(() => {
-      expect(configApi.openGlobalClaude).toHaveBeenCalledTimes(1);
     });
   });
 });
