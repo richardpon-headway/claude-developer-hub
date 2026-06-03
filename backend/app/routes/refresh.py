@@ -15,7 +15,6 @@ from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from app.routes.authored_prs import AuthoredPrListResponse, list_authored_prs
 from app.services import authored_poll, pr_enrichment_poll
 
 router = APIRouter(prefix="/api", tags=["refresh"])
@@ -25,11 +24,16 @@ class RefreshEnrichmentResponse(BaseModel):
     refreshed: int
 
 
-@router.post("/refresh-authored", response_model=AuthoredPrListResponse)
-async def refresh_authored() -> AuthoredPrListResponse:
-    """Force an immediate authored-poll tick + return the post-tick list."""
+class RefreshOkResponse(BaseModel):
+    ok: bool = True
+
+
+@router.post("/refresh-authored", response_model=RefreshOkResponse)
+async def refresh_authored() -> RefreshOkResponse:
+    """Force an immediate authored-poll tick. The refreshed rows surface
+    via the unified ``GET /api/workspaces`` list."""
     await authored_poll._tick()
-    return await list_authored_prs()
+    return RefreshOkResponse()
 
 
 @router.post("/refresh-enrichment", response_model=RefreshEnrichmentResponse)

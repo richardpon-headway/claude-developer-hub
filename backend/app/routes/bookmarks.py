@@ -77,10 +77,6 @@ class BookmarkPr(BaseModel):
     last_refreshed_at: str
 
 
-class BookmarkListResponse(BaseModel):
-    bookmarks: list[BookmarkPr]
-
-
 def _payload_from_row(pr: PrRow) -> BookmarkPr:
     # last_refreshed_at fallback: pr_state.checked_at (set by the
     # enrichment poll) → pr.last_refreshed_at (set by the gh-pr-view
@@ -103,21 +99,6 @@ def _payload_from_row(pr: PrRow) -> BookmarkPr:
         bookmarked_at=pr.bookmarked_at or "",
         last_refreshed_at=last_refreshed_at,
     )
-
-
-# ---------------------------------------------------------------------
-# List
-# ---------------------------------------------------------------------
-
-
-@router.get("/bookmarks", response_model=BookmarkListResponse)
-async def list_bookmarks() -> BookmarkListResponse:
-    rows = await asyncio.to_thread(
-        pr_db.list_pr_sync,
-        is_bookmarked=True,
-        order_by="pr.bookmarked_at DESC",
-    )
-    return BookmarkListResponse(bookmarks=[_payload_from_row(r) for r in rows])
 
 
 # ---------------------------------------------------------------------

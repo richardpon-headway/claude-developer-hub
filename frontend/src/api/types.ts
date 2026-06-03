@@ -265,26 +265,6 @@ export interface PrUrlResponse {
 
 export type CiStatus = "pass" | "fail" | "pending" | "none";
 
-export interface AuthoredPr {
-  pr_repo: string;
-  pr_number: number;
-  title: string;
-  url: string;
-  is_draft: boolean;
-  ci_status: CiStatus;
-  ticket: string | null;
-  pr_updated_at: string;
-  repo_configured: boolean;
-  // Free-form notes from the `authored_pr_notes` table. Null when
-  // none have been written. Survive across polls; migrate into the
-  // destination surface's notes column on Bookmark / Pull-down.
-  notes: string | null;
-}
-
-export interface AuthoredPrListResponse {
-  authored_prs: AuthoredPr[];
-}
-
 export type BookmarkState = "open" | "closed" | "merged";
 
 export interface BookmarkPr {
@@ -298,10 +278,6 @@ export interface BookmarkPr {
   ticket: string | null;
   bookmarked_at: string;
   last_refreshed_at: string;
-}
-
-export interface BookmarkListResponse {
-  bookmarks: BookmarkPr[];
 }
 
 export interface GlobalSkillResponse {

@@ -1,8 +1,4 @@
-import { apiGet, apiPost, apiPut } from "./client";
-import type { AuthoredPrListResponse } from "./types";
-
-export const listAuthoredPrs = () =>
-  apiGet<AuthoredPrListResponse>("/api/authored-prs");
+import { apiPost, apiPut } from "./client";
 
 export interface PullDownResponse {
   repo: string;
