@@ -1,0 +1,25 @@
+backend/tests/test_worktrees.py
+  s_94262f7ce50755::t_4fdb78425e2574 612-659
+  s_94262f7ce50755::t_51cd27232489cd 5
+backend/app/routes/worktrees.py
+  s_94262f7ce50755::t_10a085d5d1ff79 128-139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4a7611c6097e2dc1b97c1d422aebe354cebdc790",
+  "prompts": {},
+  "sessions": {
+    "s_94262f7ce50755": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "413944e2-a824-4da0-b943-972553c5cb34",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
