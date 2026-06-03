@@ -1,5 +1,6 @@
 import type { JiraConfig, PrHeadline, Worktree } from "../api/types";
-import { PrCard, useBookmarkedKeys } from "./PrCard";
+import { useBookmarkedKeys } from "../api/useBookmarkedKeys";
+import { PrCard } from "./PrCard";
 
 interface Props {
   worktrees: Worktree[];

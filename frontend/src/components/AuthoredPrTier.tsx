@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 
 import { listAuthoredPrs } from "../api/authored";
 import type { AuthoredPr, JiraConfig } from "../api/types";
-import { PrCard, useBookmarkedKeys } from "./PrCard";
+import { useBookmarkedKeys } from "../api/useBookmarkedKeys";
+import { PrCard } from "./PrCard";
 
 interface Props {
   jira: JiraConfig | null;
