@@ -1,0 +1,29 @@
+frontend/src/components/AskClaudeTile.tsx
+  s_7a2e752bde9218::t_d68ee469321300 5
+frontend/src/components/OpenClaudeTile.tsx
+  s_7a2e752bde9218::t_4cd470cd4010a2 1-51
+frontend/src/routes/index.tsx
+  s_7a2e752bde9218::t_248a242b36c073 176
+  s_7a2e752bde9218::t_fb7cd371fd4667 14
+frontend/src/components/OpenClaudeTile.test.tsx
+  s_7a2e752bde9218::t_6ff8575de914f2 1-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d87c29e1fdfc78cc9221734e3db7ca58286fa24d",
+  "prompts": {},
+  "sessions": {
+    "s_7a2e752bde9218": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "68181310-f037-41c3-bc2b-b3adb29a658a",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
