@@ -1,0 +1,22 @@
+frontend/src/components/AskClaudeTile.tsx
+  s_7a2e752bde9218::t_3819fe740e9e81 92,103-107
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9a64cba47c41ecd63fe2929f1f965b39ea35b33b",
+  "prompts": {},
+  "sessions": {
+    "s_7a2e752bde9218": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "68181310-f037-41c3-bc2b-b3adb29a658a",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
