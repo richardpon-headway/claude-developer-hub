@@ -152,6 +152,44 @@ export interface ListWorktreesResponse {
   user_login: string | null;
 }
 
+// --- unified workspaces (GET /api/workspaces) --------------------------
+
+// The local-checkout facet of a workspace; absent on a non-local
+// entity (a bookmarked or authored PR not yet pulled down).
+export interface WorktreeBrief {
+  repo: string;
+  name: string;
+  path: string;
+  branch: string;
+  status: WorktreeStatus;
+  has_claude_session: boolean;
+}
+
+// One workspace on the unified hub. The bucket (My Work vs Reviewing)
+// is derived from `author_login` vs `user_login`; the lifecycle tier
+// from `pr_state` (falling back to the `state`/`ci_status`/`is_draft`
+// scalars before the enrichment poll runs).
+export interface WorkspaceEntity {
+  pr_repo: string | null;
+  pr_number: number | null;
+  title: string;
+  url: string;
+  author_login: string | null;
+  is_bookmarked: boolean;
+  state: BookmarkState | null;
+  ci_status: CiStatus | null;
+  is_draft: boolean;
+  ticket: string | null;
+  notes: string | null;
+  worktree: WorktreeBrief | null;
+  pr_state: PrStateSummary | null;
+}
+
+export interface GetWorkspacesResponse {
+  user_login: string | null;
+  workspaces: WorkspaceEntity[];
+}
+
 export interface WorktreeDetail {
   row: Worktree;
   log: string[];
