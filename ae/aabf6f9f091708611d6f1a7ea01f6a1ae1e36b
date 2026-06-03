@@ -1,0 +1,30 @@
+frontend/src/api/authored.ts
+  s_94262f7ce50755::t_4b661b6569cd70 1
+frontend/src/api/bookmarks.ts
+  s_94262f7ce50755::t_efcb3951b7f56f 1-2
+backend/tests/test_api_compat.py
+  s_94262f7ce50755::t_2f010392bb9f85 1,3-5,8-10,28-29
+backend/app/routes/refresh.py
+  s_94262f7ce50755::t_34a13eaed700e2 27-34,36
+backend/app/routes/authored_prs.py
+  s_94262f7ce50755::t_f9ec32898050a2 3-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "aeaabf6f9f091708611d6f1a7ea01f6a1ae1e36b",
+  "prompts": {},
+  "sessions": {
+    "s_94262f7ce50755": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "413944e2-a824-4da0-b943-972553c5cb34",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
