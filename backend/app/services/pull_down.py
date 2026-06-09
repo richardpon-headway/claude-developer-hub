@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from app.config.loader import load_config
 from app.models.pr import PrRow
+from app.models.worktree import extract_ticket
 from app.services import pr_db
 from app.services import worktree as wt_svc
 from app.services.gh_cli import GhFailed, GhNotFound, run_gh_json
@@ -117,7 +118,7 @@ async def perform_pull_down(
                 "--repo",
                 pr_repo,
                 "--json",
-                "headRefName,isCrossRepository",
+                "headRefName,isCrossRepository,title,body,commits",
             ],
             swallow_errors=False,
         )
@@ -143,6 +144,26 @@ async def perform_pull_down(
         )
     is_fork = bool(data.get("isCrossRepository"))
 
+    # Resolve the worktree's ticket with branch → title → body → commits
+    # precedence (first match wins). The branch comes first so a PR whose
+    # branch already carries the ticket behaves exactly as before; the PR
+    # metadata only fills in when the branch has none. Commit messages are
+    # the weakest signal (merge/"wip" noise), so they're scanned last and
+    # only when nothing earlier matched. ``title``/``body`` may be absent
+    # or null from gh, and ``extract_ticket`` does ``re.search`` (raises on
+    # None), so coerce to "".
+    commit_text = "\n".join(
+        f"{c.get('messageHeadline', '')}\n{c.get('messageBody', '')}"
+        for c in (data.get("commits") or [])
+        if isinstance(c, dict)
+    )
+    resolved_ticket = (
+        extract_ticket(head_ref, repo.ticket_pattern)
+        or extract_ticket(data.get("title") or "", repo.ticket_pattern)
+        or extract_ticket(data.get("body") or "", repo.ticket_pattern)
+        or extract_ticket(commit_text, repo.ticket_pattern)
+    )
+
     if is_fork:
         branch_to_check_out = _local_branch_for_fork_pr(pr_number, head_ref)
         await _fetch_pr_ref(repo_path, pr_number, branch_to_check_out)
@@ -153,7 +174,9 @@ async def perform_pull_down(
         branch_to_check_out = head_ref
 
     try:
-        worktree = await wt_svc.create_worktree(repo.name, branch_to_check_out)
+        worktree = await wt_svc.create_worktree(
+            repo.name, branch_to_check_out, ticket_override=resolved_ticket
+        )
     except wt_svc.WorktreeCreationError as e:
         msg = str(e)
         code = (
