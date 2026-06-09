@@ -128,6 +128,7 @@ def derive_worktree_name(
     branch: str,
     branch_prefix: str = "",
     ticket_pattern: str | None = None,
+    ticket: str | None = None,
 ) -> str:
     """Derive a filesystem-friendly worktree short-name from a branch.
 
@@ -135,32 +136,47 @@ def derive_worktree_name(
     1. Strip ``branch_prefix`` if it matches the start of the branch.
     2. Replace ``-`` with ``_`` everywhere EXCEPT inside the segment that
        matches ``ticket_pattern`` (so ``TICKET-123`` survives intact).
+    3. If ``ticket`` is supplied and the derived name doesn't already
+       contain it, prepend ``<ticket>_``. This is how a ticket inferred
+       from PR metadata (title/body/commits) lands in the folder name
+       when the branch itself carried no ticket — making that case match
+       the in-branch case. When the ticket is already in the branch the
+       membership check makes this a no-op (no double-prefix).
 
     Examples (with ``branch_prefix="alice/"``, ``ticket_pattern=r"[A-Z]+-\\d+"``):
 
       ``alice/TICKET-77_login-flow-fix`` → ``TICKET-77_login_flow_fix``
       ``alice/cleanup-old-foo``          → ``cleanup_old_foo``
       ``main``                           → ``main``
+
+      with ``ticket="COR-272"``:
+      ``pci-recoup-statuses``            → ``COR-272_pci_recoup_statuses``
     """
     short = branch
     if branch_prefix and short.startswith(branch_prefix):
         short = short[len(branch_prefix):]
 
     if not ticket_pattern:
-        return short.replace("-", "_")
+        derived = short.replace("-", "_")
+    else:
+        pattern = re.compile(ticket_pattern)
+        # Find the first ticket-pattern match in the short-name. Anything
+        # outside that match gets the hyphen-to-underscore treatment; the
+        # match itself passes through unchanged.
+        m = pattern.search(short)
+        if m is None:
+            derived = short.replace("-", "_")
+        else:
+            head = short[: m.start()].replace("-", "_")
+            middle = short[m.start() : m.end()]
+            tail = short[m.end() :].replace("-", "_")
+            derived = head + middle + tail
 
-    pattern = re.compile(ticket_pattern)
-    # Find the first ticket-pattern match in the short-name. Anything outside
-    # that match gets the hyphen-to-underscore treatment; the match itself
-    # passes through unchanged.
-    m = pattern.search(short)
-    if m is None:
-        return short.replace("-", "_")
-
-    head = short[: m.start()].replace("-", "_")
-    middle = short[m.start() : m.end()]
-    tail = short[m.end() :].replace("-", "_")
-    return head + middle + tail
+    if ticket and ticket not in derived:
+        # The ticket keeps its own internal hyphen (e.g. the ``-`` in
+        # ``COR-272``); only the branch-derived tail gets underscored.
+        return f"{ticket}_{derived}"
+    return derived
 
 
 def now_iso() -> str:

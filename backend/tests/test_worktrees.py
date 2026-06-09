@@ -51,6 +51,45 @@ def test_derive_worktree_name_preserves_ticket() -> None:
     assert out == "TICKET-77_login_flow_fix"
 
 
+def test_derive_worktree_name_prepends_inferred_ticket() -> None:
+    """A ticket inferred from PR metadata (not in the branch) is
+    prepended so the folder name matches the in-branch case."""
+    out = derive_worktree_name(
+        "pci-recoup-lifecycle-statuses",
+        ticket_pattern=r"[A-Z]+-\d+",
+        ticket="COR-272",
+    )
+    assert out == "COR-272_pci_recoup_lifecycle_statuses"
+
+
+def test_derive_worktree_name_no_double_prefix_when_ticket_in_branch() -> None:
+    """When the ticket already lives in the branch, passing the same
+    ticket is a no-op — no double-prefix."""
+    out = derive_worktree_name(
+        "alice/TICKET-77_login-flow-fix",
+        branch_prefix="alice/",
+        ticket_pattern=r"[A-Z]+-\d+",
+        ticket="TICKET-77",
+    )
+    assert out == "TICKET-77_login_flow_fix"
+
+
+def test_derive_worktree_name_ticket_none_matches_no_ticket() -> None:
+    """``ticket=None`` reproduces the no-ticket signature exactly."""
+    assert (
+        derive_worktree_name("cleanup-old-foo", ticket=None)
+        == derive_worktree_name("cleanup-old-foo")
+        == "cleanup_old_foo"
+    )
+
+
+def test_derive_worktree_name_prepended_ticket_keeps_internal_hyphen() -> None:
+    """The prepended ticket keeps its own hyphen while the tail is
+    underscored."""
+    out = derive_worktree_name("some-branch", ticket="COR-272")
+    assert out == "COR-272_some_branch"
+
+
 def test_extract_ticket() -> None:
     assert extract_ticket("alice/PROJ-12_x", r"[A-Z]+-\d+") == "PROJ-12"
     assert extract_ticket("alice/foo", r"[A-Z]+-\d+") is None
@@ -102,6 +141,202 @@ def test_create_happy_path(_isolate: dict[str, Path]) -> None:
     detail = r.json()
     assert detail["row"]["status"] == "ready"
     assert any("setup-ran" in line for line in detail["log"])
+
+
+def test_create_worktree_ticket_override(_isolate: dict[str, Path]) -> None:
+    """An explicit ``ticket_override`` (a ticket inferred from PR
+    metadata) drives both the folder name and the stored ticket, even
+    when the branch itself carries no ticket."""
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    write_repo_config(
+        _isolate["config_path"],
+        _isolate["dev_root"],
+        repo_path,
+        ticket_pattern=r"[A-Z]+-\d+",
+    )
+
+    row = asyncio.run(
+        wt_svc.create_and_wait("myapp", "feature", ticket_override="COR-9")
+    )
+    assert row.status == "ready"
+    assert row.name == "COR-9_feature"
+    assert row.ticket == "COR-9"
+    assert row.branch == "feature"
+
+
+def test_create_worktree_no_override_is_branch_only(
+    _isolate: dict[str, Path],
+) -> None:
+    """With no override the ticket/name come from the branch alone —
+    behavior unchanged from before."""
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    write_repo_config(
+        _isolate["config_path"],
+        _isolate["dev_root"],
+        repo_path,
+        ticket_pattern=r"[A-Z]+-\d+",
+    )
+
+    row = asyncio.run(wt_svc.create_and_wait("myapp", "feature"))
+    assert row.name == "feature"
+    assert row.ticket is None
+
+
+# --- pull-down ticket inference (branch → title → body → commits) --------
+
+
+def _run_pull_down(
+    _isolate: dict[str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    gh_payload: dict,
+) -> wt_svc.WorktreeRow:
+    """Drive ``perform_pull_down`` against an isolated repo with a
+    stubbed ``gh pr view`` payload, then return the resulting worktree
+    row. The repo has a ticket-less ``feature`` branch so the ticket can
+    only come from the stubbed PR metadata."""
+    from app.services import pull_down
+
+    repo_path = _isolate["dev_root"] / "myapp"
+    _init_git_repo(repo_path)
+    write_repo_config(
+        _isolate["config_path"],
+        _isolate["dev_root"],
+        repo_path,
+        name="myapp",
+        github_repo="acme/myapp",
+        ticket_pattern=r"[A-Z]+-\d+",
+    )
+
+    async def fake_run_gh_json(args: list, **kwargs: object) -> dict:
+        return gh_payload
+
+    monkeypatch.setattr(pull_down, "run_gh_json", fake_run_gh_json)
+
+    async def _drive() -> None:
+        await pull_down.perform_pull_down("acme/myapp", 42)
+        await wt_svc.wait_for_setup_complete()
+
+    asyncio.run(_drive())
+    rows = wt_svc.list_worktrees_sync()
+    assert len(rows) == 1
+    return rows[0]
+
+
+def test_pull_down_ticket_from_title(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    row = _run_pull_down(
+        _isolate,
+        monkeypatch,
+        {
+            "headRefName": "feature",
+            "isCrossRepository": False,
+            "title": "[COR-272] Add remediation statuses",
+            "body": "no ticket here",
+            "commits": [],
+        },
+    )
+    assert row.ticket == "COR-272"
+    assert row.name == "COR-272_feature"
+
+
+def test_pull_down_ticket_from_body_when_title_clean(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    row = _run_pull_down(
+        _isolate,
+        monkeypatch,
+        {
+            "headRefName": "feature",
+            "isCrossRepository": False,
+            "title": "Add remediation statuses",
+            "body": "Implements COR-272 per the spec.",
+            "commits": [],
+        },
+    )
+    assert row.ticket == "COR-272"
+    assert row.name == "COR-272_feature"
+
+
+def test_pull_down_ticket_from_commits_last_resort(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    row = _run_pull_down(
+        _isolate,
+        monkeypatch,
+        {
+            "headRefName": "feature",
+            "isCrossRepository": False,
+            "title": "Add remediation statuses",
+            "body": "no ticket",
+            "commits": [
+                {"messageHeadline": "wip", "messageBody": ""},
+                {"messageHeadline": "COR-272 finalize", "messageBody": "details"},
+            ],
+        },
+    )
+    assert row.ticket == "COR-272"
+    assert row.name == "COR-272_feature"
+
+
+def test_pull_down_no_ticket_anywhere(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    row = _run_pull_down(
+        _isolate,
+        monkeypatch,
+        {
+            "headRefName": "feature",
+            "isCrossRepository": False,
+            "title": "Add remediation statuses",
+            "body": "nothing here",
+            "commits": [{"messageHeadline": "wip", "messageBody": ""}],
+        },
+    )
+    assert row.ticket is None
+    assert row.name == "feature"
+
+
+def test_pull_down_branch_ticket_wins_over_metadata(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ticket in the branch takes precedence and the folder name is
+    branch-derived (no metadata override, no double-prefix)."""
+    repo_path = _isolate["dev_root"] / "myapp"
+    init_git_repo(repo_path, branches=["COR-100-fix"])
+    write_repo_config(
+        _isolate["config_path"],
+        _isolate["dev_root"],
+        repo_path,
+        name="myapp",
+        github_repo="acme/myapp",
+        ticket_pattern=r"[A-Z]+-\d+",
+    )
+
+    from app.services import pull_down
+
+    async def fake_run_gh_json(args: list, **kwargs: object) -> dict:
+        return {
+            "headRefName": "COR-100-fix",
+            "isCrossRepository": False,
+            "title": "[COR-272] different ticket in title",
+            "body": "",
+            "commits": [],
+        }
+
+    monkeypatch.setattr(pull_down, "run_gh_json", fake_run_gh_json)
+
+    async def _drive() -> None:
+        await pull_down.perform_pull_down("acme/myapp", 42)
+        await wt_svc.wait_for_setup_complete()
+
+    asyncio.run(_drive())
+    rows = wt_svc.list_worktrees_sync()
+    assert len(rows) == 1
+    assert rows[0].ticket == "COR-100"
+    assert rows[0].name == "COR-100_fix"
 
 
 def test_create_returns_existing_row_on_duplicate(

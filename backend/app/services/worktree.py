@@ -575,7 +575,11 @@ def _spawn_setup_task(
 
 
 async def create_worktree(
-    repo_name: str, branch: str, db_path: Path | None = None
+    repo_name: str,
+    branch: str,
+    db_path: Path | None = None,
+    *,
+    ticket_override: str | None = None,
 ) -> WorktreeRow:
     """Create a worktree end-to-end, idempotently. Returns AS SOON AS
     the row is inserted (status ``setting_up``); the rest of setup —
@@ -613,13 +617,19 @@ async def create_worktree(
     a clean 4xx and no orphan rows.
     """
     repo = _resolve_repo(repo_name)
-    short_name = derive_worktree_name(branch, repo.branch_prefix, repo.ticket_pattern)
+    # ``ticket_override`` (a ticket inferred from PR title/body/commits at
+    # pull-down time) wins over the branch's own ticket; with no override
+    # this collapses to the branch extract and behavior is unchanged.
+    resolved_ticket = ticket_override or extract_ticket(branch, repo.ticket_pattern)
+    short_name = derive_worktree_name(
+        branch, repo.branch_prefix, repo.ticket_pattern, ticket=resolved_ticket
+    )
     target = _resolve_target_path(repo, short_name)
     key = (repo.name, short_name)
 
     async with _create_lock:
         return await _check_or_insert_then_spawn(
-            repo, branch, short_name, target, key, db_path
+            repo, branch, short_name, target, key, db_path, resolved_ticket
         )
 
 
@@ -630,6 +640,7 @@ async def _check_or_insert_then_spawn(
     target: Path,
     key: tuple[str, str],
     db_path: Path | None,
+    resolved_ticket: str | None,
 ) -> WorktreeRow:
     """Inner body of ``create_worktree``, held under ``_create_lock``.
 
@@ -679,7 +690,7 @@ async def _check_or_insert_then_spawn(
             name=short_name,
             path=str(target),
             branch=branch,
-            ticket=extract_ticket(branch, repo.ticket_pattern),
+            ticket=resolved_ticket,
             pr_number=None,
             pr_repo=None,
             created_at=now_iso(),
@@ -716,13 +727,19 @@ async def wait_for_setup_complete(
 
 
 async def create_and_wait(
-    repo_name: str, branch: str, db_path: Path | None = None
+    repo_name: str,
+    branch: str,
+    db_path: Path | None = None,
+    *,
+    ticket_override: str | None = None,
 ) -> WorktreeRow:
     """Spawn ``create_worktree`` and wait for setup to finish, then
     return the terminal-status row. Test-only convenience that mirrors
     the pre-plan-67 synchronous return contract of ``create_worktree``.
     """
-    row = await create_worktree(repo_name, branch, db_path)
+    row = await create_worktree(
+        repo_name, branch, db_path, ticket_override=ticket_override
+    )
     await wait_for_setup_complete(row.repo, row.name)
     final = await asyncio.to_thread(
         get_worktree_sync, row.repo, row.name, db_path
