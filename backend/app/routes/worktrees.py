@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from app.config.loader import load_config
 from app.models.worktree import PrStateSummary, WorktreeRow
-from app.services import git_cli, terminal
+from app.services import authored_poll, git_cli, pr_enrichment_poll, terminal
 from app.services import worktree as svc
 from app.services.gh_cli import GhFailed, GhNotFound, run_gh_json
 from app.services.iterm_spawn import (
@@ -821,19 +821,54 @@ class SyncResponse(BaseModel):
     imported: list[ImportedWorktree]
     removed: list[RemovedWorktree]
     skipped: list[SkippedWorktree]
+    # Count of ``pr`` rows the enrichment pass re-classified as part of
+    # this sync. 0 when that step was skipped (e.g. ``gh`` missing).
+    refreshed: int = 0
 
 
 @router.post("/worktrees/sync", response_model=SyncResponse)
 async def sync_worktrees() -> SyncResponse:
-    """Reconcile every configured repo's worktree list with the DB:
-    insert rows for new worktrees git knows about, drop rows whose
-    path is no longer in ``git worktree list``. Per-repo failures
-    appear in ``skipped[]`` (e.g. ``repo path missing``) rather than
-    aborting the request, so one broken repo doesn't block reconcile
-    for the others.
+    """Full hub refresh, run in dependency order so one click leaves
+    nothing stale:
+
+    1. **Discover** newly-opened authored PRs (``gh search``) so they
+       exist as ``pr`` rows before anything classifies them.
+    2. **Reconcile** every configured repo's worktree list with the DB:
+       insert rows for new worktrees git knows about (linking their
+       PRs), drop rows whose path is no longer in ``git worktree
+       list``. Per-repo failures land in ``skipped[]`` rather than
+       aborting, so one broken repo doesn't block the others.
+    3. **Enrich** every ``pr`` row — including the ones steps 1 & 2 just
+       added — so a merged/closed PR stops rendering as the
+       pre-enrichment ``open`` / ``No PR yet`` placeholder.
+
+    Steps 1 and 3 are fail-soft: a ``gh`` outage is logged and skipped
+    so the worktree reconcile (this endpoint's original contract) still
+    returns its result. Only the background iTerm2 supervisor is left
+    untouched — it manages a live connection, not workspace data.
     """
+    # 1. Discover authored PRs.
+    try:
+        await authored_poll._tick()
+    except Exception as e:
+        log.warning("sync: authored discovery failed: %s; continuing", e)
+
+    # 2. Reconcile worktrees against `git worktree list`.
     result = await asyncio.to_thread(sync_all_sync)
-    return SyncResponse(**result)
+
+    # 3. Enrich every pr row (post discovery + reconcile). Count the
+    #    rows visited so the UI can report "re-checked N PRs".
+    refreshed = 0
+    try:
+        targets = await asyncio.to_thread(
+            pr_enrichment_poll._list_enrichment_targets_sync
+        )
+        await pr_enrichment_poll._tick()
+        refreshed = len(targets)
+    except Exception as e:
+        log.warning("sync: PR enrichment failed: %s; continuing", e)
+
+    return SyncResponse(refreshed=refreshed, **result)
 
 
 @router.get("/worktree/{repo}/{name}", response_model=WorktreeDetail)
