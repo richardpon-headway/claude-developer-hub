@@ -59,7 +59,7 @@ export function HubPage() {
         <div className="space-y-8">
           {repos.length > 0 && (
             <div className="flex justify-end">
-              <Tooltip text="Reconcile workspaces with `git worktree list` — import new ones, drop removed ones.">
+              <Tooltip text="Refresh everything: discover new authored PRs, reconcile worktrees with `git worktree list`, and re-check every PR's status.">
                 <Button
                   variant="secondary"
                   onClick={() => sync.mutate()}
@@ -74,7 +74,8 @@ export function HubPage() {
             <p className="text-xs text-zinc-500">
               Imported {sync.data.imported.length} · removed{" "}
               {sync.data.removed.length} · skipped{" "}
-              {sync.data.skipped.length}
+              {sync.data.skipped.length} · re-checked{" "}
+              {sync.data.refreshed} PR{sync.data.refreshed === 1 ? "" : "s"}
               {sync.data.skipped.length > 0 && (
                 <>
                   {" "}

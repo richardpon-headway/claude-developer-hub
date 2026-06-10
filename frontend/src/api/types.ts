@@ -257,6 +257,8 @@ export interface SyncResponse {
   imported: ImportedWorktree[];
   removed: RemovedWorktree[];
   skipped: SkippedWorktree[];
+  // PR rows re-classified by the enrichment pass folded into Sync.
+  refreshed: number;
 }
 
 export interface PrUrlResponse {

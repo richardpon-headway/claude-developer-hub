@@ -8,12 +8,30 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services import worktree_import
+from app.services import authored_poll, pr_enrichment_poll, worktree_import
 from app.services.worktree_import import (
     parse_worktree_list_porcelain,
 )
 from tests.fixtures.config import write_minimal_config
 from tests.fixtures.worktree import init_git_repo, make_worktree
+
+
+@pytest.fixture(autouse=True)
+def _stub_pr_refresh_ticks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``POST /api/worktrees/sync`` now also runs authored discovery +
+    PR enrichment (and the lifespan starts those loops). Stub both
+    ticks to no-ops so the reconcile-focused tests in this file stay
+    hermetic and fast — no live ``gh search`` / ``gh pr view`` round
+    trips. The dedicated orchestration test overrides these with its
+    own recording stubs.
+    """
+
+    async def _noop() -> None:
+        return None
+
+    monkeypatch.setattr(authored_poll, "_tick", _noop)
+    monkeypatch.setattr(pr_enrichment_poll, "_tick", _noop)
+
 
 # --- parser --------------------------------------------------------------
 
@@ -287,7 +305,12 @@ def test_sync_noop_when_no_repos(_isolate: dict[str, Path]) -> None:
     with TestClient(app) as client:
         r = client.post("/api/worktrees/sync")
     assert r.status_code == 200
-    assert r.json() == {"imported": [], "removed": [], "skipped": []}
+    assert r.json() == {
+        "imported": [],
+        "removed": [],
+        "skipped": [],
+        "refreshed": 0,
+    }
 
 
 def test_sync_removes_worktree_gone_from_git(_isolate: dict[str, Path]) -> None:
@@ -486,3 +509,68 @@ def test_sync_does_not_remove_worktrees_in_other_repos(
     with TestClient(app) as client:
         rows = client.get("/api/worktrees").json()["worktrees"]
     assert {(r["repo"], r["name"]) for r in rows} == {("a", "feat")}
+
+
+# --- sync folds in discovery + enrichment --------------------------------
+
+
+def test_sync_orchestrates_discovery_reconcile_enrichment(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One Sync click runs authored discovery, then worktree reconcile,
+    then PR enrichment — in that order — and reports the enriched count.
+
+    Uses a bare ``TestClient`` (no ``with``) so the lifespan's own poll
+    loops don't fire and pollute the recorded call order.
+    """
+    calls: list[str] = []
+
+    async def _authored() -> None:
+        calls.append("authored")
+
+    async def _enrich() -> None:
+        calls.append("enrich")
+
+    def _reconcile() -> dict:
+        calls.append("reconcile")
+        return {"imported": [], "removed": [], "skipped": []}
+
+    monkeypatch.setattr(authored_poll, "_tick", _authored)
+    monkeypatch.setattr(pr_enrichment_poll, "_tick", _enrich)
+    monkeypatch.setattr(
+        pr_enrichment_poll,
+        "_list_enrichment_targets_sync",
+        lambda: [("o/r", 1, None), ("o/r", 2, None)],
+    )
+    monkeypatch.setattr("app.routes.worktrees.sync_all_sync", _reconcile)
+
+    client = TestClient(app)
+    r = client.post("/api/worktrees/sync")
+
+    assert r.status_code == 200, r.text
+    assert calls == ["authored", "reconcile", "enrich"]
+    assert r.json()["refreshed"] == 2
+
+
+def test_sync_is_fail_soft_when_pr_refresh_raises(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``gh`` outage in discovery or enrichment must not sink the
+    worktree reconcile — the endpoint still returns its reconcile
+    result with ``refreshed`` defaulting to 0."""
+
+    async def _boom() -> None:
+        raise RuntimeError("gh exploded")
+
+    monkeypatch.setattr(authored_poll, "_tick", _boom)
+    monkeypatch.setattr(pr_enrichment_poll, "_tick", _boom)
+    monkeypatch.setattr(
+        "app.routes.worktrees.sync_all_sync",
+        lambda: {"imported": [], "removed": [], "skipped": []},
+    )
+
+    client = TestClient(app)
+    r = client.post("/api/worktrees/sync")
+
+    assert r.status_code == 200, r.text
+    assert r.json()["refreshed"] == 0
