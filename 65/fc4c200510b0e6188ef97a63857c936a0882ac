@@ -1,0 +1,69 @@
+frontend/src/widgets/todo/TodoWidget.tsx
+  s_6d654e1866ea87::t_82c30a8e7670ea 1-235
+backend/app/main.py
+  s_6d654e1866ea87::t_b1f48ec5e36cef 79-82
+  s_6d654e1866ea87::t_8576b2ce6f457d 33
+backend/tests/test_todo_widget.py
+  s_6d654e1866ea87::t_f995d467bbac32 1,3-41,43-64,66-82,85-136
+  s_6d654e1866ea87::t_01a883a95fc5a3 2,42,65,83-84
+frontend/src/widgets/todo/linkify.tsx
+  s_6d654e1866ea87::t_49570f028550b6 1-54
+frontend/src/routes/index.tsx
+  s_6d654e1866ea87::t_1dcb5116c67304 127
+  s_6d654e1866ea87::t_d664a21a1521ba 16
+backend/app/widgets/todo/models.py
+  s_6d654e1866ea87::t_01a883a95fc5a3 2
+  s_6d654e1866ea87::t_74f8d49688812c 1,3-65
+frontend/src/api/client.ts
+  s_6d654e1866ea87::t_85bc54d1b403c1 47
+backend/app/migrations/015_todo.sql
+  s_6d654e1866ea87::t_47aeab431b0770 1-33
+frontend/package.json
+  s_6d654e1866ea87::t_ba080eec544b16 19-21
+backend/app/widgets/todo/store.py
+  s_6d654e1866ea87::t_01a883a95fc5a3 11,50,62,78,103,128,131
+  s_6d654e1866ea87::t_ab62de815b7ebf 1-10,12-49,51-61,63-77,79-102,104-127,129-130,132-165
+frontend/src/widgets/todo/TodoWidget.test.tsx
+  s_6d654e1866ea87::t_02da5bf0f93613 100
+  s_6d654e1866ea87::t_0de88441ab6035 115-117
+  s_6d654e1866ea87::t_d3cf7aaba4ada9 1-7
+  s_6d654e1866ea87::t_d73087b5d65efb 130
+  s_6d654e1866ea87::t_01b258b111c412 145-147
+  s_6d654e1866ea87::t_a4461926f95183 99,114,129,144
+  s_6d654e1866ea87::t_261a43987e4c00 8-98,101-113,118-128,131-143,148-149
+backend/app/widgets/todo/routes.py
+  s_6d654e1866ea87::t_089bb76ab97aae 1-16,18-41,43,45-56,58-64,66-72
+  s_6d654e1866ea87::t_01a883a95fc5a3 17,42,44,57,65
+frontend/src/widgets/todo/EditableText.tsx
+  s_6d654e1866ea87::t_c4a80a77fe2f7a 1-142
+frontend/src/widgets/todo/linkify.test.tsx
+  s_6d654e1866ea87::t_3434d8be0044e7 1-40
+frontend/src/widgets/todo/TodoItem.tsx
+  s_6d654e1866ea87::t_bac629d88e07d3 1-155
+backend/app/widgets/todo/__init__.py
+  s_6d654e1866ea87::t_01a883a95fc5a3 5
+  s_6d654e1866ea87::t_6533e07d249a72 1-4,6-10
+frontend/src/widgets/todo/api.ts
+  s_6d654e1866ea87::t_6129e69c30c05b 1-52
+backend/app/widgets/__init__.py
+  s_6d654e1866ea87::t_3e023eeb0b5911 1-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "65fc4c200510b0e6188ef97a63857c936a0882ac",
+  "prompts": {},
+  "sessions": {
+    "s_6d654e1866ea87": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c2f29f24-4896-4949-814a-d83e4f85e165",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
