@@ -62,6 +62,27 @@ def test_derive_worktree_name_prepends_inferred_ticket() -> None:
     assert out == "COR-272_pci_recoup_lifecycle_statuses"
 
 
+def test_derive_worktree_name_sanitizes_foreign_author_prefix() -> None:
+    """A pulled-down PR from another author carries a foreign branch
+    prefix that ``branch_prefix`` (the local user's own) won't strip.
+    The leftover ``/`` must be underscored, never leak into the name —
+    otherwise the path template nests the worktree and name-based
+    routes (spawn-iterm) 404 on the embedded slash."""
+    out = derive_worktree_name(
+        "jz/COR-282",
+        branch_prefix="rpon/",
+        ticket_pattern=r"[A-Z]+-\d+",
+        ticket="COR-282",
+    )
+    assert out == "jz_COR-282"
+    assert "/" not in out
+
+
+def test_derive_worktree_name_sanitizes_slash_without_ticket() -> None:
+    """The slash is underscored even when no ticket pattern matches."""
+    assert derive_worktree_name("jz/cleanup-foo") == "jz_cleanup_foo"
+
+
 def test_derive_worktree_name_no_double_prefix_when_ticket_in_branch() -> None:
     """When the ticket already lives in the branch, passing the same
     ticket is a no-op — no double-prefix."""
