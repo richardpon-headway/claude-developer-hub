@@ -4,16 +4,12 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, StringConstraints
 
-# A title and each bullet are free-form single fields. The caps are
-# generous (a title might hold a pasted URL) but bounded so a runaway
+# An item's title is free-form, multi-line text. The cap is generous (it
+# may hold several lines plus a pasted URL) but bounded so a runaway
 # paste can't bloat the row.
-_TITLE_MAX = 2_000
-_BULLET_MAX = 2_000
-_MAX_BULLETS = 100
-
-Bullet = Annotated[str, StringConstraints(max_length=_BULLET_MAX)]
+_TITLE_MAX = 10_000
 
 
 class TodoItem(BaseModel):
@@ -21,7 +17,6 @@ class TodoItem(BaseModel):
 
     id: int
     title: str
-    bullets: list[str]
     done: bool
     sort_order: float
     completed_at: str | None = None
@@ -39,19 +34,17 @@ class TodoList(BaseModel):
 
 class CreateTodoRequest(BaseModel):
     title: Annotated[str, StringConstraints(max_length=_TITLE_MAX)] = ""
-    bullets: list[Bullet] = Field(default_factory=list, max_length=_MAX_BULLETS)
 
 
 class UpdateTodoRequest(BaseModel):
     """PATCH semantics — every field optional.
 
-    ``title`` / ``bullets`` carry autosaved edits; ``done`` toggles the
-    item between the pending and completed sections. Omitted fields are
-    left untouched.
+    ``title`` carries autosaved edits; ``done`` toggles the item between
+    the pending and completed sections. Omitted fields are left
+    untouched.
     """
 
     title: Annotated[str, StringConstraints(max_length=_TITLE_MAX)] | None = None
-    bullets: list[Bullet] | None = Field(default=None, max_length=_MAX_BULLETS)
     done: bool | None = None
 
 

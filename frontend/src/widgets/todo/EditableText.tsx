@@ -121,9 +121,9 @@ export function EditableText({
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          // Single logical line — Enter commits rather than inserting a
-          // newline.
+        if (e.key === "Enter" && !e.shiftKey) {
+          // Enter commits; Shift+Enter falls through to insert a newline
+          // so an item can hold multiple lines.
           e.preventDefault();
           e.currentTarget.blur();
         } else if (e.key === "Escape") {

@@ -27,7 +27,6 @@ vi.mock("./api", async (importOriginal) => {
 function item(over: Partial<TodoItem> & { id: number }): TodoItem {
   return {
     title: "",
-    bullets: [],
     done: false,
     sort_order: 0,
     completed_at: null,
@@ -128,22 +127,5 @@ describe("TodoWidget", () => {
     const del = await screen.findByLabelText("delete todo");
     fireEvent.click(del);
     await waitFor(() => expect(api.deleteTodo).toHaveBeenCalledWith(7));
-  });
-
-  test("+ bullet adds a bullet to the item", async () => {
-    vi.mocked(api.listTodos).mockResolvedValue({
-      pending: [item({ id: 3, title: "has bullets" })],
-      completed: [],
-    });
-    vi.mocked(api.updateTodo).mockResolvedValue(
-      item({ id: 3, title: "has bullets", bullets: [""] }),
-    );
-    renderWidget();
-
-    const addBullet = await screen.findByText("+ bullet");
-    fireEvent.click(addBullet);
-    await waitFor(() =>
-      expect(api.updateTodo).toHaveBeenCalledWith(3, { bullets: [""] }),
-    );
   });
 });

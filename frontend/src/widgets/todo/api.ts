@@ -7,8 +7,8 @@ import { apiDelete, apiGet, apiPatch, apiPost } from "../../api/client";
 
 export interface TodoItem {
   id: number;
+  // Free-form, multi-line text (the item's full content).
   title: string;
-  bullets: string[];
   done: boolean;
   sort_order: number;
   completed_at: string | null;
@@ -22,13 +22,11 @@ export interface TodoList {
 
 export interface CreateTodoBody {
   title?: string;
-  bullets?: string[];
 }
 
 // PATCH body — send only the fields that changed (autosave).
 export interface UpdateTodoBody {
   title?: string;
-  bullets?: string[];
   done?: boolean;
 }
 

@@ -7,10 +7,10 @@
 -- every install replays in order. Per-widget migration ownership is a
 -- future enhancement for when widgets become yaml-toggleable.
 --
--- bullets is a JSON array of strings — an ordered, item-owned list of
--- sub-points. Storing it inline (rather than in a child table) keeps
--- the autosave path a single-row UPDATE and matches the widget's
--- "one item = one editable card" model.
+-- title is the item's full text. It is free-form and multi-line — the
+-- user presses Shift+Enter to add lines, so a single item can hold its
+-- own "bullets" without a separate structure (and an empty item costs
+-- no extra vertical space).
 --
 -- sort_order positions PENDING items for drag-to-reorder. Completed
 -- items ignore it and sort by completed_at desc (most recently
@@ -21,7 +21,6 @@ BEGIN;
 CREATE TABLE todo (
   id           INTEGER PRIMARY KEY,
   title        TEXT    NOT NULL DEFAULT '',
-  bullets      TEXT    NOT NULL DEFAULT '[]',
   done         INTEGER NOT NULL DEFAULT 0,
   sort_order   REAL    NOT NULL DEFAULT 0,
   completed_at TEXT,

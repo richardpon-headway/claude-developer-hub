@@ -38,7 +38,6 @@ function applyPatch(list: TodoList, id: number, body: UpdateTodoBody): TodoList 
   const updated: TodoItem = {
     ...target,
     ...(body.title !== undefined ? { title: body.title } : {}),
-    ...(body.bullets !== undefined ? { bullets: body.bullets } : {}),
   };
 
   if (body.done !== undefined && body.done !== target.done) {

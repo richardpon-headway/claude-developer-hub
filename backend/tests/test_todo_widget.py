@@ -28,7 +28,6 @@ def test_create_defaults_to_empty_pending_card(
     with TestClient(app) as client:
         item = _create(client)
         assert item["title"] == ""
-        assert item["bullets"] == []
         assert item["done"] is False
         assert item["completed_at"] is None
 
@@ -37,24 +36,22 @@ def test_create_defaults_to_empty_pending_card(
     assert listing["completed"] == []
 
 
-def test_create_with_title_and_bullets(_isolate: dict[str, Path]) -> None:
+def test_create_with_title(_isolate: dict[str, Path]) -> None:
     with TestClient(app) as client:
-        item = _create(client, title="ship the widget", bullets=["write tests", "wire UI"])
+        item = _create(client, title="ship the widget")
     assert item["title"] == "ship the widget"
-    assert item["bullets"] == ["write tests", "wire UI"]
 
 
-def test_patch_autosaves_title_and_bullets(_isolate: dict[str, Path]) -> None:
+def test_patch_autosaves_multiline_title(_isolate: dict[str, Path]) -> None:
     with TestClient(app) as client:
         item = _create(client)
         r = client.patch(
             f"/api/widgets/todo/items/{item['id']}",
-            json={"title": "renamed", "bullets": ["a", "b"]},
+            json={"title": "line one\nline two\nline three"},
         )
         assert r.status_code == 200
         updated = r.json()
-    assert updated["title"] == "renamed"
-    assert updated["bullets"] == ["a", "b"]
+    assert updated["title"] == "line one\nline two\nline three"
 
 
 def test_complete_moves_item_to_completed_section(
@@ -125,12 +122,3 @@ def test_delete_unknown_id_404(_isolate: dict[str, Path]) -> None:
     with TestClient(app) as client:
         r = client.delete("/api/widgets/todo/items/9999")
     assert r.status_code == 404
-
-
-def test_bullets_round_trip_as_list(_isolate: dict[str, Path]) -> None:
-    """Bullets are stored as JSON but always surface as a real list."""
-    with TestClient(app) as client:
-        item = _create(client, title="t", bullets=["one", "two", "three"])
-        fetched = client.get("/api/widgets/todo/items").json()["pending"][0]
-    assert fetched["bullets"] == ["one", "two", "three"]
-    assert item["bullets"] == ["one", "two", "three"]

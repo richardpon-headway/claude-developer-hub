@@ -41,7 +41,7 @@ async def list_items() -> TodoList:
 
 @router.post("/items", response_model=TodoItem, status_code=status.HTTP_201_CREATED)
 async def create_item(req: CreateTodoRequest) -> TodoItem:
-    return await asyncio.to_thread(store.create_todo_sync, req.title, req.bullets)
+    return await asyncio.to_thread(store.create_todo_sync, req.title)
 
 
 @router.patch("/items/{item_id}", response_model=TodoItem)
@@ -50,7 +50,6 @@ async def update_item(item_id: int, req: UpdateTodoRequest) -> TodoItem:
         store.update_todo_sync,
         item_id,
         title=req.title,
-        bullets=req.bullets,
         done=req.done,
     )
     if item is None:

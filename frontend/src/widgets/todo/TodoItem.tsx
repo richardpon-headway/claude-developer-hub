@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
@@ -15,7 +14,7 @@ interface CardProps {
   handle?: React.ReactNode;
 }
 
-/** Presentational todo card: checkbox, editable title, bullets, delete. */
+/** Presentational todo card: checkbox, editable multi-line text, delete. */
 export function TodoCard({
   item,
   onPatch,
@@ -23,14 +22,6 @@ export function TodoCard({
   autoEditTitle = false,
   handle,
 }: CardProps) {
-  // Whether the most recently added bullet should open in edit mode.
-  const [focusNewBullet, setFocusNewBullet] = useState(false);
-
-  const replaceBullet = (index: number, text: string) =>
-    item.bullets.map((b, i) => (i === index ? text : b));
-  const removeBullet = (index: number) =>
-    item.bullets.filter((_, i) => i !== index);
-
   return (
     <div className="group flex gap-2 rounded-md border border-zinc-800 bg-zinc-950/40 p-2">
       {handle}
@@ -44,56 +35,13 @@ export function TodoCard({
       <div className="min-w-0 flex-1">
         <EditableText
           value={item.title}
-          placeholder="Add a title…"
+          placeholder="Add a task… (Shift+Enter for a new line)"
           autoEdit={autoEditTitle}
           onSave={(text) => onPatch({ title: text })}
           className={
             "text-sm " + (item.done ? "text-zinc-500 line-through" : "")
           }
         />
-
-        {item.bullets.length > 0 && (
-          <ul className="mt-1 space-y-0.5">
-            {item.bullets.map((bullet, i) => (
-              <li
-                key={i}
-                className="flex items-start gap-1.5 text-xs text-zinc-400"
-              >
-                <span className="mt-1.5 select-none text-zinc-600">•</span>
-                <div className="min-w-0 flex-1">
-                  <EditableText
-                    value={bullet}
-                    placeholder="bullet…"
-                    autoEdit={focusNewBullet && i === item.bullets.length - 1}
-                    onSave={(text) =>
-                      onPatch({ bullets: replaceBullet(i, text) })
-                    }
-                    onBlur={(text) => {
-                      setFocusNewBullet(false);
-                      if (text.trim() === "") {
-                        onPatch({ bullets: removeBullet(i) });
-                      }
-                    }}
-                    className={
-                      "text-xs " + (item.done ? "line-through" : "")
-                    }
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <button
-          type="button"
-          onClick={() => {
-            setFocusNewBullet(true);
-            onPatch({ bullets: [...item.bullets, ""] });
-          }}
-          className="mt-1 text-[11px] text-zinc-600 hover:text-zinc-400"
-        >
-          + bullet
-        </button>
       </div>
 
       <button

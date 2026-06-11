@@ -3,15 +3,10 @@
 All functions are synchronous (sqlite3 is sync-only); the route layer
 offloads them to a thread. Each call opens and closes its own
 connection, mirroring ``app.services.pr_db``.
-
-``bullets`` round-trips as a JSON array of strings — encoded on write,
-decoded on read — so the rest of the stack works with a real
-``list[str]`` and never sees the storage encoding.
 """
 
 from __future__ import annotations
 
-import json
 import sqlite3
 
 from app.db import open_db
@@ -20,18 +15,9 @@ from app.widgets.todo.models import TodoItem, TodoList
 
 
 def _row_to_item(row: sqlite3.Row) -> TodoItem:
-    raw = row["bullets"]
-    try:
-        bullets = json.loads(raw) if raw else []
-    except (json.JSONDecodeError, TypeError):
-        # Defensive: a hand-edited DB row shouldn't crash the list.
-        bullets = []
-    if not isinstance(bullets, list):
-        bullets = []
     return TodoItem(
         id=row["id"],
         title=row["title"],
-        bullets=[str(b) for b in bullets],
         done=bool(row["done"]),
         sort_order=row["sort_order"],
         completed_at=row["completed_at"],
@@ -64,15 +50,14 @@ def _next_pending_sort_order(conn: sqlite3.Connection) -> float:
     return (current_max + 1.0) if current_max is not None else 0.0
 
 
-def create_todo_sync(title: str, bullets: list[str]) -> TodoItem:
+def create_todo_sync(title: str) -> TodoItem:
     conn = open_db()
     try:
         conn.row_factory = sqlite3.Row
         sort_order = _next_pending_sort_order(conn)
         cur = conn.execute(
-            "INSERT INTO todo (title, bullets, done, sort_order, created_at) "
-            "VALUES (?, ?, 0, ?, ?)",
-            (title, json.dumps(bullets), sort_order, now_iso()),
+            "INSERT INTO todo (title, done, sort_order, created_at) VALUES (?, 0, ?, ?)",
+            (title, sort_order, now_iso()),
         )
         conn.commit()
         row = conn.execute("SELECT * FROM todo WHERE id = ?", (cur.lastrowid,)).fetchone()
@@ -85,7 +70,6 @@ def update_todo_sync(
     item_id: int,
     *,
     title: str | None,
-    bullets: list[str] | None,
     done: bool | None,
 ) -> TodoItem | None:
     """Apply a partial update. Returns the fresh item, or None if the
@@ -109,9 +93,6 @@ def update_todo_sync(
         if title is not None:
             sets.append("title = ?")
             params.append(title)
-        if bullets is not None:
-            sets.append("bullets = ?")
-            params.append(json.dumps(bullets))
         if done is not None and bool(done) != bool(existing["done"]):
             sets.append("done = ?")
             params.append(1 if done else 0)
