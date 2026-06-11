@@ -134,8 +134,13 @@ def derive_worktree_name(
 
     Steps:
     1. Strip ``branch_prefix`` if it matches the start of the branch.
-    2. Replace ``-`` with ``_`` everywhere EXCEPT inside the segment that
-       matches ``ticket_pattern`` (so ``TICKET-123`` survives intact).
+    2. Replace ``-`` and ``/`` with ``_`` everywhere EXCEPT inside the
+       segment that matches ``ticket_pattern`` (so ``TICKET-123`` survives
+       intact). The ``/`` pass matters for pulled-down PRs from other
+       authors: their branch carries a foreign prefix (``jz/COR-282``)
+       that ``branch_prefix`` won't strip, and an un-sanitized ``/`` would
+       leak into the path template as a separator (nesting the worktree)
+       and break name-based routes like spawn-iterm.
     3. If ``ticket`` is supplied and the derived name doesn't already
        contain it, prepend ``<ticket>_``. This is how a ticket inferred
        from PR metadata (title/body/commits) lands in the folder name
@@ -157,7 +162,7 @@ def derive_worktree_name(
         short = short[len(branch_prefix):]
 
     if not ticket_pattern:
-        derived = short.replace("-", "_")
+        derived = short.replace("-", "_").replace("/", "_")
     else:
         pattern = re.compile(ticket_pattern)
         # Find the first ticket-pattern match in the short-name. Anything
@@ -165,11 +170,11 @@ def derive_worktree_name(
         # match itself passes through unchanged.
         m = pattern.search(short)
         if m is None:
-            derived = short.replace("-", "_")
+            derived = short.replace("-", "_").replace("/", "_")
         else:
-            head = short[: m.start()].replace("-", "_")
+            head = short[: m.start()].replace("-", "_").replace("/", "_")
             middle = short[m.start() : m.end()]
-            tail = short[m.end() :].replace("-", "_")
+            tail = short[m.end() :].replace("-", "_").replace("/", "_")
             derived = head + middle + tail
 
     if ticket and ticket not in derived:
