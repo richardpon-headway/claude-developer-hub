@@ -13,6 +13,7 @@ import { RepoList } from "../components/RepoList";
 import { TokenUsageTile } from "../components/TokenUsageTile";
 import { Tooltip } from "../components/Tooltip";
 import { WorkspaceBuckets } from "../components/WorkspaceBuckets";
+import { TodoWidget } from "../widgets/todo/TodoWidget";
 
 export const Route = createFileRoute("/")({
   component: HubPage,
@@ -123,6 +124,7 @@ export function HubPage() {
           <TokenUsageTile />
           <AskClaudeTile />
           <OpenClaudeTile />
+          <TodoWidget />
         </aside>
       </div>
 

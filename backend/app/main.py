@@ -30,6 +30,7 @@ from app.services.authored_poll import authored_poll_loop
 from app.services.iterm_supervisor import iterm_supervisor
 from app.services.pr_enrichment_poll import enrichment_poll_loop
 from app.services.worktree import _setting_up_tasks
+from app.widgets.todo import router as todo_widget_router
 
 
 @asynccontextmanager
@@ -74,6 +75,10 @@ app.include_router(skills.router)
 app.include_router(bookmarks.router)
 app.include_router(authored_prs.router)
 app.include_router(refresh.router)
+
+# Widgets — self-contained units (see app/widgets/). Each touches core
+# only here. Future: gate these on a yaml enable/disable list.
+app.include_router(todo_widget_router)
 
 
 @app.get("/api/health")
