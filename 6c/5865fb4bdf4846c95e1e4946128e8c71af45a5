@@ -1,0 +1,26 @@
+frontend/src/widgets/todo/TodoItem.tsx
+  s_6d654e1866ea87::t_3a06773ac28a6e 50-59
+  s_6d654e1866ea87::t_80cf272ca433d9 70-72
+  s_6d654e1866ea87::t_f9ce030a7420b7 10-13
+frontend/src/widgets/todo/TodoWidget.test.tsx
+  s_6d654e1866ea87::t_d55e6cfb0cf25e 119,121-122,127-132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "6c5865fb4bdf4846c95e1e4946128e8c71af45a5",
+  "prompts": {},
+  "sessions": {
+    "s_6d654e1866ea87": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c2f29f24-4896-4949-814a-d83e4f85e165",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
