@@ -7,7 +7,10 @@ import type { TodoItem, UpdateTodoBody } from "./api";
 interface CardProps {
   item: TodoItem;
   onPatch: (body: UpdateTodoBody) => void;
-  onDelete: () => void;
+  // Delete affordance. Only wired for completed items — pending items
+  // aren't directly deletable (complete it first), so a stray click
+  // can't lose in-progress work. Omitted → no ✕ rendered.
+  onDelete?: () => void;
   // Start the title in edit mode (freshly-created item).
   autoEditTitle?: boolean;
   // Drag handle slot — present for pending items, omitted for completed.
@@ -44,14 +47,16 @@ export function TodoCard({
         />
       </div>
 
-      <button
-        type="button"
-        onClick={onDelete}
-        aria-label="delete todo"
-        className="shrink-0 self-start text-zinc-700 opacity-0 transition group-hover:opacity-100 hover:text-red-400"
-      >
-        ✕
-      </button>
+      {onDelete && (
+        <button
+          type="button"
+          onClick={onDelete}
+          aria-label="delete todo"
+          className="shrink-0 self-start text-zinc-700 opacity-0 transition group-hover:opacity-100 hover:text-red-400"
+        >
+          ✕
+        </button>
+      )}
     </div>
   );
 }
@@ -59,15 +64,15 @@ export function TodoCard({
 interface SortableProps {
   item: TodoItem;
   onPatch: (body: UpdateTodoBody) => void;
-  onDelete: () => void;
   autoEditTitle?: boolean;
 }
 
-/** A pending card wired for drag-to-reorder via its handle. */
+/** A pending card wired for drag-to-reorder via its handle. Pending
+ * items have no delete affordance — they're removed by completing then
+ * deleting from the Completed section. */
 export function SortableTodoItem({
   item,
   onPatch,
-  onDelete,
   autoEditTitle,
 }: SortableProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -84,7 +89,6 @@ export function SortableTodoItem({
       <TodoCard
         item={item}
         onPatch={onPatch}
-        onDelete={onDelete}
         autoEditTitle={autoEditTitle}
         handle={
           <button

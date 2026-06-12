@@ -116,16 +116,20 @@ describe("TodoWidget", () => {
     );
   });
 
-  test("clicking delete removes an item", async () => {
+  test("completed items have a delete affordance; pending items do not", async () => {
     vi.mocked(api.listTodos).mockResolvedValue({
-      pending: [item({ id: 7, title: "temporary" })],
-      completed: [],
+      pending: [item({ id: 1, title: "still going" })],
+      completed: [item({ id: 7, title: "all done", done: true })],
     });
     vi.mocked(api.deleteTodo).mockResolvedValue({ deleted: true });
     renderWidget();
 
-    const del = await screen.findByLabelText("delete todo");
-    fireEvent.click(del);
+    await waitFor(() => expect(screen.getByText("still going")).toBeInTheDocument());
+    // Exactly one ✕ — for the completed item, not the pending one.
+    const deletes = screen.getAllByLabelText("delete todo");
+    expect(deletes).toHaveLength(1);
+
+    fireEvent.click(deletes[0]);
     await waitFor(() => expect(api.deleteTodo).toHaveBeenCalledWith(7));
   });
 });

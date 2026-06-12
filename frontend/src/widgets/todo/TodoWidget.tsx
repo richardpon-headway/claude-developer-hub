@@ -190,7 +190,6 @@ export function TodoWidget() {
                   item={item}
                   autoEditTitle={item.id === focusId}
                   onPatch={(body) => patch.mutate({ id: item.id, body })}
-                  onDelete={() => remove.mutate(item.id)}
                 />
               ))}
             </ul>
