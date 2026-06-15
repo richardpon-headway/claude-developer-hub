@@ -88,56 +88,68 @@ async def _fetch_one(
 ) -> None:
     pr_repo, pr_number, worktree_path = target
     async with sem:
-        try:
-            if worktree_path is not None and Path(worktree_path).is_dir():
-                summary = await pr_state.fetch_pr_summary(Path(worktree_path))
-            else:
-                summary = await pr_state.fetch_pr_summary_by_pr(
-                    pr_repo, pr_number
-                )
-            # Write classifier output to both pr_state (the rich
-            # payload, FK'd to pr) and pr's scalar columns. The latter
-            # feeds the bookmark / authored surfaces that read
-            # straight from pr; the former feeds the worktree row's
-            # pr_state badge.
-            #
-            # last_refreshed_at = now() retires the temporary semantic
-            # plan-59 added (non-worktree bookmarks' last_refreshed_at
-            # was frozen until this loop shipped).
-            await asyncio.to_thread(
-                pr_db.upsert_pr_sync,
-                PrRow(
-                    pr_repo=pr_repo,
-                    pr_number=pr_number,
-                    title=summary.title,
-                    url=summary.url,
-                    author_login=summary.author_login,
-                    state=_coerce_state(summary),  # type: ignore[arg-type]
-                    is_draft=summary.is_draft,
-                    ci_status=_coerce_ci_status(summary),  # type: ignore[arg-type]
-                    pr_updated_at=summary.updated_at,
-                    last_refreshed_at=now_iso(),
-                ),
+        await enrich_pr(pr_repo, pr_number, worktree_path)
+
+
+async def enrich_pr(
+    pr_repo: str, pr_number: int, worktree_path: str | None = None
+) -> None:
+    """Fetch the classifier summary for one PR and persist it to both
+    ``pr_state`` (the rich payload, FK'd to pr) and the pr row's scalar
+    columns. The latter feeds the bookmark / authored surfaces that
+    read straight from pr; the former feeds the worktree row's pr_state
+    badge.
+
+    Tolerant by design: a missing ``gh`` or a transient fetch failure
+    logs and returns without a write, so a hiccup never clobbers a
+    known-good row. Reused by the authored sweep to resolve a pinned
+    PR's terminal state the moment it drops out of the open-PR search.
+
+    ``last_refreshed_at = now()`` retires the temporary semantic plan-59
+    added (non-worktree bookmarks' last_refreshed_at was frozen until
+    this loop shipped).
+    """
+    try:
+        if worktree_path is not None and Path(worktree_path).is_dir():
+            summary = await pr_state.fetch_pr_summary(Path(worktree_path))
+        else:
+            summary = await pr_state.fetch_pr_summary_by_pr(
+                pr_repo, pr_number
             )
-            await asyncio.to_thread(
-                pr_state.upsert_pr_state_sync,
-                pr_repo,
-                pr_number,
-                summary,
-            )
-        except GhNotFound:
-            # gh missing → log once-per-tick is enough; suppress per-row.
-            log.info(
-                "gh CLI not on PATH; skipping enrichment for %s#%s",
-                pr_repo, pr_number,
-                extra={"pr_repo": pr_repo, "pr_number": pr_number},
-            )
-        except Exception as e:
-            log.info(
-                "enrichment fetch failed for %s#%s: %s",
-                pr_repo, pr_number, e,
-                extra={"pr_repo": pr_repo, "pr_number": pr_number},
-            )
+        await asyncio.to_thread(
+            pr_db.upsert_pr_sync,
+            PrRow(
+                pr_repo=pr_repo,
+                pr_number=pr_number,
+                title=summary.title,
+                url=summary.url,
+                author_login=summary.author_login,
+                state=_coerce_state(summary),  # type: ignore[arg-type]
+                is_draft=summary.is_draft,
+                ci_status=_coerce_ci_status(summary),  # type: ignore[arg-type]
+                pr_updated_at=summary.updated_at,
+                last_refreshed_at=now_iso(),
+            ),
+        )
+        await asyncio.to_thread(
+            pr_state.upsert_pr_state_sync,
+            pr_repo,
+            pr_number,
+            summary,
+        )
+    except GhNotFound:
+        # gh missing → log once-per-tick is enough; suppress per-row.
+        log.info(
+            "gh CLI not on PATH; skipping enrichment for %s#%s",
+            pr_repo, pr_number,
+            extra={"pr_repo": pr_repo, "pr_number": pr_number},
+        )
+    except Exception as e:
+        log.info(
+            "enrichment fetch failed for %s#%s: %s",
+            pr_repo, pr_number, e,
+            extra={"pr_repo": pr_repo, "pr_number": pr_number},
+        )
 
 
 def _coerce_state(summary: pr_state.PrSummary) -> str | None:
