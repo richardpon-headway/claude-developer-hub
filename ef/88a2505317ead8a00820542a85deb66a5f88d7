@@ -1,0 +1,30 @@
+backend/tests/test_authored_poll.py
+  s_ce0ee2d090b5bc::t_e530aaff8fd89f 9-10,12
+  s_ce0ee2d090b5bc::t_9316d0c3bc074f 167-237
+backend/app/services/pr_enrichment_poll.py
+  s_ce0ee2d090b5bc::t_f3280100d0d308 91-117,119-152
+backend/app/services/authored_poll.py
+  s_ce0ee2d090b5bc::t_5371764137eee9 129,131-132,134-137,145,152
+  s_ce0ee2d090b5bc::t_0cb298eb8e41ad 40
+  s_ce0ee2d090b5bc::t_d8450425d0e3be 19-25
+  s_ce0ee2d090b5bc::t_503047791b73f1 115-116,119-124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "ef88a2505317ead8a00820542a85deb66a5f88d7",
+  "prompts": {},
+  "sessions": {
+    "s_ce0ee2d090b5bc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0e6289a6-0f56-47c4-bfe4-d71be873ab10",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Richard Pon <richard.pon@findheadway.com>",
+      "custom_attributes": {
+        "runtime": "local"
+      }
+    }
+  }
+}
