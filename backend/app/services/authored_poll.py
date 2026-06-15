@@ -16,6 +16,13 @@ Each tick:
    :func:`pr_db.maybe_gc_sync`. The ``last_seen_at`` window prevents
    spuriously GC'ing rows that fell out of the search limit on a
    single tick.
+4. Terminal-state resolution: a stale row that survives GC (a note or
+   worktree pins it) but is still cached as ``state == "open"`` has
+   dropped out of the open-PR search, so its "open" is stale. Refresh
+   it via :func:`pr_enrichment_poll.enrich_pr` so its real terminal
+   state (merged/closed) replaces the stale "open" — otherwise a
+   note-pinned merged PR stays stuck in My Work. Gated on
+   ``state == "open"`` so it fires once per PR, not every tick.
 
 Fail-open: a missing/unreachable ``gh`` returns early WITHOUT running
 the GC step. GC fires only after a confirmed-successful search so a
@@ -30,7 +37,7 @@ from typing import Any
 from app.config.loader import load_config
 from app.models.pr import PrRow
 from app.models.worktree import now_iso
-from app.services import gh_identity, pr_db
+from app.services import gh_identity, pr_db, pr_enrichment_poll
 from app.services.gh_cli import GhNotFound
 from app.services.pr_search import (
     extract_ticket,
@@ -105,21 +112,29 @@ async def _tick() -> None:
     stale = await asyncio.to_thread(
         _list_stale_authored_sync, local_login, tick_started
     )
-    for pr_repo, pr_number in stale:
-        await asyncio.to_thread(
+    for pr_repo, pr_number, state in stale:
+        deleted = await asyncio.to_thread(
             pr_db.maybe_gc_sync, pr_repo, pr_number
         )
+        # Row was pinned by a note/worktree so GC couldn't reap it, yet
+        # it's no longer in the open-PR search — its cached "open" is
+        # stale. Resolve the real terminal state once so it stops
+        # masquerading as an open authored PR in My Work.
+        if not deleted and state == "open":
+            await pr_enrichment_poll.enrich_pr(pr_repo, pr_number)
 
 
 def _list_stale_authored_sync(
     local_login: str, cutoff: str
-) -> list[tuple[str, int]]:
+) -> list[tuple[str, int, str | None]]:
     """Pr rows whose ``author_login == local_login`` AND
-    ``last_seen_at < cutoff`` AND no bookmark holds the row.
+    ``last_seen_at < cutoff`` AND no bookmark holds the row, as
+    ``(pr_repo, pr_number, state)`` triples.
 
-    The ``maybe_gc_sync`` call after returning these candidates is
-    the actual delete — this helper just bounds which rows are
-    eligible.
+    The ``maybe_gc_sync`` call after returning these candidates is the
+    actual delete; ``state`` lets the caller decide whether a surviving
+    (pinned) row still needs its stale "open" resolved to a terminal
+    state.
     """
     from app.db import get_db_path, open_db
 
@@ -127,13 +142,13 @@ def _list_stale_authored_sync(
     conn = open_db(db_path)
     try:
         cur = conn.execute(
-            "SELECT pr_repo, pr_number FROM pr "
+            "SELECT pr_repo, pr_number, state FROM pr "
             "WHERE author_login = ? "
             "  AND last_seen_at IS NOT NULL "
             "  AND last_seen_at < ? "
             "  AND is_bookmarked = 0",
             (local_login, cutoff),
         )
-        return [(r[0], r[1]) for r in cur.fetchall()]
+        return [(r[0], r[1], r[2]) for r in cur.fetchall()]
     finally:
         conn.close()

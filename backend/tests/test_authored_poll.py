@@ -6,8 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from app.services import authored_poll, gh_identity, pr_db
+from app.services import authored_poll, gh_identity, pr_db, pr_enrichment_poll
+from app.services import pr_state as pr_state_svc
 from app.services.pr_search import PrSearchRaw
+from app.services.pr_state import PrSummary
 from tests.fixtures.bookmark import seed_bookmark
 from tests.fixtures.config import write_minimal_config
 from tests.fixtures.pr import seed_pr
@@ -160,6 +162,77 @@ def test_tick_does_not_gc_rows_held_by_another_surface(
     pr = pr_db.get_pr_sync("acme/myapp", 99, db_path=_isolate["db_path"])
     assert pr is not None
     assert pr.is_bookmarked is True
+
+
+def test_tick_resolves_terminal_state_for_pinned_stale_row(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stale authored row that GC can't reap (a note pins it) but is
+    still cached as state="open" gets its real terminal state resolved
+    via enrichment — so a merged-and-noted PR stops looking open and
+    drops out of My Work."""
+    write_minimal_config(_isolate["config_path"])
+    seed_pr(
+        _isolate["db_path"],
+        pr_repo="acme/myapp",
+        pr_number=99,
+        author_login="me",
+        state="open",
+        notes="need to test in dev",  # pins the row past GC
+        last_seen_at="2026-01-01T00:00:00Z",
+    )
+
+    async def fake_fetch() -> list[PrSearchRaw]:
+        return []  # search no longer returns #99 (it merged)
+
+    async def fake_summary(pr_repo: str, pr_number: int) -> PrSummary:
+        return PrSummary(headline="merged", labels=["merged"])
+
+    monkeypatch.setattr(authored_poll, "fetch_authored_prs_raw", fake_fetch)
+    monkeypatch.setattr(pr_state_svc, "fetch_pr_summary_by_pr", fake_summary)
+
+    asyncio.run(authored_poll._tick())
+
+    pr = pr_db.get_pr_sync("acme/myapp", 99, db_path=_isolate["db_path"])
+    # Note still pins the row, but its stale "open" is now "merged".
+    assert pr is not None
+    assert pr.notes == "need to test in dev"
+    assert pr.state == "merged"
+
+
+def test_tick_does_not_reenrich_already_terminal_pinned_row(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pinned stale row already marked terminal (state="merged") is
+    not re-enriched — the resolution fires once, gated on state=open,
+    so it doesn't shell gh every tick forever."""
+    write_minimal_config(_isolate["config_path"])
+    seed_pr(
+        _isolate["db_path"],
+        pr_repo="acme/myapp",
+        pr_number=99,
+        author_login="me",
+        state="merged",
+        notes="keep me",
+        last_seen_at="2026-01-01T00:00:00Z",
+    )
+
+    async def fake_fetch() -> list[PrSearchRaw]:
+        return []
+
+    enrich_calls: list[tuple[str, int]] = []
+
+    async def spy_enrich(
+        pr_repo: str, pr_number: int, worktree_path: str | None = None
+    ) -> None:
+        enrich_calls.append((pr_repo, pr_number))
+
+    monkeypatch.setattr(authored_poll, "fetch_authored_prs_raw", fake_fetch)
+    monkeypatch.setattr(pr_enrichment_poll, "enrich_pr", spy_enrich)
+
+    asyncio.run(authored_poll._tick())
+
+    assert enrich_calls == []
 
 
 def test_tick_fails_open_on_missing_gh(
