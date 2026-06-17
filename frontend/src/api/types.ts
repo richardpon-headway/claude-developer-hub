@@ -253,10 +253,21 @@ export interface SkippedWorktree {
   reason: string;
 }
 
+export interface RelinkedWorktree {
+  repo: string;
+  name: string;
+  path: string;
+  pr_repo: string;
+  pr_number: number;
+}
+
 export interface SyncResponse {
   imported: ImportedWorktree[];
   removed: RemovedWorktree[];
   skipped: SkippedWorktree[];
+  // Already-tracked worktrees whose PR was opened after import and got
+  // backfilled this sync — they now dedupe against their PR card.
+  relinked: RelinkedWorktree[];
   // PR rows re-classified by the enrichment pass folded into Sync.
   refreshed: number;
 }

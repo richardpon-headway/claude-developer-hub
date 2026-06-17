@@ -163,7 +163,9 @@ def test_discover_ticket_extraction(_isolate: dict[str, Path]) -> None:
     assert entry["branch"] == "alice/PROJ-77_login-flow-fix"
 
 
-def test_discover_skips_already_tracked(_isolate: dict[str, Path]) -> None:
+def test_discover_skips_already_tracked(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
     repo_path = _isolate["dev_root"] / "myapp"
     init_git_repo(repo_path, branches=["feature1"])
     wt_path = _isolate["dev_root"] / "myapp_worktree_feature1"
@@ -182,6 +184,11 @@ def test_discover_skips_already_tracked(_isolate: dict[str, Path]) -> None:
         ],
         iterm2=True,
     )
+    # No PR for this branch on either sync, so the already-tracked re-link
+    # pass finds nothing and the row stays skipped.
+    monkeypatch.setattr(
+        worktree_import, "_gh_pr_view_sync", lambda wt_path: None
+    )
 
     with TestClient(app) as client:
         r1 = client.post("/api/worktrees/sync")
@@ -192,6 +199,7 @@ def test_discover_skips_already_tracked(_isolate: dict[str, Path]) -> None:
     assert r2.status_code == 200
     body = r2.json()
     assert body["imported"] == []
+    assert body["relinked"] == []
     already = [s for s in body["skipped"] if s["reason"] == "already tracked"]
     assert len(already) == 1
     assert already[0]["path"] == str(wt_path)
@@ -309,6 +317,7 @@ def test_sync_noop_when_no_repos(_isolate: dict[str, Path]) -> None:
         "imported": [],
         "removed": [],
         "skipped": [],
+        "relinked": [],
         "refreshed": 0,
     }
 
@@ -452,6 +461,71 @@ def test_sync_handles_no_pr_gracefully(
     assert len(imported) == 1
     assert imported[0]["pr_number"] is None
     assert imported[0]["pr_repo"] is None
+
+
+def test_sync_relinks_already_tracked_worktree_when_pr_appears(
+    _isolate: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The branch-first → open-PR-later flow: a worktree imported with no
+    PR must get its PR backfilled on a later sync once one exists — so it
+    dedupes against its authored/bookmarked PR card instead of lingering
+    as a separate "No PR yet" row (the same work shown twice)."""
+    repo_path = _isolate["dev_root"] / "myapp"
+    init_git_repo(repo_path, branches=["feature"])
+    make_worktree(
+        repo_path,
+        _isolate["dev_root"] / "myapp_worktree_feature",
+        "feature",
+    )
+    write_minimal_config(
+        _isolate["config_path"],
+        _isolate["dev_root"],
+        repos=[
+            {
+                "name": "myapp",
+                "path": str(repo_path),
+                "default_branch": "main",
+                "setup_steps": [],
+                "ticket_pattern": None,
+            }
+        ],
+        iterm2=True,
+    )
+
+    # First sync: no PR for the branch yet → row imported with null PR.
+    # Second sync: a PR now exists → re-link pass backfills it.
+    pr_view: dict[str, tuple[int, str] | None] = {"result": None}
+    monkeypatch.setattr(
+        worktree_import,
+        "_gh_pr_view_sync",
+        lambda wt_path: pr_view["result"],
+    )
+
+    with TestClient(app) as client:
+        r1 = client.post("/api/worktrees/sync")
+        assert r1.status_code == 200, r1.text
+        assert len(r1.json()["imported"]) == 1
+        rows1 = client.get("/api/worktrees").json()["worktrees"]
+        assert [r for r in rows1 if r["name"] == "feature"][0]["pr_number"] is None
+
+        pr_view["result"] = (60476, "acme/acme")
+        r2 = client.post("/api/worktrees/sync")
+        assert r2.status_code == 200, r2.text
+        rows2 = client.get("/api/worktrees").json()["worktrees"]
+
+    body = r2.json()
+    assert body["imported"] == []
+    # The relinked row is reported as its own category, not a skip.
+    assert len(body["relinked"]) == 1
+    relinked = body["relinked"][0]
+    assert relinked["name"] == "feature"
+    assert relinked["pr_number"] == 60476
+    assert relinked["pr_repo"] == "acme/acme"
+    assert not [s for s in body["skipped"] if s["reason"] == "already tracked"]
+
+    row = [r for r in rows2 if r["name"] == "feature"][0]
+    assert row["pr_number"] == 60476
+    assert row["pr_repo"] == "acme/acme"
 
 
 def test_sync_does_not_remove_worktrees_in_other_repos(

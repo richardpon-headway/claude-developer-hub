@@ -114,6 +114,15 @@ describe("Hub — Sync button", () => {
       skipped: [
         { repo: "myrepo", path: "/tmp/r", reason: "main checkout" },
       ],
+      relinked: [
+        {
+          repo: "myrepo",
+          name: "feature2",
+          path: "/tmp/r_worktree_feature2",
+          pr_repo: "acme/acme",
+          pr_number: 42,
+        },
+      ],
       refreshed: 3,
     });
     renderHub();
@@ -128,7 +137,9 @@ describe("Hub — Sync button", () => {
     // The summary reflects the worktrees-sync result.
     await waitFor(() => {
       expect(
-        screen.getByText(/imported 1.*removed 1.*skipped 1.*re-checked 3 PRs/i),
+        screen.getByText(
+          /imported 1.*removed 1.*re-linked 1.*skipped 1.*re-checked 3 PRs/i,
+        ),
       ).toBeInTheDocument();
     });
     expect(screen.getByText(/main checkout/i)).toBeInTheDocument();
