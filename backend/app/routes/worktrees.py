@@ -817,10 +817,22 @@ class SkippedWorktree(BaseModel):
     reason: str
 
 
+class RelinkedWorktree(BaseModel):
+    repo: str
+    name: str
+    path: str
+    pr_repo: str
+    pr_number: int
+
+
 class SyncResponse(BaseModel):
     imported: list[ImportedWorktree]
     removed: list[RemovedWorktree]
     skipped: list[SkippedWorktree]
+    # Already-tracked worktrees whose PR was opened after first import
+    # and got backfilled this sync — they now dedupe against their PR
+    # card instead of showing as a separate "No PR yet" row.
+    relinked: list[RelinkedWorktree] = []
     # Count of ``pr`` rows the enrichment pass re-classified as part of
     # this sync. 0 when that step was skipped (e.g. ``gh`` missing).
     refreshed: int = 0

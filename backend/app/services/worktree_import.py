@@ -145,13 +145,16 @@ def _run_git_worktree_list(repo_path: Path) -> str:
 
 def sync_worktrees_for_repo_sync(
     repo: RepoConfig, db_path: Path | None = None
-) -> tuple[list[dict], list[dict], list[dict]]:
-    """Return ``(imported, removed, skipped)`` for a single configured repo.
+) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
+    """Return ``(imported, removed, skipped, relinked)`` for one repo.
 
     Each ``imported`` entry includes ``repo``/``name``/``path``/
     ``branch``/``ticket``. Each ``removed`` entry includes ``repo``/
     ``name``/``path``/``reason``. Each ``skipped`` entry includes
-    ``repo``/``path``/``reason``.
+    ``repo``/``path``/``reason``. Each ``relinked`` entry includes
+    ``repo``/``name``/``path``/``pr_repo``/``pr_number`` — an
+    already-tracked worktree whose PR was opened after first import and
+    has now been backfilled (so it dedupes against its PR card).
 
     Removal: any tracked row whose path is no longer in git's
     ``worktree list`` output is dropped (transient rows in
@@ -161,13 +164,14 @@ def sync_worktrees_for_repo_sync(
     imported: list[dict] = []
     removed: list[dict] = []
     skipped: list[dict] = []
+    relinked: list[dict] = []
 
     repo_path = Path(repo.path)
     if not repo_path.is_dir():
         skipped.append(
             {"repo": repo.name, "path": str(repo_path), "reason": "repo path missing"}
         )
-        return imported, removed, skipped
+        return imported, removed, skipped, relinked
 
     try:
         output = _run_git_worktree_list(repo_path)
@@ -176,7 +180,7 @@ def sync_worktrees_for_repo_sync(
         skipped.append(
             {"repo": repo.name, "path": str(repo_path), "reason": f"git failed: {e}"}
         )
-        return imported, removed, skipped
+        return imported, removed, skipped, relinked
 
     records = parse_worktree_list_porcelain(output)
     git_paths: set[str] = set()
@@ -219,6 +223,34 @@ def sync_worktrees_for_repo_sync(
             repo.name, str(wt_path), db_path
         )
         if existing_at_path is not None:
+            # A worktree whose branch had no PR at first import (the common
+            # branch-first → open-PR-later flow) stays at pr_number IS NULL
+            # forever otherwise: the one-shot link below only runs on the
+            # freshly-inserted row, and the enrichment poller refreshes PR
+            # metadata but never *creates* the worktree→pr link. So an
+            # opened-after-import PR would surface as its own authored/
+            # bookmarked card alongside this "no PR yet" worktree — the
+            # same work shown twice. Re-check here so Sync reconciles it.
+            if existing_at_path.pr_number is None:
+                pr_info = _gh_pr_view_sync(wt_path)
+                if pr_info is not None:
+                    update_worktree_pr_sync(
+                        repo.name,
+                        existing_at_path.name,
+                        pr_info[0],
+                        pr_info[1],
+                        db_path=db_path,
+                    )
+                    relinked.append(
+                        {
+                            "repo": repo.name,
+                            "name": existing_at_path.name,
+                            "path": str(wt_path),
+                            "pr_repo": pr_info[1],
+                            "pr_number": pr_info[0],
+                        }
+                    )
+                    continue
             skipped.append(
                 {"repo": repo.name, "path": str(wt_path), "reason": "already tracked"}
             )
@@ -252,7 +284,8 @@ def sync_worktrees_for_repo_sync(
         # right tier and the worktree-dedup join (which gates on
         # ``pr_number IS NOT NULL``) catches the row right away. Failures
         # (no PR yet, gh missing, auth/network) are silent — the
-        # pr_state poller retries on its next tick.
+        # already-tracked re-link pass above retries on a later sync once
+        # a PR exists for the branch.
         pr_info = _gh_pr_view_sync(wt_path)
         if pr_info is not None:
             update_worktree_pr_sync(
@@ -291,7 +324,7 @@ def sync_worktrees_for_repo_sync(
                 }
             )
 
-    return imported, removed, skipped
+    return imported, removed, skipped, relinked
 
 
 def _gh_pr_view_sync(wt_path: Path) -> tuple[int, str] | None:
@@ -356,22 +389,25 @@ def _get_worktree_by_path_sync(
     conn = open_db(db_path)
     try:
         row = conn.execute(
-            "SELECT 1 FROM worktree WHERE repo = ? AND path = ? LIMIT 1",
+            "SELECT name, branch, ticket, pr_number, pr_repo, created_at, status "
+            "FROM worktree WHERE repo = ? AND path = ? LIMIT 1",
             (repo, path),
         ).fetchone()
         if row is None:
             return None
-        # We don't need the full row — caller only checks for None-ness.
-        # Returning a marker WorktreeRow is awkward; the caller currently
-        # only cares about presence, so we sentinel via a minimal row.
-        # In practice the caller's only use is `if existing is not None`.
+        # The caller checks presence AND inspects pr_number to decide
+        # whether an already-tracked row still needs its PR backfilled,
+        # so project the real columns rather than a presence sentinel.
         return WorktreeRow(
             repo=repo,
-            name="(unused)",
+            name=row[0],
             path=path,
-            branch="(unused)",
-            created_at="(unused)",
-            status="ready",
+            branch=row[1],
+            ticket=row[2],
+            pr_number=row[3],
+            pr_repo=row[4],
+            created_at=row[5],
+            status=row[6],
         )
     finally:
         conn.close()
@@ -387,13 +423,18 @@ def sync_all_sync(db_path: Path | None = None) -> dict:
     all_imported: list[dict] = []
     all_removed: list[dict] = []
     all_skipped: list[dict] = []
+    all_relinked: list[dict] = []
     for repo in config.repos:
-        imported, removed, skipped = sync_worktrees_for_repo_sync(repo, db_path)
+        imported, removed, skipped, relinked = sync_worktrees_for_repo_sync(
+            repo, db_path
+        )
         all_imported.extend(imported)
         all_removed.extend(removed)
         all_skipped.extend(skipped)
+        all_relinked.extend(relinked)
     return {
         "imported": all_imported,
         "removed": all_removed,
         "skipped": all_skipped,
+        "relinked": all_relinked,
     }

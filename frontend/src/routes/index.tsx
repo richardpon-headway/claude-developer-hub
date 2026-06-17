@@ -74,7 +74,8 @@ export function HubPage() {
           {sync.isSuccess && sync.data && (
             <p className="text-xs text-zinc-500">
               Imported {sync.data.imported.length} · removed{" "}
-              {sync.data.removed.length} · skipped{" "}
+              {sync.data.removed.length} · re-linked{" "}
+              {sync.data.relinked.length} · skipped{" "}
               {sync.data.skipped.length} · re-checked{" "}
               {sync.data.refreshed} PR{sync.data.refreshed === 1 ? "" : "s"}
               {sync.data.skipped.length > 0 && (
